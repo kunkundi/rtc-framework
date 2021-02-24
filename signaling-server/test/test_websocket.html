@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <title>WebSocket Test</title>
+    <script src="jquery-3.5.1.js"></script>
+    <script type="text/javascript">
+        var signaling_server_httpurl = "http://localhost:8080";
+        var signaling_server_wsurl = "ws://localhost:8080/signaling";
+
+        var current_sessionid = undefined;
+        var current_roomid = undefined;
+
+        var ws_client = new WebSocket(signaling_server_wsurl);
+        ws_client.onopen = function(event) {
+            console.log("websocket onopen, event: ", event);
+        };
+
+        ws_client.onmessage = function(event) {
+            console.log("websocket onmessage, event: ", event);
+
+            var msg_obj = JSON.parse(event.data);
+            var command = msg_obj["command"];
+            if(command == "take_info") {
+                if(msg_obj["type"] == "login_succeed") {
+                    current_sessionid = msg_obj["sessionid"];
+                    console.log("Login signaling server succeed, sessionid: ", current_sessionid);
+                }
+            }
+            else {
+
+            }
+        };
+
+        ws_client.onerror = function(event) {
+            console.error("websocket onerror, event: ", event);
+        };
+
+        ws_client.onclose = function(event) {
+            console.log("websocket onclose, event: ", event);
+        };
+
+
+        function OpenRoom() {
+            if(current_sessionid == undefined) {
+                console.error("Not logined to signaling server.");
+                return;
+            }
+
+            $.ajax({
+                type: "POST",
+                url: signaling_server_httpurl + "/room/open",
+                data: JSON.stringify({
+                    "sessionid": current_sessionid,
+                    "roomid": $("#open_room_input").val(),
+                    "room_type": 0
+                }),
+                contentType: "application/json",
+                success: function (data) {
+                    console.log("open room succeed: ", data);
+                    if(data.code == 200) {
+                        
+                    }
+                },
+                error: function (data) {
+                    console.error("open room failed: ", data);
+                }
+            });
+        }
+
+        function JoinRoom() {
+            console.log("Join room");
+            // TO DO
+        }
+    </script>
+</head>
+<body>
+    <input id="open_room_input" /><button onclick="OpenRoom()">Open Room</button>
+    <input id="join_room_input" /><button onclick="JoinRoom()">Join Room</button>
+</body>
+</html>

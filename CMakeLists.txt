@@ -7,4 +7,5 @@ set(CMAKE_CXX_STANDARD_REQUIRED OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_subdirectory(signaling-server)
-#add_subdirectory(librtc)
+add_subdirectory(librtc)
+add_subdirectory(third_party)
