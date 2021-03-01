@@ -68,7 +68,7 @@ public:
 		return rtc_conn_manager_->Broadcast(msg);
 	}
 
-	void OnFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
+	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
 		rtc_conn_manager_->OnFrame(video_sourceid, video_frame);
 	}
 
@@ -198,8 +198,8 @@ bool RtcAgent::Broadcast(const std::string& msg) const {
 	return pimpl_->Broadcast(msg);
 }
 
-void RtcAgent::OnFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
-	pimpl_->OnFrame(video_sourceid, video_frame);
+void RtcAgent::SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
+	pimpl_->SendFrame(video_sourceid, video_frame);
 }
 
 VTS_RTC_NAMESPACE_END

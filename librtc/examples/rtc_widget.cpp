@@ -131,7 +131,7 @@ void RtcWidget::SendFrame() {
 				if (idx == yuv_frames_.size()) {
 					idx = 0;
 				}
-				rtc_agent_->OnFrame("external_feed", yuv_frames_[idx++]);
+				rtc_agent_->SendFrame("external_feed", yuv_frames_[idx++]);
 				QThread::msleep(30);
 			}
 			});

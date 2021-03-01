@@ -55,7 +55,7 @@ public:
 	bool Broadcast(const std::string& msg) const;
 
 	// send frame
-	void OnFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const;
+	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const;
 
 private:
 	explicit RtcAgent(const RtcConfig& rtc_config, 

@@ -9,21 +9,21 @@ namespace HttpStatus {
 
 	enum Code {
 		OK = 0,
-		// ÏµÍ³¼¶±ğ£¨1000-1999£©
+		// ç³»ç»Ÿçº§åˆ«ï¼ˆ1000-1999ï¼‰
 		InternalError = 1001,
 		ApiNotExisted = 1002,
 		ApiDeprecated = 1003,
-		// ÊµÓÃÅĞ¶ÏÏà¹Ø£¨2000-2999£©
-		// ÇëÇóµÄURLÖĞµÄ²ÎÊı£¨2000-2099£©
+		// å®ç”¨åˆ¤æ–­ç›¸å…³ï¼ˆ2000-2999ï¼‰
+		// è¯·æ±‚çš„URLä¸­çš„å‚æ•°ï¼ˆ2000-2099ï¼‰
 		ArgumentIncorrect = 2001,
 		ArgumentNumberIncorrect = 2002,
 		ArgumentTypeIncorrect = 2003,
-		// ÇëÇóµÄBODYÖĞµÄ²ÎÊı£¨2100-2199£©
+		// è¯·æ±‚çš„BODYä¸­çš„å‚æ•°ï¼ˆ2100-2199ï¼‰
 		BodyParameterJsonInvalid = 2101,
 		ParameterIncorrect = 2102,
 		ParameterNumberIncorrect = 2103,
 		ParameterTypeIncorrect = 2104,
-		// IP¡¢MACµØÖ·¡¢Email¡¢uuidµÈ¸ñÊ½ÓĞĞ§ĞÔ£¨2200-2299£©
+		// IPã€MACåœ°å€ã€Emailã€uuidç­‰æ ¼å¼æœ‰æ•ˆæ€§ï¼ˆ2200-2299ï¼‰
 		IPInvalid = 2201,
 		MACInvalid = 2202,
 		EmailInvalid = 2203,
@@ -38,15 +38,15 @@ namespace HttpStatus {
 		UserNameInvalid = 2212,
 		PasswordInvalid = 2213,
 		PhoneInvalid = 2214,
-		// ÎÄµµÏà¹Ø£¨2300-2399£©
+		// æ–‡æ¡£ç›¸å…³ï¼ˆ2300-2399ï¼‰
 		UploadFileNotExist = 2301,
 		UploadFileOversized = 2302,
 		UnsupportedFileFormat = 2303,
 		FailedToCreateUploadFolder = 2304,
 		DownloadFileNotExist = 2305,
 		DoNotNeedToUpload = 2310,
-		// ÒµÎñÏà¹Ø£¨3000-3999£©
-		// ·¿¼äÏà¹Ø£¨3000-3099£©
+		// ä¸šåŠ¡ç›¸å…³ï¼ˆ3000-3999ï¼‰
+		// æˆ¿é—´ç›¸å…³ï¼ˆ3000-3099ï¼‰
 		RoomNotExisted = 3001,
 		RoomAlreadyExisted = 3002,
 		SessionidAlreadyInRoom = 3003,

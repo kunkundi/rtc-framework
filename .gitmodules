@@ -1,17 +1,17 @@
 [submodule "third_party/Simple-Web-Server"]
 	path = third_party/Simple-Web-Server
-	url = ssh://git@10.0.105.204:2022/zhujian/Simple-Web-Server.git
+	url = ssh://git@10.11.16.35:2022/zhujian/Simple-Web-Server.git
 [submodule "third_party/Simple-WebSocket-Server"]
 	path = third_party/Simple-WebSocket-Server
-	url = ssh://git@10.0.105.204:2022/zhujian/Simple-Websocket-Server.git
+	url = ssh://git@10.11.16.35:2022/zhujian/Simple-Websocket-Server.git
 [submodule "third_party/Openssl-Win64"]
 	path = third_party/Openssl-Win64
-	url = ssh://git@10.0.105.204:2022/zhujian/Openssl-Win64.git
+	url = ssh://git@10.11.16.35:2022/zhujian/Openssl-Win64.git
 [submodule "third_party/webrtc"]
 	path = third_party/webrtc
-	url = ssh://git@10.0.105.204:2022/zhujian/webrtc.git
+	url = ssh://git@10.11.16.35:2022/zhujian/webrtc.git
 	branch = M85
 [submodule "third_party/json"]
 	path = third_party/json
-	url = ssh://git@10.0.105.204:2022/zhujian/json.git
+	url = ssh://git@10.11.16.35:2022/zhujian/json.git
 	branch = develop
