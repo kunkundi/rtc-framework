@@ -6,8 +6,8 @@
 #include <QLabel>
 #include <QAction>
 #include <QMessageBox>
+#include <QThread>
 #include <QDebug>
-#include <thread>
 
 RtcWidget::RtcWidget(const std::string& rtc_config_filepath, const QString& yuv_folderpath, QWidget* parent)
 	: yuv_folderpath_(yuv_folderpath), QWidget(parent) {
@@ -40,7 +40,7 @@ void RtcWidget::CreateUI() {
 	// create UI
 	QBoxLayout* main_layout = new QVBoxLayout;
 
-	// ÊÓÆµÔ´¹ÜÀí
+	// è§†é¢‘æºç®¡ç†
 	QGroupBox* videosource_groupbox = new QGroupBox(tr("Video Source Management"));
 	QHBoxLayout* videosource_layout = new QHBoxLayout;
 	QLabel* videosource_label = new QLabel(tr("Video Sources"));
@@ -49,7 +49,7 @@ void RtcWidget::CreateUI() {
 	videosource_layout->addWidget(videosources_combobox_);
 	videosource_groupbox->setLayout(videosource_layout);
 
-	// ·¿¼ä¹ÜÀí
+	// æˆ¿é—´ç®¡ç†
 	QGroupBox* room_groupbox = new QGroupBox(tr("Room Management"));
 	QGridLayout* room_layout = new QGridLayout;
 	open_room_edit_ = new QLineEdit("zhejianglab");
@@ -66,7 +66,7 @@ void RtcWidget::CreateUI() {
 	room_layout->addWidget(leave_room_btn, 1, 4, 1, 1);
 	room_groupbox->setLayout(room_layout);
 
-	// ½»»¥ÐÅÏ¢¹ÜÀí
+	// æ¶ˆæ¯ç®¡ç†
 	QGroupBox* msg_groupbox = new QGroupBox(tr("Message Management"));
 	QGridLayout* msg_layout = new QGridLayout;
 	QLabel* recv_msg_albel = new QLabel(tr("received message"));
@@ -125,17 +125,18 @@ void RtcWidget::LoadYUVData() {
 
 void RtcWidget::SendFrame() {
 	if (yuv_frames_.size() > 0) {
-		std::thread send_thread([this]() {
+		auto send_thread = QThread::create([this]() {
 			size_t idx = 0;
 			while (true) {
 				if (idx == yuv_frames_.size()) {
 					idx = 0;
 				}
 				rtc_agent_->OnFrame("external_feed", yuv_frames_[idx++]);
-				Sleep(30);
+				QThread::msleep(30);
 			}
 			});
-		send_thread.detach();
+
+		send_thread->start();
 	}
 }
 

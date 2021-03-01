@@ -1,7 +1,5 @@
 #include "rtc_widget.h"
 #include <QApplication>
-#include <thread>
-#include <iostream>
 
 int main(int argc, char* argv[]) {
 	QApplication app(argc, argv);
