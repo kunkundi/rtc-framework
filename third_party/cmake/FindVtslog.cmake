@@ -4,8 +4,8 @@ set(VTSLOG_INCLUDE_DIR ${VTSLOG_ROOT_DIR}/include)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	set(VTSLOG_LIBRARY 
-		debug ${VTSLOG_ROOT_DIR}/lib/windows/debug/vtslog.lib
-		optimized ${VTSLOG_ROOT_DIR}/lib/windows/release/vtslog.lib
+		debug ${VTSLOG_ROOT_DIR}/lib/windows/Debug/vtslog.lib
+		optimized ${VTSLOG_ROOT_DIR}/lib/windows/Release/vtslog.lib
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	set(VTSLOG_LIBRARY ${VTSLOG_ROOT_DIR}/lib/linux/libvtslog.so)

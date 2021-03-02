@@ -9,21 +9,16 @@ namespace HttpStatus {
 
 	enum Code {
 		OK = 0,
-		// 系统级别（1000-1999）
 		InternalError = 1001,
 		ApiNotExisted = 1002,
 		ApiDeprecated = 1003,
-		// 实用判断相关（2000-2999）
-		// 请求的URL中的参数（2000-2099）
 		ArgumentIncorrect = 2001,
 		ArgumentNumberIncorrect = 2002,
 		ArgumentTypeIncorrect = 2003,
-		// 请求的BODY中的参数（2100-2199）
 		BodyParameterJsonInvalid = 2101,
 		ParameterIncorrect = 2102,
 		ParameterNumberIncorrect = 2103,
 		ParameterTypeIncorrect = 2104,
-		// IP、MAC地址、Email、uuid等格式有效性（2200-2299）
 		IPInvalid = 2201,
 		MACInvalid = 2202,
 		EmailInvalid = 2203,
@@ -38,15 +33,12 @@ namespace HttpStatus {
 		UserNameInvalid = 2212,
 		PasswordInvalid = 2213,
 		PhoneInvalid = 2214,
-		// 文档相关（2300-2399）
 		UploadFileNotExist = 2301,
 		UploadFileOversized = 2302,
 		UnsupportedFileFormat = 2303,
 		FailedToCreateUploadFolder = 2304,
 		DownloadFileNotExist = 2305,
 		DoNotNeedToUpload = 2310,
-		// 业务相关（3000-3999）
-		// 房间相关（3000-3099）
 		RoomNotExisted = 3001,
 		RoomAlreadyExisted = 3002,
 		SessionidAlreadyInRoom = 3003,

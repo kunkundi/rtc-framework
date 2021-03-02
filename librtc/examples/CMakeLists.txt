@@ -12,6 +12,7 @@ find_package(Qt5Core)
 find_package(Qt5Widgets)
 find_package(Qt5Gui)
 find_package(Qt5OpenGL)
+find_package(Threads REQUIRED)
 
 add_executable(${target}
 	rtc_videorender.h
@@ -27,4 +28,5 @@ target_link_libraries(${target}
 	Qt5::Widgets
 	Qt5::Gui
 	Qt5::OpenGL
+	Threads::Threads
 )

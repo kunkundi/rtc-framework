@@ -58,7 +58,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 		POSITION_INDEPENDENT_CODE ON
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-	message(STATUS "Configuring for macOS")
+	message(STATUS "TODO configure for macOS")
 endif()
 
 target_compile_definitions(${target}
@@ -83,3 +83,30 @@ PRIVATE
 	nlohmann_json::nlohmann_json
 	${WEBRTC_LIBRARY}
 )
+
+set_target_properties(${target}
+PROPERTIES
+	VERSION ${PROJECT_VERSION}
+	PUBLIC_HEADER "rtc.h;rtc_types.h"
+)
+
+install(TARGETS ${target}
+	LIBRARY DESTINATION librtc/lib/$<CONFIG>
+	ARCHIVE DESTINATION librtc/lib/$<CONFIG>
+	RUNTIME DESTINATION librtc/bin/$<CONFIG>
+	PUBLIC_HEADER DESTINATION librtc/include
+)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	install(FILES
+		"../../third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll"
+		"../../third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll"
+		DESTINATION librtc/bin/$<CONFIG>
+	)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	install(FILES "../../third_party/vtslog/lib/linux/libvtslog.so"
+		DESTINATION librtc/bin/$<CONFIG>
+	)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+	message(STATUS "TODO install for macOS")
+endif()
