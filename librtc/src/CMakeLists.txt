@@ -105,7 +105,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	install(FILES "../../third_party/vtslog/lib/linux/libvtslog.so"
-		DESTINATION librtc/bin/$<CONFIG>
+		DESTINATION librtc/lib/$<CONFIG>
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "TODO install for macOS")

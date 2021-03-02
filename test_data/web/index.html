@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <title>RTC Video Broadcast Demo</title>
+    <script src="jquery-3.5.1.js"></script>
+    <script type="text/javascript">
+        // set camera list
+        navigator.mediaDevices.enumerateDevices()
+        .then(function(devices) {
+            console.log("devices: ", devices);
+            $.each(devices, function(index, device) {
+                switch(device.kind) {
+                    case "videoinput":
+                        $("#videoinput_select").append(new Option(device.label, device.deviceId));
+                        break;
+                    case "audioinput":
+                        $("#audioinput_select").append(new Option(device.label, device.deviceId));
+                        break;
+                    case "audiooutput":
+                        $("#audiooutput_select").append(new Option(device.label, device.deviceId));
+                        break;
+                };
+            });
+        });
+
+        navigator.mediaDevices.addEventListener("devicechange", function(event) {
+            console.log("Media device change, event: ", event);
+            // TO DO
+        });
+
+        // room management and data channel management
+        var signaling_server_httpurl = "http://localhost:8080";
+        var signaling_server_wsurl = "ws://localhost:8080/signaling";
+
+        var current_sessionid = undefined;
+        var current_roomid = undefined;
+        var remotesessionid_rtcconn_map = {};
+
+        var ws_client = new WebSocket(signaling_server_wsurl);
+        ws_client.onopen = function(event) {
+            console.log("websocket onopen, event: ", event);
+        };
+
+        ws_client.onmessage = function(event) {
+            console.log("websocket onmessage, event: ", event);
+
+            var msg_obj = JSON.parse(event.data);
+            var command = msg_obj["command"];
+            if(command == "take_info") {
+                if(msg_obj["type"] == "login_succeed") {
+                    current_sessionid = msg_obj["sessionid"];
+                    console.log("Login signaling server succeed, sessionid: ", current_sessionid);
+                }
+            }
+            else if(command == "take_configuration") {
+                var type = msg_obj["type"];
+                if(type == "forward_offer") {
+                    var from_sessionid = msg_obj["from"];
+                    var to_sessionid = msg_obj["to"];
+                    if(to_sessionid != current_sessionid) {
+                        console.error("to_sessionid != current_sessionid, something is wrong.");
+                        return;
+                    }
+
+                    const config = { iceServers: [] };
+                    var peerconn = new RTCPeerConnection(config);
+                    var rtcconn = {};
+                    rtcconn.peer_conn = peerconn;
+                    rtcconn.local_sessionid = to_sessionid;
+                    rtcconn.remote_sessionid = from_sessionid;
+
+                    peerconn.ondatachannel = function(event) {
+                        var datachannel = event.channel;
+                        datachannel.onmessage = function(event) {
+                            console.log("data channel recv msg:", event);
+                        };
+                        datachannel.onopen = function(event) {
+                            console.log("data channel open: ", event);
+                        };
+                        datachannel.onclose = function(event) {
+                            console.log("data channel close: ", event);
+                        };
+                        rtcconn.data_channel = datachannel;
+                    };
+
+                    peerconn.onicecandidate = function(event) {
+                        var ice_candidate = event.candidate;
+                        if(ice_candidate) {
+                            ws_client.send(JSON.stringify({
+                                "command": "take_candidate",
+                                "candidate": ice_candidate.candidate,
+                                "sdp_mid": ice_candidate.sdpMid,
+                                "sdp_mline_index": ice_candidate.sdpMLineIndex,
+                                "from": to_sessionid,
+                                "to": from_sessionid
+                            }));
+                        }
+                    };
+
+                    peerconn.onconnectionstatechange = function(event) {
+                        console.log("onconnectionstatechange: ", event);
+                        switch(peerconn.connectionState) {
+                            case "connected":
+                            // The connection has become fully connected
+                            break;
+                            case "disconnected":
+                            case "failed":
+                            // One or more transports has terminated unexpectedly or in an error
+                            break;
+                            case "closed":
+                            // The connection has been closed
+                            break;
+                        };
+                    };
+
+                    peerconn.setRemoteDescription(new RTCSessionDescription({
+                        "type": "offer",
+                        "sdp": msg_obj["sdp"]
+                    })).then(function() {
+                        // add media track
+                        const constraints = {
+                            "audio": {
+                                "deviceId": $("#audioinput_select option:selected").attr("id")
+                            },
+                            "video": {
+                                "deviceId": $("#videoinput_select option:selected").attr("id"),
+                                "width": 1280,
+                                "height": 720
+                            }
+                        };
+                        
+                        return navigator.mediaDevices.getUserMedia(constraints);
+                    })
+                    .then(function(stream) {
+                        $("#local_video")[0].srcObject = stream;
+
+                        stream.getTracks().forEach(track => peerconn.addTrack(track, stream));
+                    })
+                    .then(function() {
+                        return peerconn.createAnswer({
+                            mandatory: {
+                                OfferToReceiveAudio: false,
+                                OfferToReceiveVideo: false
+                            }
+                        });
+                    })
+                    .then(function(sdp_answer) {
+                        // 注意：顺序非常重要（To be checked）
+                        // addIceCandidate()调用时必须确保remote_session存在
+                        // onicecandidate()在PeerConnection调用setLocalDescription()时回调
+                        ws_client.send(JSON.stringify({
+                            "command": "take_configuration",
+                            "type": "answer",
+                            "sdp": sdp_answer["sdp"],
+                            "from": to_sessionid,
+                            "to": from_sessionid,
+                            "roomid": msg_obj["roomid"]
+                        }));
+
+                        peerconn.setLocalDescription(sdp_answer);
+                    });
+
+                    remotesessionid_rtcconn_map[from_sessionid] = rtcconn;
+                }
+                else if(type == "forward_answer") {
+                    // TO DO
+                }
+            }
+            else if(command == "take_candidate") {
+                var from_sessionid = msg_obj["from"];
+                var to_sessionid = msg_obj["to"];
+                if(to_sessionid != current_sessionid) {
+                    console.error("to_sessionid != current_sessionid, something is wrong.");
+                    return;
+                }
+                if(!(from_sessionid in remotesessionid_rtcconn_map)) {
+                    console.error("from_sessionid not in remotesessionid_rtcconn_map, something is wrong.");
+                    return;
+                }
+                var peerconn = remotesessionid_rtcconn_map[from_sessionid].peer_conn;
+                peerconn.addIceCandidate(new RTCIceCandidate({
+                    "candidate": msg_obj["candidate"],
+                    "sdpMid": msg_obj["sdp_mid"],
+                    "sdpMLineIndex": msg_obj["sdp_mline_index"]
+                }));
+            }
+        };
+
+        ws_client.onerror = function(event) {
+            console.error("websocket onerror, event: ", event);
+        };
+
+        ws_client.onclose = function(event) {
+            console.log("websocket onclose, event: ", event);
+        };
+
+
+        function OpenRoom() {
+            if(current_sessionid == undefined) {
+                console.error("Not logined to signaling server.");
+                return;
+            }
+
+            $.ajax({
+                type: "POST",
+                url: signaling_server_httpurl + "/room/open",
+                data: JSON.stringify({
+                    "sessionid": current_sessionid,
+                    "roomid": $("#open_room_input").val(),
+                    "room_type": 0
+                }),
+                contentType: "application/json",
+                success: function (data) {
+                    var result_obj = JSON.parse(data);
+                    if(result_obj["status"] == 0) {
+                        console.log("Open room succeed");
+                        current_roomid = $("#open_room_input").val();
+
+                        $("#local_video")[0].onloadedmetadata = function(event) {
+                            $("#local_video")[0].play();
+                        }
+                    }
+                    else {
+                        alert("Open room failed, reason: " + result_obj["message"]);
+                    }
+                },
+                error: function (data) {
+                    console.error("open room failed: ", data);
+                }
+            });
+        }
+
+        function JoinRoom() {
+            if(current_sessionid == undefined) {
+                console.error("Not logined to signaling server.");
+                return;
+            }
+
+            $.ajax({
+                type: "POST",
+                url: signaling_server_httpurl + "/room/join",
+                data: JSON.stringify({
+                    "sessionid": current_sessionid,
+                    "roomid": $("#join_room_input").val()
+                }),
+                contentType: "application/json",
+                success: function(data) {
+                    var result_obj = JSON.parse(data);
+                    if(result_obj["status"] == 0) {
+                        console.log("Join room succeed");
+                        current_roomid = result_obj["roomid"];
+
+                        // TO DO
+                        if(result_obj["room_type"] == 0) {
+
+                        }
+
+                        $.each(result_obj["sessionids"], function(index, sessionid) {
+                            
+                        });
+                    }
+                    else {
+                        alert("Join room failed, reason: " + result_obj["message"]);
+                    }
+                },
+                error: function(data) {
+                    console.log("join room failed: ", data);
+                }
+            });
+        }
+
+        function SendMessage() {
+            var msg = $("#msg_input").val();
+            for(var remotesessionid in remotesessionid_rtcconn_map) {
+                var rtcconn = remotesessionid_rtcconn_map[remotesessionid];
+                if(rtcconn.peer_conn.connectionState == "connected") {
+                    rtcconn.data_channel.send(msg);
+                }
+                else {
+                    console.error("rtcconn is not connected.");
+                }
+            }
+        }
+    </script>
+</head>
+<body>
+    <label>Video Source: </label><select id="videoinput_select"></select><br />
+    <label>Audio Input Source: </label><select id="audioinput_select"></select><br />
+    <label>Audio Output Destination: </label><select id="audiooutput_select"></select><br />
+
+    <input id="open_room_input" value="zhejianglab" /><button onclick="OpenRoom()">Open Room</button><br/>
+    <input id="join_room_input" /><button onclick="JoinRoom()">Join Room</button><br />
+    <input id="msg_input" value="hello world" /><button onclick="SendMessage()">Send Message</button><br />
+
+    <video id="local_video"></video>
+</body>
+</html>
