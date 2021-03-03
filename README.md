@@ -16,14 +16,14 @@ rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
 #### 安装依赖
 * QT（运行p2p_qt DEMO需要）
 * Boost（signaling-server和vtsrtc网络通信需要）
-* 在share目录 \\10.11.16.35\share\个人\朱建\rtc-solutions 下，准备了QT和Boost
+* 在share目录 \\\10.11.16.35\share\个人\朱建\rtc-solutions 下，准备了QT和Boost
 
 #### 拷贝代码与更新子模块
 ```
 Clone代码
     git clone ssh://git@10.11.16.35:2022/zhujian/rtc-solutions.git
 切换到v0.1.0 tag
-    git checkout -b tag_v0.1.0 v0.1.0
+    git checkout v0.1.0
 更新子模块
     git submodule update --init
 ```
