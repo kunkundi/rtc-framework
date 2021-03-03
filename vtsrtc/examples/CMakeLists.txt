@@ -1,4 +1,4 @@
-project(librtc_examples)
+project(vtsrtc_examples)
 
 set(target p2p_qt)
 
@@ -23,7 +23,7 @@ add_executable(${target}
 )
 
 target_link_libraries(${target}
-	librtc
+	vtsrtc
 	Qt5::Core
 	Qt5::Widgets
 	Qt5::Gui
@@ -57,7 +57,7 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	add_custom_command(TARGET ${target}
 		POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:librtc> $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:vtsrtc> $<TARGET_FILE_DIR:${target}>
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Qt5::Core> $<TARGET_FILE_DIR:${target}>
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE_DIR:${target}>
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Qt5::Gui> $<TARGET_FILE_DIR:${target}>

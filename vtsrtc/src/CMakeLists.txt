@@ -1,5 +1,5 @@
-project(librtc VERSION 0.1.0)
-set(target librtc)
+project(vtsrtc VERSION 0.1.0)
+set(target vtsrtc)
 
 list(APPEND CMAKE_MODULE_PATH
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/cmake"
@@ -94,23 +94,23 @@ PROPERTIES
 
 # install library
 install(TARGETS ${target}
-	LIBRARY DESTINATION librtc/lib/$<CONFIG>
-	ARCHIVE DESTINATION librtc/lib/$<CONFIG>
-	RUNTIME DESTINATION librtc/bin/$<CONFIG>
-	PUBLIC_HEADER DESTINATION librtc/include
+	LIBRARY DESTINATION "${target}/lib/$<CONFIG>"
+	ARCHIVE DESTINATION "${target}/lib/$<CONFIG>"
+	RUNTIME DESTINATION "${target}/bin/$<CONFIG>"
+	PUBLIC_HEADER DESTINATION "${target}/include"
 )
 
-install(FILES "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION librtc)
+install(FILES "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${target})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	install(FILES
 		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll"
 		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll"
-		DESTINATION librtc/bin/$<CONFIG>
+		DESTINATION "${target}/bin/$<CONFIG>"
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	install(FILES "${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/linux/libvtslog.so"
-		DESTINATION librtc/lib/$<CONFIG>
+		DESTINATION "${target}/lib/$<CONFIG>"
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "TODO install for macOS")
