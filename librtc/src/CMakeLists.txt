@@ -28,6 +28,8 @@ add_library(${target} SHARED
 	rtc.cpp
 )
 
+set_target_properties(${target} PROPERTIES DEBUG_POSTFIX d)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	target_compile_definitions(${target}
     PUBLIC
@@ -90,6 +92,7 @@ PROPERTIES
 	PUBLIC_HEADER "rtc.h;rtc_types.h"
 )
 
+# install library
 install(TARGETS ${target}
 	LIBRARY DESTINATION librtc/lib/$<CONFIG>
 	ARCHIVE DESTINATION librtc/lib/$<CONFIG>
@@ -97,14 +100,16 @@ install(TARGETS ${target}
 	PUBLIC_HEADER DESTINATION librtc/include
 )
 
+install(FILES "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION librtc)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	install(FILES
-		"../../third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll"
-		"../../third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll"
+		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll"
+		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll"
 		DESTINATION librtc/bin/$<CONFIG>
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	install(FILES "../../third_party/vtslog/lib/linux/libvtslog.so"
+	install(FILES "${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/linux/libvtslog.so"
 		DESTINATION librtc/lib/$<CONFIG>
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")

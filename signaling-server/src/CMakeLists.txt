@@ -41,6 +41,39 @@ target_link_libraries(${target}
 )
 
 if(MSVC)
-    set_target_properties(${target} PROPERTIES 
-        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>")
+    set_target_properties(${target} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY $<TARGET_FILE_DIR:${target}>)
+endif()
+
+# copy test data
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG}/web/index.html")
+        file(COPY "${CMAKE_SOURCE_DIR}/test_data/web" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+    endif()
+
+    if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE}/web/index.html")
+        file(COPY "${CMAKE_SOURCE_DIR}/test_data/web" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
+    endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/web/index.html")
+        file(COPY "${CMAKE_SOURCE_DIR}/test_data/web" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    endif()
+endif()
+
+# copy runtime dlls
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    get_filename_component(BOOSTFS_DEBUG_BASENAME ${Boost_FILESYSTEM_LIBRARY_DEBUG} NAME_WE)
+    get_filename_component(BOOSTFS_DEBUG_PATH ${Boost_FILESYSTEM_LIBRARY_DEBUG} PATH)
+    file(COPY "${BOOSTFS_DEBUG_PATH}/${BOOSTFS_DEBUG_BASENAME}.dll" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+
+    get_filename_component(BOOSTFS_RELEASE_BASENAME ${Boost_FILESYSTEM_LIBRARY_RELEASE} NAME_WE)
+    get_filename_component(BOOSTFS_RELEASE_PATH ${Boost_FILESYSTEM_LIBRARY_RELEASE} PATH)
+    file(COPY "${BOOSTFS_RELEASE_PATH}/${BOOSTFS_RELEASE_BASENAME}.dll" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
+
+	add_custom_command(TARGET ${target}
+		POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll" $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll" $<TARGET_FILE_DIR:${target}>
+	)
 endif()

@@ -30,3 +30,41 @@ target_link_libraries(${target}
 	Qt5::OpenGL
 	Threads::Threads
 )
+
+if(MSVC)
+    set_target_properties(${target} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY $<TARGET_FILE_DIR:${target}>)
+endif()
+
+# copy test data
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG}/rtc.cfg")
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/yuvfiles" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+	endif()
+
+	if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE}/rtc.cfg")
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/yuvfiles" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
+	endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/rtc.cfg")
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/yuvfiles" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+	endif()
+endif()
+
+# copy runtime dlls
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	add_custom_command(TARGET ${target}
+		POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:librtc> $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Qt5::Core> $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Qt5::Widgets> $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Qt5::Gui> $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Qt5::OpenGL> $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll" $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll" $<TARGET_FILE_DIR:${target}>
+	)
+endif()
