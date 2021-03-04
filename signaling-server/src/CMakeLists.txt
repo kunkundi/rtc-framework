@@ -75,5 +75,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 			"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll" $<TARGET_FILE_DIR:${target}>
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 			"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll" $<TARGET_FILE_DIR:${target}>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/third_party/Openssl-Win64/bin/libcrypto-1_1-x64.dll" $<TARGET_FILE_DIR:${target}>
 	)
 endif()
