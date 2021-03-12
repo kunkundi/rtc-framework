@@ -61,7 +61,7 @@ void RtcConnectionManager::SetDeviceManager(std::shared_ptr<RtcDeviceManager> de
 }
 
 bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid) {
-	if (external_feed_tracksources_.find(video_sourceid) == external_feed_tracksources_.cend()) {
+	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
 		return false;
 	}
 
