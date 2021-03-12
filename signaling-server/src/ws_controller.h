@@ -1,17 +1,16 @@
 #pragma once
 
 #include "log_manager.h"
-#include <unordered_map>
 #include <nlohmann/json.hpp>
 #include <server_ws.hpp>
 
 struct Room;
 using RoomId = std::string;
-using Rooms = std::unordered_map<RoomId, Room>;
+using Rooms = std::map<RoomId, Room>;
 using SessionId = unsigned int;
 using SessionIds = std::vector<SessionId>;
 using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
-using SessionidConnMap = std::unordered_map<SessionId, std::shared_ptr<WsServer::Connection>>;
+using SessionidConnMap = std::map<SessionId, std::shared_ptr<WsServer::Connection>>;
 using json = nlohmann::json;
 
 enum class RoomType {

@@ -41,7 +41,7 @@ class RtcDeviceManager {
 
 public:
 	static vts_rtc::VideoDevices GetVideoDevices();
-	void AddVideoCapturer(size_t device_index, const vts_rtc::VideoDeviceCapability& device_capability);
+	bool AddVideoCapturer(size_t device_index, const vts_rtc::VideoDeviceCapability& device_capability);
 	RtcCCTrackSources GetVideoTrackSources() const;
 
 private:

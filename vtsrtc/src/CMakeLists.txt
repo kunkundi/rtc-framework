@@ -26,6 +26,8 @@ add_library(${target} SHARED
 	rtc_connection_manager.cpp
 	rtc.h
 	rtc.cpp
+	c_rtc.h
+	c_rtc.cpp
 )
 
 set_target_properties(${target} PROPERTIES DEBUG_POSTFIX d)
@@ -89,7 +91,7 @@ PRIVATE
 set_target_properties(${target}
 PROPERTIES
 	VERSION ${PROJECT_VERSION}
-	PUBLIC_HEADER "rtc.h;rtc_types.h"
+	PUBLIC_HEADER "c_rtc.h"
 )
 
 # install library

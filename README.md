@@ -12,7 +12,10 @@ rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
 * p2p_qt是使用vtsrtc开发的DEMO
 
 ### 构建与编译
-工程使用CMake组织管理，目前支持：Windows和Linux平台
+工程使用CMake组织管理，目前支持：Windows和Linux平台。
+* Windows平台推荐使用**VS2019**，VS2017的Debug版本存在问题，种种原因暂时无法解决  
+* Linux平台gcc版本需要支持C++14标准（WebRTC库编译要求）
+* 为支持ABI，vtsrtc库是C库
 #### 安装依赖
 * QT（运行p2p_qt DEMO需要）
 * Boost（signaling-server和vtsrtc网络通信需要）
@@ -22,18 +25,18 @@ rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
 ```
 Clone代码
     git clone ssh://git@10.11.16.35:2022/zhujian/rtc-solutions.git
-切换到v0.1.0 tag
-    git checkout v0.1.0
+切换到v0.2.0 tag
+    git checkout v0.2.0
 更新子模块
     git submodule update --init
 ```
 
 #### Windows平台
-1. 打开根目录下的 run_cmake.bat 脚本，对应修改QTDIR和BOOST_ROOT的值
-2. 运行 run_cmake.bat 脚本，将会进行工程编译和类库安装
-   - build/runtime目录下保存Debug和Release的signaling-server和p2p_qt可执行程序，测试数据和依赖dll会自动拷贝好
-   - install目录下保存Debug和Release的vtsrtc类库
-3. 习惯使用Visual Studio IDE，可以直接打开build/rtc-solutions.sln解决方案，调试路径已经自动设置好
+1. 打开根目录下的 run_cmake_msvcxxx.bat 脚本，对应修改QTDIR和BOOST_ROOT的值
+2. 运行 run_cmake_msvcxxx.bat 脚本，将会进行工程编译和类库安装
+   - build_msvcxxx/runtime目录下保存Debug和Release的signaling-server和p2p_qt可执行程序，测试数据和依赖dll会自动拷贝好
+   - install_msvcxxx目录下保存Debug和Release的vtsrtc类库
+3. 习惯使用Visual Studio IDE，可以直接打开build_msvcxxx/rtc-solutions.sln解决方案，调试路径已经自动设置好
 
 #### Linux平台
 1. 打开根目录下的 run_cmake.sh 脚本，对应修改QTDIR的值

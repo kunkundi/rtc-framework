@@ -9,31 +9,52 @@
 #include <QThread>
 #include <QDebug>
 
+#define CHECK_ERRORCODE if (code != RtcErrorCode::OK) {  \
+		QMessageBox::warning(nullptr, tr("Warning"), tr(errorcode_map[code])); \
+		return; \
+	}
+
+QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
+RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
+
+void RtcWidget::HandleMessage(RtcSessionId remote_sessionid, const char* msg) {
+	if (recv_msg_listwgt_) {
+		QString item_text = QString("%1 [from: %2]").arg(QString::fromLocal8Bit(msg)).arg(remote_sessionid);
+		recv_msg_listwgt_->insertItem(0, item_text);
+	}
+}
+
+void RtcWidget::HandleFrame(RtcVideoSourceId sourceid, size_t width, size_t height, size_t dimension, 
+	const unsigned char* buffer, size_t sz_buffer) {
+	if (rtc_videorender_) {
+		rtc_videorender_->OnFrame(sourceid, width, height, dimension, buffer, sz_buffer);
+	}
+}
+
 RtcWidget::RtcWidget(const std::string& rtc_config_filepath, const QString& yuv_folderpath, QWidget* parent)
 	: yuv_folderpath_(yuv_folderpath), QWidget(parent) {
 	CreateUI();
 
-	auto recv_msg_handler = [this](vts_rtc::SessionId remote_sessionid, const std::string& msg) {
-		QString item_text = QString("%1 [from: %2]").arg(QString::fromLocal8Bit(msg.c_str())).arg(remote_sessionid);
-		recv_msg_listwgt_->insertItem(0, item_text);
-	};
+	auto code = RtcInitAgent(rtc_config_filepath.c_str(), HandleMessage, HandleFrame);
+	CHECK_ERRORCODE
 
-	auto recv_frame_handler = std::bind(&RtcVideoRender::OnFrame, rtc_videorender_, std::placeholders::_1, 
-		std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5);
+	videosources_combobox_->clear();
+	RtcVideoDevices video_devices = nullptr;
+	size_t sz_video_devices = 0;
 
-	rtc_agent_ = vts_rtc::RtcAgent::Create(rtc_config_filepath, recv_msg_handler, recv_frame_handler);
+	code = RtcGetVideoDevices(&video_devices, &sz_video_devices);
+	CHECK_ERRORCODE
 
-	if (rtc_agent_) {
-		videosources_combobox_->clear();
-		auto video_devices = rtc_agent_->GetVideoDevices();
-		for (const auto& device : video_devices) {
-			videosources_combobox_->addItem(QString::fromLocal8Bit(device.device_name.c_str()));
-		}
-		videosources_combobox_->addItem("Local YUV420p");
+	for (size_t i = 0; i < sz_video_devices; ++i) {
+		videosources_combobox_->addItem(QString::fromLocal8Bit(video_devices[i].device_name));
 	}
+	RtcDestoryVideoDevices(video_devices, sz_video_devices);
+
+	videosources_combobox_->addItem("Local YUV420p");
 }
 
 RtcWidget::~RtcWidget() {
+	RtcDestoryAgent();
 }
 
 void RtcWidget::CreateUI() {
@@ -103,19 +124,21 @@ void RtcWidget::LoadYUVData() {
 	QDir yuv_dir(yuv_folderpath_);
 	auto files = yuv_dir.entryList(yuv_namefilters, QDir::Files | QDir::Readable, QDir::Name);
 
-	vts_rtc::YUV420pFrame frame;
-	frame.width = 1280;
-	frame.height = 720;
-	frame.stride_Y = frame.width;
-	frame.stride_U = frame.width / 2;
-	frame.stride_V = frame.width / 2;
-	frame.buffer.resize(frame.height * frame.width * 3 / 2);
-
 	for (const auto& file : files) {
 		QString yuv_filepath = yuv_folderpath_ + "/" + file;
 		FILE* fp = fopen(yuv_filepath.toLocal8Bit(), "rb");
 		if (fp) {
-			fread(frame.buffer.data(), 1, frame.height * frame.width * 3 / 2, fp);
+			RtcYUV420pFrame frame {
+				1280,
+				720,
+				frame.width,
+				frame.width / 2,
+				frame.width / 2,
+				new unsigned char[frame.height * frame.width * 3 / 2],
+				frame.height * frame.width * 3 / 2
+			};
+
+			fread(frame.buffer, 1, frame.height * frame.width * 3 / 2, fp);
 			fflush(fp);
 			fclose(fp);
 			yuv_frames_.emplace_back(frame);
@@ -131,7 +154,7 @@ void RtcWidget::SendFrame() {
 				if (idx == yuv_frames_.size()) {
 					idx = 0;
 				}
-				rtc_agent_->SendFrame("external_feed", yuv_frames_[idx++]);
+				RtcSendFrame("external_feed", &yuv_frames_[idx++]);
 				QThread::msleep(30);
 			}
 			});
@@ -141,28 +164,26 @@ void RtcWidget::SendFrame() {
 }
 
 void RtcWidget::QueryRooms() {
-	CHECK_RTCAGENT_VALID
-
-	vts_rtc::Rooms rooms;
-	auto code = rtc_agent_->QueryRooms(rooms);
-	if (code != vts_rtc::RoomCode::OK) {
-		QMessageBox::warning(nullptr, tr("Warning"), tr(roomcode_map[code]));
-		return;
-	}
+	RtcRooms rooms = nullptr;
+	size_t sz_rooms = 0;
+	auto code = RtcQueryRooms(&rooms, &sz_rooms);
+	CHECK_ERRORCODE
 
 	rooms_combobox_->clear();
-	for (const auto& room_kv : rooms) {
-		rooms_combobox_->addItem(QString::fromLocal8Bit(room_kv.first.c_str()));
+	for (size_t i = 0; i < sz_rooms; ++i) {
+		rooms_combobox_->addItem(QString::fromUtf8(rooms[i].roomid));
 	}
+
+	RtcDestoryRooms(rooms, sz_rooms);
+	rooms = nullptr;
 }
 
 void RtcWidget::OpenRoom() {
-	CHECK_RTCAGENT_VALID
-
 	auto current_idx = videosources_combobox_->currentIndex();
 	if (current_idx == videosources_combobox_->count() - 1) {
 		// YUV420p video source
-		rtc_agent_->AddVideoSource("external_feed");
+		auto code = RtcAddExternalVideoSource("external_feed");
+		CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {
 			LoadYUVData();
@@ -172,51 +193,38 @@ void RtcWidget::OpenRoom() {
 	}
 	else {
 		// Camera video source
-		rtc_agent_->AddVideoSource(current_idx, { 1280, 720, 30 });
+		RtcVideoDeviceCapability device_capability { 1280, 720, 30 };
+		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability);
+		CHECK_ERRORCODE
 	}
-	vts_rtc::RoomId roomid = std::string(open_room_edit_->text().toLocal8Bit());
-	auto code = rtc_agent_->OpenRoom(roomid, vts_rtc::RoomType::VideoBroadcasting);
-	if (code != vts_rtc::RoomCode::OK) {
-		QMessageBox::warning(nullptr, tr("Warning"), tr(roomcode_map[code]));
-		return;
-	}
+	RtcRoomId roomid = open_room_edit_->text().toLocal8Bit().data();
+	auto code = RtcOpenRoom(roomid, RtcRoomType::VideoBroadcasting);
+	CHECK_ERRORCODE
 }
 
 void RtcWidget::JoinRoom() {
-	CHECK_RTCAGENT_VALID
-
 	if (rooms_combobox_->currentIndex() == -1) {
 		QMessageBox::warning(nullptr, tr("Warning"), tr("No room is selected"));
 		return;
 	}
 
-	vts_rtc::RoomId roomid = std::string(rooms_combobox_->currentText().toLocal8Bit());
-	auto code = rtc_agent_->JoinRoom(roomid);
-	if (code != vts_rtc::RoomCode::OK) {
-		QMessageBox::warning(nullptr, tr("Warning"), tr(roomcode_map[code]));
-	}
+	RtcRoomId roomid = rooms_combobox_->currentText().toLocal8Bit().data();
+	auto code = RtcJoinRoom(roomid);
+	CHECK_ERRORCODE
 }
 
 void RtcWidget::LeaveRoom() {
-	CHECK_RTCAGENT_VALID
-
-	auto code = rtc_agent_->LeaveRoom();
-	if (code != vts_rtc::RoomCode::OK) {
-		QMessageBox::warning(nullptr, tr("Warning"), tr(roomcode_map[code]));
-	}
+	auto code = RtcLeaveRoom();
+	CHECK_ERRORCODE
 }
 
 void RtcWidget::SendMessage() {
-	CHECK_RTCAGENT_VALID
-
 	if (send_msg_edit_->text().isEmpty()) {
 		QMessageBox::warning(nullptr, tr("Warning"), tr("Message is empty"));
 		return;
 	}
 
-	std::string msg = std::string(send_msg_edit_->text().toLocal8Bit());
-	bool succeed = rtc_agent_->Broadcast(msg);
-	if (!succeed) {
-		QMessageBox::warning(nullptr, tr("Warning"), tr("Send message failed"));
-	}
+	const char* msg = send_msg_edit_->text().toLocal8Bit().data();
+	auto code = RtcBroadcastMessage(msg);
+	CHECK_ERRORCODE
 }

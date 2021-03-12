@@ -14,7 +14,7 @@ class PeerConnectionObserver : public webrtc::PeerConnectionObserver {
 public:
 	// Triggered when the SignalingState changed.
 	void OnSignalingChange(P2PSignalingState new_state) override {
-		std::unordered_map<P2PSignalingState, const char*> state_map = {
+		std::map<P2PSignalingState, const char*> state_map = {
 			{ P2PSignalingState::kStable, "Stable" },
 			{ P2PSignalingState::kHaveLocalOffer, "HaveLocalOffer" },
 			{ P2PSignalingState::kHaveLocalPrAnswer, "HaveLocalPrAnswer" },
@@ -82,7 +82,7 @@ public:
 
 	// Called any time the IceGatheringState changes.
 	void OnIceGatheringChange(P2PIceGatheringState new_state) override {
-		std::unordered_map<P2PIceGatheringState, const char*> state_map = {
+		std::map<P2PIceGatheringState, const char*> state_map = {
 			{ P2PIceGatheringState::kIceGatheringNew, "IceGatheringNew" },
 			{ P2PIceGatheringState::kIceGatheringGathering, "IceGatheringGathering" },
 			{ P2PIceGatheringState::kIceGatheringComplete, "IceGatheringComplete" }
@@ -110,8 +110,8 @@ public:
 			address.c_str(), port, url.c_str(), error_code, error_text.c_str());
 	}
 
-	void OnConnectionChange(P2PPeerConnectionState new_state) {
-		std::unordered_map<P2PPeerConnectionState, const char*> state_map = {
+	void OnConnectionChange(P2PPeerConnectionState new_state) override {
+		std::map<P2PPeerConnectionState, const char*> state_map = {
 			{ P2PPeerConnectionState::kNew, "New" },
 			{ P2PPeerConnectionState::kConnecting, "Connecting" },
 			{ P2PPeerConnectionState::kConnected, "Connected" },

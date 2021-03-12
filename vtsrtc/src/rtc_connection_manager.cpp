@@ -60,9 +60,14 @@ void RtcConnectionManager::SetDeviceManager(std::shared_ptr<RtcDeviceManager> de
 	rtc_device_manager_ = device_manager;
 }
 
-void RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid) {
+bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid) {
+	if (external_feed_tracksources_.find(video_sourceid) == external_feed_tracksources_.cend()) {
+		return false;
+	}
+
 	external_feed_tracksources_[video_sourceid] = 
 		new rtc::RefCountedObject<RtcExternalFeedTrackSource>(video_sourceid, std::make_unique<RtcVideoSource>());
+	return true;
 }
 
 vts_rtc::RoomCode RtcConnectionManager::QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const {
@@ -132,7 +137,7 @@ vts_rtc::RoomCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, 
 	}
 
 	try {
-		std::unordered_map<vts_rtc::RoomType, const char*> roomtype_map = {
+		std::map<vts_rtc::RoomType, const char*> roomtype_map = {
 			{ vts_rtc::RoomType::VideoBroadcasting, "VideoBroadcasting" },
 			{ vts_rtc::RoomType::VideoConference, "VideoConference" }
 		};
@@ -323,9 +328,10 @@ bool RtcConnectionManager::Broadcast(const std::string& msg) const {
 void RtcConnectionManager::OnFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame) {
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
 		auto I420buffer = webrtc::I420Buffer::Copy(frame.width, frame.height,
-			frame.buffer.data(), frame.stride_Y,
-			frame.buffer.data() + frame.stride_Y * frame.height, frame.stride_U,
-			frame.buffer.data() + frame.stride_Y * frame.height + frame.stride_U * ((frame.height + 1) / 2), frame.stride_V);
+			frame.buffer, frame.stride_Y,
+			frame.buffer + frame.stride_Y * frame.height, frame.stride_U,
+			frame.buffer + frame.stride_Y * frame.height + frame.stride_U * ((frame.height + 1) / 2), 
+			frame.stride_V);
 		
 		auto duration = std::chrono::system_clock::now().time_since_epoch();
 		auto timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(duration);

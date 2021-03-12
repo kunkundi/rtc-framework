@@ -53,7 +53,7 @@ class RtcConnectionManager {
 	using HttpClient = SimpleWeb::Client<SimpleWeb::HTTP>;
 	using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 	using WsConnection = std::shared_ptr<WsClient::Connection>;
-	using SessionidRtcconnMap = std::unordered_map<vts_rtc::SessionId, std::shared_ptr<RtcConnection>>;
+	using SessionidRtcconnMap = std::map<vts_rtc::SessionId, std::shared_ptr<RtcConnection>>;
 
 public:
 	explicit RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
@@ -61,7 +61,8 @@ public:
 	~RtcConnectionManager();
 
 	void SetDeviceManager(std::shared_ptr<RtcDeviceManager> device_manager);
-	void AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid);
+
+	bool AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid);
 
 	vts_rtc::RoomCode QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const;
 	vts_rtc::RoomCode QueryRooms(vts_rtc::Rooms& rooms) const;
@@ -90,7 +91,7 @@ private:
 	WsConnection ws_conn_ = nullptr;
 
 	std::shared_ptr<RtcDeviceManager> rtc_device_manager_ = nullptr;
-	std::unordered_map<vts_rtc::VideoSourceId, rtc::scoped_refptr<RtcExternalFeedTrackSource>> external_feed_tracksources_;
+	std::map<vts_rtc::VideoSourceId, rtc::scoped_refptr<RtcExternalFeedTrackSource>> external_feed_tracksources_;
 
 	std::shared_ptr<vts_rtc::SessionId> current_sessionid_ = nullptr;
 	std::shared_ptr<vts_rtc::RoomId> current_roomid_ = nullptr;

@@ -1,16 +1,11 @@
 #pragma once
 
-#include "rtc.h"
+#include "c_rtc.h"
 #include "rtc_videorender.h"
 #include <QWidget>
 #include <QLineEdit>
 #include <QComboBox>
 #include <QListWidget>
-
-#define CHECK_RTCAGENT_VALID if (!rtc_agent_) { \
-	QMessageBox::warning(nullptr, tr("Warning"), tr("RtcAgent create failed")); \
-	return; \
-}
 
 class RtcWidget : public QWidget {
 	Q_OBJECT
@@ -21,6 +16,9 @@ public:
 	~RtcWidget();
 
 private:
+	static void HandleMessage(RtcSessionId remote_sessionid, const char* msg);
+	static void HandleFrame(RtcVideoSourceId sourceid, size_t width, size_t height, size_t dimension, 
+		const unsigned char* buffer, size_t sz_buffer);
 	void CreateUI();
 	void LoadYUVData();
 	void SendFrame();
@@ -33,23 +31,24 @@ private slots:
 	void SendMessage();
 
 private:
-	std::unordered_map<vts_rtc::RoomCode, const char*> roomcode_map = {
-		{ vts_rtc::RoomCode::OK, "OK" },
-		{ vts_rtc::RoomCode::InternalError, "InternalError" },
-		{ vts_rtc::RoomCode::RoomNotExisted, "RoomNotExisted" },
-		{ vts_rtc::RoomCode::RoomAlreadyExisted, "RoomAlreadyExisted" },
-		{ vts_rtc::RoomCode::AgentAlreadyInRoom, "AgentAlreadyInRoom" },
-		{ vts_rtc::RoomCode::AgentNotLogined, "AgentNotLogined" }
+	std::map<RtcErrorCode, const char*> errorcode_map = {
+		{ RtcErrorCode::OK, "OK" },
+		{ RtcErrorCode::InternalError, "InternalError" },
+		{ RtcErrorCode::RoomNotExisted, "RoomNotExisted" },
+		{ RtcErrorCode::RoomAlreadyExisted, "RoomAlreadyExisted" },
+		{ RtcErrorCode::AgentAlreadyInRoom, "AgentAlreadyInRoom" },
+		{ RtcErrorCode::AgentNotLogined, "AgentNotLogined" },
+		{ RtcErrorCode::AgentNotInited, "AgentNotInited" },
+		{ RtcErrorCode::Failed, "Failed" },
 	};
 
 	bool external_feed_inited_ = false;
 	QString yuv_folderpath_;
-	std::vector<vts_rtc::YUV420pFrame> yuv_frames_;
-	std::shared_ptr<vts_rtc::RtcAgent> rtc_agent_;
+	std::vector<RtcYUV420pFrame> yuv_frames_;
 	QComboBox* videosources_combobox_;
 	QLineEdit* open_room_edit_;
 	QComboBox* rooms_combobox_;
-	QListWidget* recv_msg_listwgt_;
+	static QListWidget* recv_msg_listwgt_;
 	QLineEdit* send_msg_edit_;
-	RtcVideoRender* rtc_videorender_;
+	static RtcVideoRender* rtc_videorender_;
 };

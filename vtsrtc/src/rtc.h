@@ -1,22 +1,11 @@
 # pragma once
 
-#ifdef _WIN32
-#ifdef RTC_DLL_EXPORTS
-#define RTC_API __declspec(dllexport)
-#else
-#define RTC_API __declspec(dllimport)
-#endif
-#elif __linux__
-#define RTC_API
-#endif
-
 #include "rtc_types.h"
-#include <memory>
-#include <functional>
+#include "rtc_connection_manager.h"
 
 VTS_RTC_NAMESPACE_BEGIN
 
-class RTC_API RtcAgent {
+class RtcAgent {
 public:
 	static std::shared_ptr<RtcAgent> Create(const std::string& rtc_config_filepath, 
 		const RecvMessageHandler& recv_msg_handler = nullptr,
@@ -30,21 +19,19 @@ public:
 	VideoDevices GetVideoDevices() const;
 
 	// add video source, from camera capturer OR from external feed
-	void AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const;
-	void AddVideoSource(const VideoSourceId& video_sourceid) const;
+	bool AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const;
+	bool AddVideoSource(const VideoSourceId& video_sourceid) const;
 
 	// room management
-	/**
-	 * QueryRoom: @retval OK, InternalError, RoomNotExisted
-	 * QueryRooms: @retval OK, InternalError
-	 * OpenRoom: @retval OK, InternalError, AgentNotLogined, RoomAlreadyExisted, AgentAlreadyInRoom
-	 * JoinRoom: @retval OK, InternalError, AgentNotLogined, RoomNotExisted, AgentAlreadyInRoom
-	 * LeaveRoom: @retval OK, InternalError, AgentNotLogined
-	 */
+	// @retval OK, InternalError, RoomNotExisted
 	RoomCode QueryRoom(const RoomId& roomid, Room& room) const;
+	// @retval OK, InternalError
 	RoomCode QueryRooms(Rooms& rooms) const;
+	// @retval OK, InternalError, AgentNotLogined, RoomAlreadyExisted, AgentAlreadyInRoom
 	RoomCode OpenRoom(const RoomId& roomid, enum RoomType room_type = RoomType::VideoBroadcasting) const;
+	// @retval OK, InternalError, AgentNotLogined, RoomNotExisted, AgentAlreadyInRoom
 	RoomCode JoinRoom(const RoomId& roomid) const;
+	// @retval OK, InternalError, AgentNotLogined
 	RoomCode LeaveRoom() const;
 
 	SessionIds QueryRemoteAgents() const;
@@ -63,8 +50,8 @@ private:
 		const RecvFrameHandler& recv_frame_handler);
 
 private:
-	class Impl;
-	std::unique_ptr<Impl> pimpl_;
+	std::shared_ptr<RtcDeviceManager> rtc_device_manager_;
+	std::unique_ptr<RtcConnectionManager> rtc_conn_manager_;
 };
 
 VTS_RTC_NAMESPACE_END

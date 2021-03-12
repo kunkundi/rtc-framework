@@ -10,8 +10,8 @@ public:
 	explicit RtcVideoRender();
 	~RtcVideoRender();
 
-	void OnFrame(const std::string& trackid, size_t width, size_t height, size_t dimension,
-		const std::vector<unsigned char>& framebuffer);
+	void OnFrame(const char* sourceid, size_t width, size_t height, size_t dimension,
+		const unsigned char* buffer, size_t sz_buffer);
 
 protected:
 	void initializeGL() override;
@@ -21,6 +21,6 @@ protected:
 private:
 	size_t width_ = 0, height_ = 0;
 	size_t new_width_ = 0, new_height_ = 0;
-	std::vector<unsigned char> framebuffer_;
+	unsigned char* framebuffer_;
 	GLuint texture_;
 };

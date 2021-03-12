@@ -2,7 +2,7 @@
 
 #include <string>
 #include <vector>
-#include <unordered_map>
+#include <map>
 #include <functional>
 
 #define VTS_RTC_NAMESPACE_BEGIN namespace vts_rtc {
@@ -15,11 +15,11 @@ struct Room;
 using SessionId = unsigned int;
 using SessionIds = std::vector<SessionId>;
 using RoomId = std::string;
-using Rooms = std::unordered_map<RoomId, Room>;
+using Rooms = std::map<RoomId, Room>;
 using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
 using RecvMessageHandler = std::function<void(SessionId, const std::string&)>;
-using RecvFrameHandler = std::function<void(const std::string&, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
+using RecvFrameHandler = std::function<void(const VideoSourceId&, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
 
 struct RtcConfig {
 	struct IceServer {
@@ -51,7 +51,7 @@ struct VideoDevice {
 
 enum class RoomType {
 	VideoBroadcasting = 0,  // one to many
-	VideoConference = 1     // many to many, not implemented yet
+	VideoConference         // many to many, not implemented yet
 };
 
 struct Room {
@@ -62,7 +62,7 @@ struct Room {
 };
 
 enum class RoomCode {
-	OK,
+	OK = 0,
 	InternalError,
 	RoomNotExisted,
 	RoomAlreadyExisted,
@@ -76,7 +76,8 @@ struct YUV420pFrame {
 	size_t stride_Y;
 	size_t stride_U;
 	size_t stride_V;
-	std::vector<unsigned char> buffer;
+	unsigned char* buffer;
+	size_t sz_buffer;
 };
 
 VTS_RTC_NAMESPACE_END

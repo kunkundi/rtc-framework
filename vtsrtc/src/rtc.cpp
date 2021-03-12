@@ -1,82 +1,9 @@
 #include "rtc.h"
 #include "log_manager.h"
-#include "rtc_connection_manager.h"
-#include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
 VTS_RTC_NAMESPACE_BEGIN
-
-class RtcAgent::Impl {
-public:
-	explicit Impl(const RtcConfig& rtc_config, 
-		const RecvMessageHandler& recv_msg_handler,
-		const RecvFrameHandler& recv_frame_handler)
-		: rtc_device_manager_{ std::make_shared<RtcDeviceManager>() },
-		rtc_conn_manager_{ std::make_unique<RtcConnectionManager>(rtc_config, recv_msg_handler, recv_frame_handler) } {
-	}
-
-	~Impl() = default;
-
-	VideoDevices GetVideoDevices() const {
-		return rtc_device_manager_->GetVideoDevices();
-	}
-
-	void AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const {
-		rtc_device_manager_->AddVideoCapturer(device_index, device_capability);
-		// To be improved
-		rtc_conn_manager_->SetDeviceManager(rtc_device_manager_);
-	}
-
-	void AddVideoSource(const VideoSourceId& video_sourceid) const {
-		rtc_conn_manager_->AddVideoSource(video_sourceid);
-	}
-
-	RoomCode QueryRoom(const RoomId& roomid, Room& room) const {
-		return rtc_conn_manager_->QueryRoom(roomid, room);
-	}
-
-	RoomCode QueryRooms(Rooms& rooms) const {
-		return rtc_conn_manager_->QueryRooms(rooms);
-	}
-
-	RoomCode OpenRoom(const RoomId& roomid, enum RoomType room_type) const {
-		return rtc_conn_manager_->OpenRoom(roomid, room_type);
-	}
-
-	RoomCode JoinRoom(const RoomId& roomid) const {
-		return rtc_conn_manager_->JoinRoom(roomid);
-	}
-
-	RoomCode LeaveRoom() const {
-		return rtc_conn_manager_->LeaveRoom();
-	}
-
-	SessionIds QueryRemoteAgents() const {
-		return rtc_conn_manager_->QueryRemoteAgents();
-	}
-
-	bool Send(const std::string& msg, SessionId remote_sessionid) const {
-		return rtc_conn_manager_->Send(msg, remote_sessionid);
-	}
-
-	bool Send(const std::string& msg, const SessionIds& remote_sessionids) const {
-		return rtc_conn_manager_->Send(msg, remote_sessionids);
-	}
-
-	bool Broadcast(const std::string& msg) const {
-		return rtc_conn_manager_->Broadcast(msg);
-	}
-
-	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
-		rtc_conn_manager_->OnFrame(video_sourceid, video_frame);
-	}
-
-private:
-	std::shared_ptr<RtcDeviceManager> rtc_device_manager_;
-	std::unique_ptr<RtcConnectionManager> rtc_conn_manager_;
-};
-
 
 std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepath, 
 	const RecvMessageHandler& recv_msg_handler,
@@ -146,60 +73,62 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(const RtcConfig& rtc_config,
 RtcAgent::RtcAgent(const RtcConfig& rtc_config, 
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvFrameHandler& recv_frame_handler)
-	: pimpl_{ std::make_unique<Impl>(rtc_config, recv_msg_handler, recv_frame_handler) } {
+	: rtc_device_manager_{ std::make_shared<RtcDeviceManager>() },
+	rtc_conn_manager_{ std::make_unique<RtcConnectionManager>(rtc_config, recv_msg_handler, recv_frame_handler) } {
 	LogInst->init();
+	rtc_conn_manager_->SetDeviceManager(rtc_device_manager_);
 }
 
 VideoDevices RtcAgent::GetVideoDevices() const {
-	return pimpl_->GetVideoDevices();
+	return rtc_device_manager_->GetVideoDevices();
 }
 
-void RtcAgent::AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const {
-	pimpl_->AddVideoSource(device_index, device_capability);
+bool RtcAgent::AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const {
+	return rtc_device_manager_->AddVideoCapturer(device_index, device_capability);
 }
 
-void RtcAgent::AddVideoSource(const VideoSourceId& video_sourceid) const {
-	pimpl_->AddVideoSource(video_sourceid);
+bool RtcAgent::AddVideoSource(const VideoSourceId& video_sourceid) const {
+	return rtc_conn_manager_->AddVideoSource(video_sourceid);
 }
 
 RoomCode RtcAgent::QueryRoom(const RoomId& roomid, Room& room) const {
-	return pimpl_->QueryRoom(roomid, room);
+	return rtc_conn_manager_->QueryRoom(roomid, room);
 }
 
 RoomCode RtcAgent::QueryRooms(Rooms& rooms) const {
-	return pimpl_->QueryRooms(rooms);
+	return rtc_conn_manager_->QueryRooms(rooms);
 }
 
 RoomCode RtcAgent::OpenRoom(const RoomId& roomid, enum RoomType room_type) const {
-	return pimpl_->OpenRoom(roomid, room_type);
+	return rtc_conn_manager_->OpenRoom(roomid, room_type);
 }
 
 RoomCode RtcAgent::JoinRoom(const RoomId& roomid) const {
-	return pimpl_->JoinRoom(roomid);
+	return rtc_conn_manager_->JoinRoom(roomid);
 }
 
 RoomCode RtcAgent::LeaveRoom() const {
-	return pimpl_->LeaveRoom();
+	return rtc_conn_manager_->LeaveRoom();
 }
 
 SessionIds RtcAgent::QueryRemoteAgents() const {
-	return pimpl_->QueryRemoteAgents();
+	return rtc_conn_manager_->QueryRemoteAgents();
 }
 
 bool RtcAgent::Send(const std::string& msg, SessionId remote_sessionid) const {
-	return pimpl_->Send(msg, remote_sessionid);
+	return rtc_conn_manager_->Send(msg, remote_sessionid);
 }
 
 bool RtcAgent::Send(const std::string& msg, const SessionIds & remote_sessionids) const {
-	return pimpl_->Send(msg, remote_sessionids);
+	return rtc_conn_manager_->Send(msg, remote_sessionids);
 }
 
 bool RtcAgent::Broadcast(const std::string& msg) const {
-	return pimpl_->Broadcast(msg);
+	return rtc_conn_manager_->Broadcast(msg);
 }
 
 void RtcAgent::SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
-	pimpl_->SendFrame(video_sourceid, video_frame);
+	rtc_conn_manager_->OnFrame(video_sourceid, video_frame);
 }
 
 VTS_RTC_NAMESPACE_END
