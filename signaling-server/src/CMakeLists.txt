@@ -1,4 +1,4 @@
-project(signaling-server VERSION 0.1.0)
+project(signaling-server VERSION 0.2.0)
 set(target signaling-server)
 
 list(APPEND CMAKE_MODULE_PATH

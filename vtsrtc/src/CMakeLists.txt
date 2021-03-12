@@ -1,4 +1,4 @@
-project(vtsrtc VERSION 0.1.0)
+project(vtsrtc VERSION 0.2.0)
 set(target vtsrtc)
 
 list(APPEND CMAKE_MODULE_PATH

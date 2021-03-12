@@ -10,6 +10,8 @@
 #define RTC_API
 #endif
 
+#include <stddef.h>
+
 typedef unsigned int RtcSessionId;
 typedef RtcSessionId* RtcSessionIds;
 typedef const char* RtcVideoSourceId;
