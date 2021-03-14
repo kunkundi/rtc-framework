@@ -30,8 +30,6 @@ add_library(${target} SHARED
 	c_rtc.cpp
 )
 
-set_target_properties(${target} PROPERTIES DEBUG_POSTFIX d)
-
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	target_compile_definitions(${target}
     PUBLIC
@@ -91,7 +89,9 @@ PRIVATE
 set_target_properties(${target}
 PROPERTIES
 	VERSION ${PROJECT_VERSION}
+	DEBUG_POSTFIX "d"
 	PUBLIC_HEADER "c_rtc.h"
+	WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
 
 # install library

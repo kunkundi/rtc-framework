@@ -171,7 +171,7 @@ void RtcWidget::QueryRooms() {
 
 	rooms_combobox_->clear();
 	for (size_t i = 0; i < sz_rooms; ++i) {
-		rooms_combobox_->addItem(QString::fromUtf8(rooms[i].roomid));
+		rooms_combobox_->addItem(QString::fromLocal8Bit(rooms[i].roomid));
 	}
 
 	RtcDestoryRooms(rooms, sz_rooms);
@@ -197,8 +197,8 @@ void RtcWidget::OpenRoom() {
 		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability);
 		CHECK_ERRORCODE
 	}
-	RtcRoomId roomid = open_room_edit_->text().toLocal8Bit().data();
-	auto code = RtcOpenRoom(roomid, RtcRoomType::VideoBroadcasting);
+	QByteArray roomid = open_room_edit_->text().toLocal8Bit();
+	auto code = RtcOpenRoom(roomid.data(), RtcRoomType::VideoBroadcasting);
 	CHECK_ERRORCODE
 }
 
@@ -208,8 +208,8 @@ void RtcWidget::JoinRoom() {
 		return;
 	}
 
-	RtcRoomId roomid = rooms_combobox_->currentText().toLocal8Bit().data();
-	auto code = RtcJoinRoom(roomid);
+	QByteArray roomid = rooms_combobox_->currentText().toLocal8Bit();
+	auto code = RtcJoinRoom(roomid.data());
 	CHECK_ERRORCODE
 }
 
@@ -224,7 +224,7 @@ void RtcWidget::SendMessage() {
 		return;
 	}
 
-	const char* msg = send_msg_edit_->text().toLocal8Bit().data();
-	auto code = RtcBroadcastMessage(msg);
+	QByteArray msg = send_msg_edit_->text().toLocal8Bit();
+	auto code = RtcBroadcastMessage(msg.data());
 	CHECK_ERRORCODE
 }
