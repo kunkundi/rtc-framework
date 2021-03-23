@@ -332,14 +332,11 @@ void RtcConnectionManager::OnFrame(const vts_rtc::VideoSourceId& video_sourceid,
 			frame.buffer + frame.stride_Y * frame.height, frame.stride_U,
 			frame.buffer + frame.stride_Y * frame.height + frame.stride_U * ((frame.height + 1) / 2), 
 			frame.stride_V);
-		
-		auto duration = std::chrono::system_clock::now().time_since_epoch();
-		auto timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(duration);
 
 		auto inner_frame_builder = webrtc::VideoFrame::Builder()
 			.set_video_frame_buffer(I420buffer)
 			.set_rotation(webrtc::kVideoRotation_0)
-			.set_timestamp_us(timestamp_us.count());
+			.set_timestamp_us(rtc::TimeMicros());
 		external_feed_tracksources_[video_sourceid]->video_source_->OnFrame(inner_frame_builder.build());
 	}
 }
