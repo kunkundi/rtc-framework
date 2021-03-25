@@ -97,7 +97,7 @@
                 }
 
                 var peerconn = remotesessionid_rtcconn_map[from_sessionid].peer_conn;
-                peerconn.addIceCandicecaidate(new RTCIceCandidate({
+                peerconn.addIceCandidate(new RTCIceCandidate({
                     "candidate": msg_obj["candidate"],
                     "sdpMid": msg_obj["sdp_mid"],
                     "sdpMLineIndex": msg_obj["sdp_mline_index"]
