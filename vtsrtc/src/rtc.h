@@ -48,6 +48,8 @@ private:
 	explicit RtcAgent(const RtcConfig& rtc_config, 
 		const RecvMessageHandler& recv_msg_handler, 
 		const RecvFrameHandler& recv_frame_handler);
+	// Init RtcAgent, mainly for RtcConnectionManager initialization
+	bool Init();
 
 private:
 	std::shared_ptr<RtcDeviceManager> rtc_device_manager_;

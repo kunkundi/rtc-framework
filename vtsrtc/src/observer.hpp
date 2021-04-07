@@ -10,6 +10,7 @@ class PeerConnectionObserver : public webrtc::PeerConnectionObserver {
 	using P2PSignalingState = webrtc::PeerConnectionInterface::SignalingState;
 	using P2PIceGatheringState = webrtc::PeerConnectionInterface::IceGatheringState;
 	using P2PPeerConnectionState = webrtc::PeerConnectionInterface::PeerConnectionState;
+	using P2PIceConnectionState = webrtc::PeerConnectionInterface::IceConnectionState;
 
 public:
 	// Triggered when the SignalingState changed.
@@ -90,6 +91,24 @@ public:
 		LOG_INFO("[WEBRTC] On ICE gathering change, new state: %s", state_map[new_state]);
 	}
 
+	void OnStandardizedIceConnectionChange(P2PIceConnectionState new_state) override {
+		std::map<P2PIceConnectionState, const char*> state_map = {
+			{ P2PIceConnectionState::kIceConnectionNew, "IceConnectionNew" },
+			{ P2PIceConnectionState::kIceConnectionChecking, "IceConnectionChecking" },
+			{ P2PIceConnectionState::kIceConnectionConnected, "IceConnectionConnected" },
+			{ P2PIceConnectionState::kIceConnectionCompleted, "IceConnectionCompleted" },
+			{ P2PIceConnectionState::kIceConnectionFailed, "IceConnectionFailed" },
+			{ P2PIceConnectionState::kIceConnectionDisconnected, "IceConnectionDisconnected" },
+			{ P2PIceConnectionState::kIceConnectionClosed, "IceConnectionClosed" },
+			{ P2PIceConnectionState::kIceConnectionMax, "IceConnectionMax" },
+		};
+		LOG_INFO("[WEBRTC] On standardized iceconnection change, new state: %s", state_map[new_state]);
+
+		if (on_iceconnect_failed && new_state == P2PIceConnectionState::kIceConnectionFailed) {
+			on_iceconnect_failed();
+		}
+	}
+
 	// A new ICE candidate has been gathered.
 	void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override {
 		if (candidate) {
@@ -120,14 +139,10 @@ public:
 			{ P2PPeerConnectionState::kClosed, "Closed" }
 		};
 		LOG_INFO("[WEBRTC] On connection change, new state: %s", state_map[new_state]);
-
-		if (on_connect_failed && new_state == P2PPeerConnectionState::kFailed) {
-			on_connect_failed();
-		}
 	}
 
 private:
-	std::function<void()> on_connect_failed = nullptr;
+	std::function<void()> on_iceconnect_failed = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>, 
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&)> on_addtrack_ = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::DataChannelInterface>)> on_data_channel_ = nullptr;

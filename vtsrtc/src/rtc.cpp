@@ -8,6 +8,8 @@ VTS_RTC_NAMESPACE_BEGIN
 std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepath, 
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvFrameHandler& recv_frame_handler) {
+	LogInst->init();
+
 	// check if content of rtc_config_filepath is valid json format
 	nlohmann::json rtc_cfg_obj;
 	try {
@@ -61,22 +63,29 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepat
 		}
 	}
 
-	return Create(rtc_config, recv_msg_handler, recv_frame_handler);
+	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config, recv_msg_handler, recv_frame_handler));
+	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
 std::shared_ptr<RtcAgent> RtcAgent::Create(const RtcConfig& rtc_config, 
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvFrameHandler& recv_frame_handler) {
-	return std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config, recv_msg_handler, recv_frame_handler));
+	LogInst->init();
+
+	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config, recv_msg_handler, recv_frame_handler));
+	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
 RtcAgent::RtcAgent(const RtcConfig& rtc_config, 
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvFrameHandler& recv_frame_handler)
 	: rtc_device_manager_{ std::make_shared<RtcDeviceManager>() },
-	rtc_conn_manager_{ std::make_unique<RtcConnectionManager>(rtc_config, recv_msg_handler, recv_frame_handler) } {
-	LogInst->init();
-	rtc_conn_manager_->SetDeviceManager(rtc_device_manager_);
+	rtc_conn_manager_{ std::make_unique<RtcConnectionManager>(
+		rtc_config, rtc_device_manager_, recv_msg_handler, recv_frame_handler) } {
+}
+
+bool RtcAgent::Init() {
+	return rtc_conn_manager_->Init();
 }
 
 VideoDevices RtcAgent::GetVideoDevices() const {

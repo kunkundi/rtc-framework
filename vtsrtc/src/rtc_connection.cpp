@@ -7,8 +7,8 @@ RtcConnection::RtcConnection(vts_rtc::SessionId local_sessionid, vts_rtc::Sessio
 
 RtcConnection::~RtcConnection() {
 	if (data_channel_) {
-		data_channel_->Close();
 		data_channel_->UnregisterObserver();
+		data_channel_->Close();
 	}
 	
 	if (peer_conn_) {
@@ -31,9 +31,9 @@ RtcConnection::DataChannelState RtcConnection::GetDataChannelState() const {
 }
 
 void RtcConnection::InitObserverCallbacks() {
-	peer_conn_observer_.on_connect_failed = [this]() {
-		if (on_connect_peer_failed) {
-			on_connect_peer_failed(remote_sessionid_);
+	peer_conn_observer_.on_iceconnect_failed = [this]() {
+		if (on_iceconnect_failed) {
+			on_iceconnect_failed(remote_sessionid_);
 		}
 	};
 

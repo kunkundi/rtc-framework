@@ -179,6 +179,10 @@ void RtcWidget::QueryRooms() {
 }
 
 void RtcWidget::OpenRoom() {
+	QByteArray roomid = open_room_edit_->text().toLocal8Bit();
+	auto code = RtcOpenRoom(roomid.data(), RtcRoomType::VideoBroadcasting);
+	CHECK_ERRORCODE
+
 	auto current_idx = videosources_combobox_->currentIndex();
 	if (current_idx == videosources_combobox_->count() - 1) {
 		// YUV420p video source
@@ -197,9 +201,6 @@ void RtcWidget::OpenRoom() {
 		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability);
 		CHECK_ERRORCODE
 	}
-	QByteArray roomid = open_room_edit_->text().toLocal8Bit();
-	auto code = RtcOpenRoom(roomid.data(), RtcRoomType::VideoBroadcasting);
-	CHECK_ERRORCODE
 }
 
 void RtcWidget::JoinRoom() {

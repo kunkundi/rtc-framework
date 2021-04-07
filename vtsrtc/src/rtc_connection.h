@@ -35,7 +35,7 @@ private:
 	rtc::scoped_refptr<SetSessionDescriptionObserver> set_sdp_observer_;
 	rtc::scoped_refptr<SetRemoteDescriptionObserver> set_remote_sdp_observer_;
 
-	std::function<void(vts_rtc::SessionId)> on_connect_peer_failed = nullptr;
+	std::function<void(vts_rtc::SessionId)> on_iceconnect_failed = nullptr;
 	// "candidate", "sdpMid", "sdpMLineIndex" for std::tuple
 	std::function<void(vts_rtc::SessionId, const std::tuple<std::string, std::string, int>&)> on_ice_candidate_received_ = nullptr;
 	std::function<void(vts_rtc::SessionId, const std::string&)> on_create_sdp_succeed_ = nullptr;

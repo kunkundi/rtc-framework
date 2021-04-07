@@ -3,7 +3,7 @@
 #include "log_manager.h"
 #include "rtc_videosource.hpp"
 #include <modules/video_capture/video_capture_factory.h>
-#include <iostream>
+#include <rtc_base/thread.h>
 
 class RtcVideoCapturer : public RtcVideoSource, public rtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
@@ -18,6 +18,7 @@ public:
 
 	virtual ~RtcVideoCapturer() {
 		this->Destroy();
+		vcm_thread_->Stop();
 	}
 
 	void OnFrame(const webrtc::VideoFrame& frame) override {
@@ -28,10 +29,23 @@ public:
 	}
 
 private:
-	RtcVideoCapturer() = default;
+	RtcVideoCapturer() : video_capture_module_(nullptr) {
+		vcm_thread_ = rtc::Thread::Create();
+		vcm_thread_->SetName("video_capture_module", nullptr);
+		vcm_thread_->Start();
+	}
 
 	bool Init(const std::string& device_uniqueid, const vts_rtc::VideoDeviceCapability& device_capability) {
-		video_capture_module_ = webrtc::VideoCaptureFactory::Create(device_uniqueid.c_str());
+		if (video_capture_module_) {
+			LOG_ERROR("Rtc video capturer have been inited already, cannot be inited again.");
+			return false;
+		}
+		
+		video_capture_module_ = vcm_thread_->Invoke<rtc::scoped_refptr<webrtc::VideoCaptureModule>>(RTC_FROM_HERE,
+			[device_uniqueid]() {
+				return webrtc::VideoCaptureFactory::Create(device_uniqueid.c_str());
+			});
+
 		if (!video_capture_module_) {
 			LOG_ERROR("Create video capture module failed");
 			return false;
@@ -46,7 +60,13 @@ private:
 		// TO DO
 		requested_capability.videoType = webrtc::VideoType::kI420;
 
-		if (video_capture_module_->StartCapture(requested_capability) != 0) {
+		auto ret = vcm_thread_->Invoke<int32_t>(RTC_FROM_HERE,
+			[this, &requested_capability]() {
+				return video_capture_module_->StartCapture(requested_capability);
+			});
+
+
+		if (ret != 0) {
 			LOG_ERROR("Start video capture failed");
 			this->Destroy();
 			return false;
@@ -57,11 +77,21 @@ private:
 
 	void Destroy() {
 		if (!video_capture_module_) { return; }
-		video_capture_module_->StopCapture();
+
+		vcm_thread_->Invoke<int32_t>(RTC_FROM_HERE,
+			[this]() {
+				return video_capture_module_->StopCapture();
+			});
+
 		video_capture_module_->DeRegisterCaptureDataCallback();
-		video_capture_module_ = nullptr;
+
+		vcm_thread_->Invoke<void>(RTC_FROM_HERE,
+			[this]() {
+				video_capture_module_ = nullptr;
+			});
 	}
 
 private:
-	rtc::scoped_refptr<webrtc::VideoCaptureModule> video_capture_module_ = nullptr;
+	std::unique_ptr<rtc::Thread> vcm_thread_;
+	rtc::scoped_refptr<webrtc::VideoCaptureModule> video_capture_module_;
 };
