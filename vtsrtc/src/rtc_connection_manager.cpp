@@ -531,7 +531,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		webrtc_ice_server.password = ice_server.password;
 		peer_conn_config.servers.emplace_back(webrtc_ice_server);
 	}
-	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+	// TO DO
+	//peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
 	webrtc::PeerConnectionDependencies depends(&rtc_conn->peer_conn_observer_);
 	rtc_conn->peer_conn_ = peer_conn_factory_->CreatePeerConnection(peer_conn_config, std::move(depends));
 	if (!rtc_conn->peer_conn_) {
@@ -543,15 +544,15 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 	if (rtc_device_manager_) {
 		auto video_track_sources = rtc_device_manager_->GetVideoTrackSources();
 		for (const auto& track_source : video_track_sources) {
-			auto video_track = peer_conn_factory_->CreateVideoTrack(track_source->GetLabel(), track_source.get());
-			rtc_conn->peer_conn_->AddTrack(video_track, { "vts_rtc_stream" });
+			auto video_track = peer_conn_factory_->CreateVideoTrack("track_" + track_source->GetLabel(), track_source.get());
+			rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + track_source->GetLabel() });
 		}
 	}
 
 	// Add external feed video tracks
 	for (const auto& id_tracksource : external_feed_tracksources_) {
-		auto video_track = peer_conn_factory_->CreateVideoTrack(id_tracksource.second->label_, id_tracksource.second.get());
-		rtc_conn->peer_conn_->AddTrack(video_track, { "vts_rtc_stream" });
+		auto video_track = peer_conn_factory_->CreateVideoTrack("track_" + id_tracksource.second->label_, id_tracksource.second.get());
+		rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + id_tracksource.second->label_ });
 	}
 
 	if (offer_peer) {
