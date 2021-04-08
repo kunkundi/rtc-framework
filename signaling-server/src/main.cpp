@@ -8,7 +8,7 @@ int main(int argc, char* argv[]) {
 	auto ws_ctrl = std::make_shared<WsController>(ws_server);
 
 	auto http_server = std::make_shared<HttpServer>();
-	http_server->config.port = 8080;
+	http_server->config.port = 8090;
 	HttpController http_ctrl(http_server, ws_ctrl);
 
 	http_server->on_upgrade = [ws_server](std::unique_ptr<SimpleWeb::HTTP>& socket, std::shared_ptr<HttpServer::Request> request) {
