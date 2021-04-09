@@ -31,11 +31,6 @@
                     // TO DO
                 });
             }
-
-            // 设置播放
-            $("#local_video")[0].onloadedmetadata = function(event) {
-                $("#local_video")[0].play();
-            };
         });
 
         // room management and data channel management
@@ -133,7 +128,10 @@
         };
 
         function InteractRemotePeer(remote_sessionid, offer_peer, remote_sdp) {
-            const config = { iceServers: [] };
+            const config = { 
+                iceServers: [],
+                sdpSemantics: "plan-b"  // To be improved
+            };
             var peerconn = new RTCPeerConnection(config);
             var rtcconn = {};
             rtcconn.peer_conn = peerconn;
@@ -178,9 +176,18 @@
             // ontrack
             peerconn.ontrack = function(event) {
                 console.log("ontrack", event);
-                // TO DO
-                // 暂时只显示一个流，后续按需新建Video元素进行多个流的显示
-                $("#local_video")[0].srcObject = event.streams[0];
+
+                var remote_video = $("<video />", {
+                    id: event.track.id,
+                    style: "clear: both; display: block; margin: auto;"
+                });
+                $("#remote_videos").append(remote_video);
+
+                remote_video[0].onloadedmetadata = function (event) {
+                    remote_video[0].play();
+                };
+
+                remote_video[0].srcObject = event.streams[0];
             };
 
             // ondatachannel
@@ -212,6 +219,8 @@
                 .catch(alert);
             }
             else {
+                local_stream.getTracks().forEach(track => peerconn.addTrack(track, local_stream));
+
                 peerconn.setRemoteDescription(new RTCSessionDescription({
                     "type": "offer",
                     "sdp": remote_sdp
@@ -294,6 +303,11 @@
                         navigator.mediaDevices.getUserMedia(constraints)
                         .then(function(stream) {
                             local_stream = stream;
+
+                            $("#local_video")[0].onloadedmetadata = function(event) {
+                                $("#local_video")[0].play();
+                            };
+                            
                             $("#local_video")[0].srcObject = stream;
                         })
                         .catch(alert);
@@ -439,6 +453,10 @@
         <input id="msg_input" value="hello world" /><button onclick="SendMessage()">Send Message</button><br />
     </div>
 
-    <video id="local_video" style="clear: both; display: block; margin: auto;"></video>
+    <div id="remote_videos"></div>
+
+    <div id="local_videos">
+        <video id="local_video" style="clear: both; display: block; margin: auto;"></video>
+    </div>
 </body>
 </html>
