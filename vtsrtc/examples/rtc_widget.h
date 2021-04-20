@@ -16,7 +16,7 @@ public:
 	~RtcWidget();
 
 private:
-	static void HandleMessage(RtcSessionId remote_sessionid, const char* msg);
+	static void HandleMessage(RtcSessionId remote_sessionid, const char* channel_label, const char* msg);
 	static void HandleFrame(RtcVideoSourceId sourceid, size_t width, size_t height, size_t dimension, 
 		const unsigned char* buffer, size_t sz_buffer);
 	void CreateUI();

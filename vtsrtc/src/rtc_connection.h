@@ -15,9 +15,13 @@ public:
 	~RtcConnection();
 
 	PeerConnState GetPeerConnectionState() const;
-	DataChannelState GetDataChannelState() const;
+	bool DataChannelExisted(const std::string& label) const;
+	DataChannelState GetDataChannelState(const std::string& label) const;
+	bool AddDataChannel(const std::string& label, const webrtc::DataChannelInit& datachannelinit);
+	bool SendData(const std::string& channel_label, const std::string& msg);
 
 private:
+	void InitDataChannelObserverCallbacks(rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel);
 	void InitObserverCallbacks();
 
 private:
@@ -25,12 +29,11 @@ private:
 	vts_rtc::SessionId local_sessionid_;
 	vts_rtc::SessionId remote_sessionid_;
 	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn_ = nullptr;
-	// attention: only one DataChannel is supported for now
-	rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel_ = nullptr;
+	std::map<std::string, rtc::scoped_refptr<webrtc::DataChannelInterface>> label_datachannel_map_;
 	std::vector<std::unique_ptr<RtcVideoSink>> rtc_pc_videosinks_;
 
 	PeerConnectionObserver peer_conn_observer_;
-	DataChannelObserver data_channel_observer_;
+	std::vector<std::shared_ptr<DataChannelObserver>> datachannel_observers_;
 	rtc::scoped_refptr<CreateSessionDescriptionObserver> create_sdp_observer_;
 	rtc::scoped_refptr<SetSessionDescriptionObserver> set_sdp_observer_;
 	rtc::scoped_refptr<SetRemoteDescriptionObserver> set_remote_sdp_observer_;

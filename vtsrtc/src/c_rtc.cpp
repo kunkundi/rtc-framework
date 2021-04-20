@@ -13,8 +13,8 @@ RtcErrorCode ConvertCode(vts_rtc::RoomCode roomcode) {
 RtcErrorCode RtcInitAgent(const char* config_filepath, RecvMessageHandler recv_msg_handler, RecvFrameHandler recv_frame_handler) {
 	RtcDestoryAgent();
 
-	auto msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid, const std::string& msg) {
-		recv_msg_handler(sessionid, msg.c_str());
+	auto msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid, const std::string& channel_label, const std::string& msg) {
+		recv_msg_handler(sessionid, channel_label.c_str(), msg.c_str());
 	};
 
 	auto frame_handler = [recv_frame_handler](const vts_rtc::VideoSourceId& video_sourceid,
@@ -91,6 +91,13 @@ void RtcDestoryVideoDevices(RtcVideoDevices video_devices, size_t sz_video_devic
 	}
 
 	delete[] video_devices;
+}
+
+RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label, RtcDataChannelPriority priority, bool ordered, int max_retransmits) {
+	CHECK_RTCAGENT_INITED
+
+	return rtc_agent->AddDataChannel(std::string(label), static_cast<vts_rtc::DataChannelPriority>(priority),
+		ordered, max_retransmits) ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
 RtcErrorCode RtcAddDeviceVideoSource(size_t device_index, const RtcVideoDeviceCapability* in_device_capability) {
@@ -200,23 +207,10 @@ RtcErrorCode RtcLeaveRoom() {
 	return ConvertCode(roomcode);
 }
 
-RtcErrorCode RtcSendMessageToRemoteAgent(const char* msg, RtcSessionId remote_sessionid) {
+RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg) {
 	CHECK_RTCAGENT_INITED
 
-	return rtc_agent->Send(std::string(msg), remote_sessionid) ? RtcErrorCode::OK : RtcErrorCode::Failed;
-}
-
-RtcErrorCode RtcSendMessageToRemoteAgents(const char* msg, RtcSessionIds sessionids, size_t sz_sessionids) {
-	CHECK_RTCAGENT_INITED
-
-	return rtc_agent->Send(std::string(msg), vts_rtc::SessionIds(sessionids, sessionids + sz_sessionids)) ?
-		RtcErrorCode::OK : RtcErrorCode::Failed;
-}
-
-RtcErrorCode RtcBroadcastMessage(const char* msg) {
-	CHECK_RTCAGENT_INITED
-
-	return rtc_agent->Broadcast(std::string(msg)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
+	return rtc_agent->SendData(std::string(channel_label), std::string(msg)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
 RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame* in_video_frame) {

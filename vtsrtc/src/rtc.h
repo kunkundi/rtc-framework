@@ -18,6 +18,12 @@ public:
 	// video devices releated
 	VideoDevices GetVideoDevices() const;
 
+	// add data channel (attention: just for JoinRoom side, not work for OpenRoom side)
+	bool AddDataChannel(const std::string& label,
+		DataChannelPriority priority = DataChannelPriority::Low,
+		bool ordered = true,
+		int max_retransmits = -1);
+
 	// add video source, from camera capturer OR from external feed
 	bool AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const;
 	bool AddVideoSource(const VideoSourceId& video_sourceid) const;
@@ -36,11 +42,8 @@ public:
 
 	SessionIds QueryRemoteAgents() const;
 
-	// data channel
-	bool Send(const std::string& msg, SessionId remote_sessionid) const;
-	bool Send(const std::string& msg, const SessionIds& remote_sessionids) const;
-	bool Broadcast(const std::string& msg) const;
-
+	// send data
+	bool SendData(const std::string& channel_label, const std::string& msg) const;
 	// send frame
 	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const;
 

@@ -14,6 +14,7 @@
 
 typedef unsigned int RtcSessionId;
 typedef RtcSessionId* RtcSessionIds;
+typedef const char* RtcDataChannelLabel;
 typedef const char* RtcVideoSourceId;
 typedef char* RtcRoomId;
 
@@ -64,6 +65,13 @@ typedef struct RtcVideoDevice {
 
 typedef RtcVideoDevice* RtcVideoDevices;
 
+typedef enum RtcDataChannelPriority {
+	VeryLow = 0,
+	Low,
+	Medium,
+	High,
+} RtcDataChannelPriority;
+
 typedef struct RtcYUV420pFrame {
 	size_t width;
 	size_t height;
@@ -74,7 +82,7 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
-typedef void(*RecvMessageHandler)(RtcSessionId, const char*);
+typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel, const char*);
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, size_t, size_t, size_t, const unsigned char*, size_t);
 
 #ifdef  __cplusplus
@@ -122,6 +130,21 @@ extern "C" {
 	 * @attention RtcGetVideoDevices函数成功时，必须调用该函数释放房间资源，否则存在内存泄漏
 	 */
 	RTC_API void RtcDestoryVideoDevices(RtcVideoDevices video_devices, size_t sz_video_devices);
+
+	/**
+	 * @brief 加入房间时，增加数据通道
+	 *
+	 * @param label 数据通道的Label
+	 * @param priority 优先级
+	 * @param ordered 传递信息的顺序是否有保证
+	 * @param max_retransmits 不可靠模式下消息允许尝试重发的最大次数，若为-1，则确保可靠
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 增加数据通道成功
+	 *   @retval RtcErrorCode::AgentNotInited 增加数据通道失败，因为Rtc Agent未成功初始化
+	 *   @retval RtcErrorCode::Failed 增加数据通道失败
+	 * @attention: 必须由加入房间的一端调用才会生效，打开房间的一端调用不会生效
+	 */
+	RTC_API RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label, RtcDataChannelPriority priority, bool ordered, int max_retransmits);
 
 	/**
 	 * @brief 增加摄像头设备视频源
@@ -234,40 +257,15 @@ extern "C" {
 	/**
 	 * @brief 发送消息到远端Rtc Agent
 	 *
+	 * @param channel_label 数据通道的Label
 	 * @param msg 消息内容
-	 * @param remote_sessionid 远端Rtc Agent的sessionid
-	 * @return 函数是否执行成功
-	 *   @retval RtcErrorCode::OK 发送成功
-	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
-	 *   @retval RtcErrorCode::Failed 发送失败，比如remote_sessionid不存在
-	 */
-	RTC_API RtcErrorCode RtcSendMessageToRemoteAgent(const char* msg, RtcSessionId remote_sessionid);
-	
-	/**
-	 * @brief 发送消息到多个远端Rtc Agent
-	 *
-	 * @param msg 消息内容
-	 * @param sessionids 远端Rtc Agent的sessionid数组
-	 * @param sz_sessionids 远端Rtc Agent个数
 	 * @return 函数是否执行成功
 	 *   @retval RtcErrorCode::OK 发送成功
 	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
 	 *   @retval RtcErrorCode::Failed 发送失败
 	 * @attention 发送消息到远端Rtc Agent，至少一个发送成功便认为执行成功
 	 */
-	RTC_API RtcErrorCode RtcSendMessageToRemoteAgents(const char* msg, RtcSessionIds sessionids, size_t sz_sessionids);
-	
-	/**
-	 * @brief 广播消息到所有远端Rtc Agent
-	 *
-	 * @param msg 消息内容
-	 * @return 函数是否执行成功
-	 *   @retval RtcErrorCode::OK 发送成功
-	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
-	 *   @retval RtcErrorCode::Failed 发送失败
-	 * @attention 广播消息到远端Rtc Agent，至少一个发送成功便认为执行成功
-	 */
-	RTC_API RtcErrorCode RtcBroadcastMessage(const char* msg);
+	RTC_API RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg);
 
 	/**
 	 * @brief 发送图像帧

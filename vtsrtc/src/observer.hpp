@@ -68,12 +68,12 @@ public:
 	}
 
 	// Triggered when a remote peer opens a data channel.
-	void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) override {
-		if (data_channel) {
+	void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) override {	
+		if (datachannel) {
 			LOG_INFO("[WEBRTC] On data channel, id: %d, label: %s, protocol: %s", 
-				data_channel->id(), data_channel->label().c_str(), data_channel->protocol().c_str());
+				datachannel->id(), datachannel->label().c_str(), datachannel->protocol().c_str());
 
-			if (on_data_channel_) { on_data_channel_(data_channel); }
+			if (on_datachannel_) { on_datachannel_(datachannel); }
 		}
 	}
 
@@ -145,7 +145,7 @@ private:
 	std::function<void()> on_iceconnect_failed = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>, 
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&)> on_addtrack_ = nullptr;
-	std::function<void(rtc::scoped_refptr<webrtc::DataChannelInterface>)> on_data_channel_ = nullptr;
+	std::function<void(rtc::scoped_refptr<webrtc::DataChannelInterface>)> on_datachannel_ = nullptr;
 	std::function<void(const webrtc::IceCandidateInterface*)> on_ice_candidate_ = nullptr;
 };
 

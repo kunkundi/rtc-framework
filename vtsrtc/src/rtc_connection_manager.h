@@ -54,7 +54,6 @@ class RtcConnectionManager {
 	using HttpClient = SimpleWeb::Client<SimpleWeb::HTTP>;
 	using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 	using WsConnection = std::shared_ptr<WsClient::Connection>;
-	using SessionidRtcconnMap = std::map<vts_rtc::SessionId, std::shared_ptr<RtcConnection>>;
 
 public:
 	explicit RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
@@ -64,21 +63,19 @@ public:
 	~RtcConnectionManager();
 	bool Init();
 
+	bool AddDataChannel(const std::string& label, vts_rtc::DataChannelPriority priority,
+		bool ordered, int max_retransmits);
 	bool AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid);
 
+	vts_rtc::SessionIds QueryRemoteAgents() const;
 	vts_rtc::RoomCode QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const;
 	vts_rtc::RoomCode QueryRooms(vts_rtc::Rooms& rooms) const;
 	vts_rtc::RoomCode OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type);
 	vts_rtc::RoomCode JoinRoom(const vts_rtc::RoomId& roomid);
 	vts_rtc::RoomCode LeaveRoom();
 
-	vts_rtc::SessionIds QueryRemoteAgents() const;
-
-	bool Send(const std::string& msg, vts_rtc::SessionId remote_sessionid) const;
-	bool Send(const std::string& msg, const vts_rtc::SessionIds& remote_sessionids) const;
-	bool Broadcast(const std::string& msg) const;
-
-	void OnFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame);
+	bool SendData(const std::string& channel_label, const std::string& msg) const;
+	void SendFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame);
 
 private:
 	bool InitPeerConnectionFactory();
@@ -102,9 +99,11 @@ private:
 	std::shared_ptr<RtcDeviceManager> rtc_device_manager_ = nullptr;
 	std::map<vts_rtc::VideoSourceId, rtc::scoped_refptr<RtcExternalFeedTrackSource>> external_feed_tracksources_;
 
+	std::map<std::string, webrtc::DataChannelInit> label_datachannelinit_map_;
+
 	std::unique_ptr<webrtc::TaskQueueFactory> adm_taskqueue_;
 	rtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_moudle_;
 	std::unique_ptr<rtc::Thread> signaling_thread_, worker_thread_, network_thread_;
 	rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_conn_factory_;
-	SessionidRtcconnMap remotesessionid_rtcconn_map_;
+	std::map<vts_rtc::SessionId, std::shared_ptr<RtcConnection>> remotesessionid_rtcconn_map_;
 };

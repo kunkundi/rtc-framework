@@ -6,9 +6,12 @@ RtcConnection::RtcConnection(vts_rtc::SessionId local_sessionid, vts_rtc::Sessio
 }
 
 RtcConnection::~RtcConnection() {
-	if (data_channel_) {
-		data_channel_->UnregisterObserver();
-		data_channel_->Close();
+	for (const auto& label_datachannel : label_datachannel_map_) {
+		auto datachannel = label_datachannel.second;
+		if (datachannel) {
+			datachannel->UnregisterObserver();
+			datachannel->Close();
+		}
 	}
 	
 	if (peer_conn_) {
@@ -23,11 +26,70 @@ RtcConnection::PeerConnState RtcConnection::GetPeerConnectionState() const {
 	return PeerConnState::kClosed;
 }
 
-RtcConnection::DataChannelState RtcConnection::GetDataChannelState() const {
-	if (data_channel_) {
-		return data_channel_->state();
+bool RtcConnection::DataChannelExisted(const std::string& label) const {
+	if (label_datachannel_map_.find(label) == label_datachannel_map_.cend()) {
+		return false;
 	}
-	return DataChannelState::kClosed;
+	
+	return true;
+}
+
+RtcConnection::DataChannelState RtcConnection::GetDataChannelState(const std::string& label) const {
+	if (!DataChannelExisted(label)) {
+		return DataChannelState::kClosed;
+	}
+
+	return label_datachannel_map_.at(label)->state();
+}
+
+bool RtcConnection::AddDataChannel(const std::string& label, const webrtc::DataChannelInit& datachannelinit) {
+	if (DataChannelExisted(label) || !peer_conn_) {
+		return false;
+	}
+
+	auto datachannel = peer_conn_->CreateDataChannel(label, &datachannelinit);
+	label_datachannel_map_[label] = datachannel;
+
+	InitDataChannelObserverCallbacks(datachannel);
+
+	return true;
+}
+
+bool RtcConnection::SendData(const std::string& channel_label, const std::string& msg) {
+	if (!DataChannelExisted(channel_label)) {
+		LOG_ERROR("Send data failed, data channel (%s) not existed", channel_label.c_str());
+		return false;
+	}
+
+	auto datachannel = label_datachannel_map_[channel_label];
+	if (datachannel->state() != DataChannelState::kOpen) {
+		LOG_ERROR("Send data failed, data channel (%s) not opened", channel_label.c_str());
+		return false;
+	}
+
+	return datachannel->Send(webrtc::DataBuffer(msg));
+}
+
+void RtcConnection::InitDataChannelObserverCallbacks(rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) {
+	if (!datachannel) {
+		return;
+	}
+
+	auto observer = std::make_shared<DataChannelObserver>();
+	datachannel_observers_.emplace_back(observer);
+	datachannel->RegisterObserver(observer.get());
+
+	observer->on_statechange = [this, datachannel]() {
+		LOG_INFO("[WEBRTC] Data channel (%s) on state change, new state: %s", datachannel->label().c_str(),
+			webrtc::DataChannelInterface::DataStateString(datachannel->state()));
+	};
+
+	observer->on_message_ = [this, datachannel](const webrtc::DataBuffer& buffer) {
+		if (on_dc_message_received_) {
+			on_dc_message_received_(remote_sessionid_, datachannel->label(), 
+				std::string(buffer.data.data<char>(), buffer.data.size()));
+		}
+	};
 }
 
 void RtcConnection::InitObserverCallbacks() {
@@ -52,9 +114,19 @@ void RtcConnection::InitObserverCallbacks() {
 			}
 	};
 
-	peer_conn_observer_.on_data_channel_ = [this](rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
-		data_channel_ = data_channel;
-		data_channel_->RegisterObserver(&data_channel_observer_);
+	peer_conn_observer_.on_datachannel_ = [this](rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) {
+		if (!datachannel) {
+			return;
+		}
+
+		auto label = datachannel->label();
+		if (DataChannelExisted(label)) {
+			return;
+		}
+
+		label_datachannel_map_[label] = datachannel;
+
+		InitDataChannelObserverCallbacks(datachannel);
 	};
 
 	peer_conn_observer_.on_ice_candidate_ = [this](const webrtc::IceCandidateInterface* candidate) {
@@ -63,16 +135,6 @@ void RtcConnection::InitObserverCallbacks() {
 			candidate->ToString(&candidate_str);
 
 			on_ice_candidate_received_(remote_sessionid_, std::make_tuple(candidate_str, candidate->sdp_mid(), candidate->sdp_mline_index()));
-		}
-	};
-
-	data_channel_observer_.on_statechange = [this]() {
-		LOG_INFO("[WEBRTC] Data channel on state change, new state: %s", webrtc::DataChannelInterface::DataStateString(GetDataChannelState()));
-	};
-
-	data_channel_observer_.on_message_ = [this](const webrtc::DataBuffer& buffer) {
-		if (on_dc_message_received_) {
-			on_dc_message_received_(remote_sessionid_, std::string(buffer.data.data<char>(), buffer.data.size()));
 		}
 	};
 

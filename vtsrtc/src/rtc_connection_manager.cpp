@@ -199,6 +199,25 @@ void RtcConnectionManager::InitWebsocketCallbacks(const std::string& signaling_s
 		});
 }
 
+bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::DataChannelPriority priority,
+	bool ordered, int max_retransmits) {
+	if (label_datachannelinit_map_.find(label) != label_datachannelinit_map_.cend()) {
+		return false;
+	}
+
+	webrtc::DataChannelInit config;
+	config.ordered = ordered;
+	// if max_retransmits < 0, it means reliable
+	if (max_retransmits >= 0) {
+		config.maxRetransmits = max_retransmits;
+	}
+	config.priority = static_cast<webrtc::Priority>(priority);
+
+	label_datachannelinit_map_[label] = config;
+
+	return true;
+}
+
 bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid) {
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
 		return false;
@@ -207,6 +226,15 @@ bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_so
 	external_feed_tracksources_[video_sourceid] = 
 		new rtc::RefCountedObject<RtcExternalFeedTrackSource>(video_sourceid, std::make_unique<RtcVideoSource>());
 	return true;
+}
+
+vts_rtc::SessionIds RtcConnectionManager::QueryRemoteAgents() const {
+	vts_rtc::SessionIds remote_sessionids;
+	remote_sessionids.reserve(remotesessionid_rtcconn_map_.size());
+	for (const auto& sessionid_rtcconn : remotesessionid_rtcconn_map_) {
+		remote_sessionids.emplace_back(sessionid_rtcconn.first);
+	}
+	return remote_sessionids;
 }
 
 vts_rtc::RoomCode RtcConnectionManager::QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const {
@@ -417,51 +445,16 @@ vts_rtc::RoomCode RtcConnectionManager::LeaveRoom() {
 	}
 }
 
-vts_rtc::SessionIds RtcConnectionManager::QueryRemoteAgents() const {
-	vts_rtc::SessionIds remote_sessionids;
-	remote_sessionids.reserve(remotesessionid_rtcconn_map_.size());
-	for (const auto& sessionid_rtcconn : remotesessionid_rtcconn_map_) {
-		remote_sessionids.emplace_back(sessionid_rtcconn.first);
-	}
-	return remote_sessionids;
-}
-
-bool RtcConnectionManager::Send(const std::string& msg, vts_rtc::SessionId remote_sessionid) const {
-	// TO DO
-	// It's important to use buffered_amount() and OnBufferedAmountChange to
-	// ensure the data channel is used efficiently but without filling this buffer.
-	if (remotesessionid_rtcconn_map_.find(remote_sessionid) == remotesessionid_rtcconn_map_.cend()) {
-		LOG_ERROR("Send message to remote sessionid: %u, but sessionid not existed", remote_sessionid);
-		return false;
-	}
-
-	const auto& rtc_conn = remotesessionid_rtcconn_map_.at(remote_sessionid);
-	if (rtc_conn->GetDataChannelState() != RtcConnection::DataChannelState::kOpen) {
-		LOG_ERROR("Send message to remote sessionid: %u, but data channel not open", remote_sessionid);
-		return false;
-	}
-
-	rtc_conn->data_channel_->Send(webrtc::DataBuffer(msg));
-	return true;
-}
-
-bool RtcConnectionManager::Send(const std::string& msg, const vts_rtc::SessionIds& remote_sessionids) const {
+bool RtcConnectionManager::SendData(const std::string& channel_label, const std::string& msg) const {
 	bool succeed = false;
-	for (auto remote_sessionid : remote_sessionids) {
-		succeed |= this->Send(msg, remote_sessionid);
+	for (const auto& sessionid_rtcconn : remotesessionid_rtcconn_map_) {
+		succeed |= sessionid_rtcconn.second->SendData(channel_label, msg);
 	}
+
 	return succeed;
 }
 
-bool RtcConnectionManager::Broadcast(const std::string& msg) const {
-	vts_rtc::SessionIds remote_sessionids;
-	for (const auto& kv : remotesessionid_rtcconn_map_) {
-		remote_sessionids.emplace_back(kv.first);
-	}
-	return this->Send(msg, remote_sessionids);
-}
-
-void RtcConnectionManager::OnFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame) {
+void RtcConnectionManager::SendFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame) {
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
 		auto I420buffer = webrtc::I420Buffer::Copy(frame.width, frame.height,
 			frame.buffer, frame.stride_Y,
@@ -556,16 +549,22 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 	}
 
 	if (offer_peer) {
-		webrtc::DataChannelInit data_channel_config;
-		data_channel_config.ordered = true;
-		rtc_conn->data_channel_ = rtc_conn->peer_conn_->CreateDataChannel("rtc_datachannel", &data_channel_config);
-		if (!rtc_conn->data_channel_) {
-			LOG_ERROR("Interact remote peer, create data channel failed");
-			return;
+		// Add data channels (just for offer side for now)
+		for (const auto& label_dcinit : label_datachannelinit_map_) {
+			bool succeed = rtc_conn->AddDataChannel(label_dcinit.first, label_dcinit.second);
+			if (!succeed) {
+				LOG_ERROR("Add data channel (%s) failed", label_dcinit.first.c_str());
+			}
 		}
-		rtc_conn->data_channel_->RegisterObserver(&rtc_conn->data_channel_observer_);
+
+		// create offer
+		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+		options.offer_to_receive_audio = 1;
+		options.offer_to_receive_video = 1;
+		rtc_conn->peer_conn_->CreateOffer(rtc_conn->create_sdp_observer_.get(), options);
 	}
 	else {
+		// set remote offer SDP
 		webrtc::SdpParseError error;
 		auto remote_session_description = webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, remote_sdp, &error);
 		if (!remote_session_description) {
@@ -573,15 +572,9 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 			return;
 		}
 		rtc_conn->peer_conn_->SetRemoteDescription(std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
-	}
 
-	webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-	if (offer_peer) {
-		options.offer_to_receive_audio = 1;
-		options.offer_to_receive_video = 1;
-		rtc_conn->peer_conn_->CreateOffer(rtc_conn->create_sdp_observer_.get(), options);
-	}
-	else {
+		// create answer
+		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
 		options.offer_to_receive_audio = 1;
 		options.offer_to_receive_video = 1;
 		rtc_conn->peer_conn_->CreateAnswer(rtc_conn->create_sdp_observer_.get(), options);

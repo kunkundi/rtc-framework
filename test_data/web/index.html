@@ -197,7 +197,7 @@
             };
             
             if(offer_peer) {
-                rtcconn.data_channel = peerconn.createDataChannel("web_rtc_datachannel", { "ordered": true });
+                rtcconn.data_channel = peerconn.createDataChannel("datachannel", { "ordered": true, "priority": "high" });
                 SetDataChannelEventHandler(rtcconn.data_channel);
 
                 peerconn.createOffer({

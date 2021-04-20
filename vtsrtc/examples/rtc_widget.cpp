@@ -17,9 +17,9 @@
 QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
 RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
 
-void RtcWidget::HandleMessage(RtcSessionId remote_sessionid, const char* msg) {
+void RtcWidget::HandleMessage(RtcSessionId remote_sessionid, const char* channel_label, const char* msg) {
 	if (recv_msg_listwgt_) {
-		QString item_text = QString("%1 [from: %2]").arg(QString::fromLocal8Bit(msg)).arg(remote_sessionid);
+		QString item_text = QString("%1 [from sessionid: %2, channel label: %3]").arg(QString::fromLocal8Bit(msg)).arg(remote_sessionid).arg(QString::fromLocal8Bit(channel_label));
 		recv_msg_listwgt_->insertItem(0, item_text);
 	}
 }
@@ -209,8 +209,11 @@ void RtcWidget::JoinRoom() {
 		return;
 	}
 
+	auto code = RtcAddDataChannel("datachannel", RtcDataChannelPriority::High, true, -1);
+	CHECK_ERRORCODE
+
 	QByteArray roomid = rooms_combobox_->currentText().toLocal8Bit();
-	auto code = RtcJoinRoom(roomid.data());
+	code = RtcJoinRoom(roomid.data());
 	CHECK_ERRORCODE
 }
 
@@ -226,6 +229,6 @@ void RtcWidget::SendMessage() {
 	}
 
 	QByteArray msg = send_msg_edit_->text().toLocal8Bit();
-	auto code = RtcBroadcastMessage(msg.data());
+	auto code = RtcSendData("datachannel", msg.data());
 	CHECK_ERRORCODE
 }

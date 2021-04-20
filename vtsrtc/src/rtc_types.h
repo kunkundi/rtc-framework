@@ -18,7 +18,7 @@ using RoomId = std::string;
 using Rooms = std::map<RoomId, Room>;
 using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
-using RecvMessageHandler = std::function<void(SessionId, const std::string&)>;
+using RecvMessageHandler = std::function<void(SessionId, const std::string&, const std::string&)>;
 using RecvFrameHandler = std::function<void(const VideoSourceId&, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
 
 struct RtcConfig {
@@ -49,9 +49,16 @@ struct VideoDevice {
 	std::vector<VideoDeviceCapability> device_capabilities;
 };
 
+enum class DataChannelPriority {
+	VeryLow = 0,
+	Low,
+	Medium,
+	High,
+};
+
 enum class RoomType {
 	VideoBroadcasting = 0,  // one to many
-	VideoConference         // many to many, not implemented yet
+	VideoConference,        // many to many, not implemented yet
 };
 
 struct Room {

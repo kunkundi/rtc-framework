@@ -100,6 +100,13 @@ bool RtcAgent::AddVideoSource(const VideoSourceId& video_sourceid) const {
 	return rtc_conn_manager_->AddVideoSource(video_sourceid);
 }
 
+bool RtcAgent::AddDataChannel(const std::string& label,
+	DataChannelPriority priority,
+	bool ordered,
+	int max_retransmits) {
+	return rtc_conn_manager_->AddDataChannel(label, priority, ordered, max_retransmits);
+}
+
 RoomCode RtcAgent::QueryRoom(const RoomId& roomid, Room& room) const {
 	return rtc_conn_manager_->QueryRoom(roomid, room);
 }
@@ -124,20 +131,12 @@ SessionIds RtcAgent::QueryRemoteAgents() const {
 	return rtc_conn_manager_->QueryRemoteAgents();
 }
 
-bool RtcAgent::Send(const std::string& msg, SessionId remote_sessionid) const {
-	return rtc_conn_manager_->Send(msg, remote_sessionid);
-}
-
-bool RtcAgent::Send(const std::string& msg, const SessionIds & remote_sessionids) const {
-	return rtc_conn_manager_->Send(msg, remote_sessionids);
-}
-
-bool RtcAgent::Broadcast(const std::string& msg) const {
-	return rtc_conn_manager_->Broadcast(msg);
+bool RtcAgent::SendData(const std::string& channel_label, const std::string& msg) const {
+	return rtc_conn_manager_->SendData(channel_label, msg);
 }
 
 void RtcAgent::SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
-	rtc_conn_manager_->OnFrame(video_sourceid, video_frame);
+	rtc_conn_manager_->SendFrame(video_sourceid, video_frame);
 }
 
 VTS_RTC_NAMESPACE_END
