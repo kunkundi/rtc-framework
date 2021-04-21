@@ -10,7 +10,9 @@ RtcErrorCode ConvertCode(vts_rtc::RoomCode roomcode) {
 	return static_cast<RtcErrorCode>(roomcode);
 }
 
-RtcErrorCode RtcInitAgent(const char* config_filepath, RecvMessageHandler recv_msg_handler, RecvFrameHandler recv_frame_handler) {
+RtcErrorCode RtcInitAgent(const char* config_filepath,
+	RecvMessageHandler recv_msg_handler,
+	RecvFrameHandler recv_frame_handler) {
 	RtcDestoryAgent();
 
 	auto msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid, const std::string& channel_label, const std::string& msg) {
@@ -93,14 +95,19 @@ void RtcDestoryVideoDevices(RtcVideoDevices video_devices, size_t sz_video_devic
 	delete[] video_devices;
 }
 
-RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label, RtcDataChannelPriority priority, bool ordered, int max_retransmits) {
+RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label,
+	RtcPriorityType priority,
+	bool ordered,
+	int max_retransmits) {
 	CHECK_RTCAGENT_INITED
 
-	return rtc_agent->AddDataChannel(std::string(label), static_cast<vts_rtc::DataChannelPriority>(priority),
+	return rtc_agent->AddDataChannel(std::string(label), static_cast<vts_rtc::PriorityType>(priority),
 		ordered, max_retransmits) ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
-RtcErrorCode RtcAddDeviceVideoSource(size_t device_index, const RtcVideoDeviceCapability* in_device_capability) {
+RtcErrorCode RtcAddDeviceVideoSource(size_t device_index,
+	const RtcVideoDeviceCapability* in_device_capability,
+	RtcPriorityType priority) {
 	CHECK_RTCAGENT_INITED
 
 	vts_rtc::VideoDeviceCapability device_capability {
@@ -109,13 +116,15 @@ RtcErrorCode RtcAddDeviceVideoSource(size_t device_index, const RtcVideoDeviceCa
 		in_device_capability->max_fps
 	};
 
-	return rtc_agent->AddVideoSource(device_index, device_capability) ? RtcErrorCode::OK : RtcErrorCode::Failed;
+	return rtc_agent->AddVideoSource(device_index, device_capability,
+		static_cast<vts_rtc::PriorityType>(priority)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
-RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid) {
+RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid, RtcPriorityType priority) {
 	CHECK_RTCAGENT_INITED
 
-	return rtc_agent->AddVideoSource(std::string(video_sourceid)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
+	return rtc_agent->AddVideoSource(std::string(video_sourceid),
+		static_cast<vts_rtc::PriorityType>(priority)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
 RtcErrorCode RtcQueryRoom(const RtcRoomId roomid, RtcRoom* out_room) {
@@ -210,7 +219,8 @@ RtcErrorCode RtcLeaveRoom() {
 RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg) {
 	CHECK_RTCAGENT_INITED
 
-	return rtc_agent->SendData(std::string(channel_label), std::string(msg)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
+	return rtc_agent->SendData(std::string(channel_label), std::string(msg)) ?
+		RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
 RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame* in_video_frame) {

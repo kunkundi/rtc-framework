@@ -92,19 +92,20 @@ VideoDevices RtcAgent::GetVideoDevices() const {
 	return rtc_device_manager_->GetVideoDevices();
 }
 
-bool RtcAgent::AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const {
-	return rtc_device_manager_->AddVideoCapturer(device_index, device_capability);
-}
-
-bool RtcAgent::AddVideoSource(const VideoSourceId& video_sourceid) const {
-	return rtc_conn_manager_->AddVideoSource(video_sourceid);
-}
-
 bool RtcAgent::AddDataChannel(const std::string& label,
-	DataChannelPriority priority,
+	PriorityType priority,
 	bool ordered,
 	int max_retransmits) {
 	return rtc_conn_manager_->AddDataChannel(label, priority, ordered, max_retransmits);
+}
+
+bool RtcAgent::AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability,
+	PriorityType priority) const {
+	return rtc_device_manager_->AddVideoCapturer(device_index, device_capability, priority);
+}
+
+bool RtcAgent::AddVideoSource(const VideoSourceId& video_sourceid, PriorityType priority) const {
+	return rtc_conn_manager_->AddVideoSource(video_sourceid, priority);
 }
 
 RoomCode RtcAgent::QueryRoom(const RoomId& roomid, Room& room) const {

@@ -28,6 +28,10 @@ RtcConnectionManager::~RtcConnectionManager() {
 			adm_taskqueue_ = nullptr;
 			audio_device_moudle_ = nullptr;
 		});
+
+	// TO DO
+	// @attention: must be called here, otherwise crash (why!!!)
+	rtpsender_priority_map_.clear();
 }
 
 bool RtcConnectionManager::Init() {
@@ -199,7 +203,7 @@ void RtcConnectionManager::InitWebsocketCallbacks(const std::string& signaling_s
 		});
 }
 
-bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::DataChannelPriority priority,
+bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::PriorityType priority,
 	bool ordered, int max_retransmits) {
 	if (label_datachannelinit_map_.find(label) != label_datachannelinit_map_.cend()) {
 		return false;
@@ -218,13 +222,13 @@ bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::Dat
 	return true;
 }
 
-bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid) {
+bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid, vts_rtc::PriorityType priority) {
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
 		return false;
 	}
 
 	external_feed_tracksources_[video_sourceid] = 
-		new rtc::RefCountedObject<RtcExternalFeedTrackSource>(video_sourceid, std::make_unique<RtcVideoSource>());
+		new rtc::RefCountedObject<RtcExternalFeedTrackSource>(video_sourceid, std::make_unique<RtcVideoSource>(), priority);
 	return true;
 }
 
@@ -470,6 +474,31 @@ void RtcConnectionManager::SendFrame(const vts_rtc::VideoSourceId& video_sourcei
 	}
 }
 
+void RtcConnectionManager::SetRtpSendersPriority() {
+	for (const auto& rtpsender_priority : rtpsender_priority_map_) {
+		auto& rtpsender = rtpsender_priority.first;
+		auto rtpparams = rtpsender->GetParameters();
+		if (rtpparams.encodings.size() > 0) {
+			std::map<vts_rtc::PriorityType, double> bitrate_priority_map = {
+				{ vts_rtc::PriorityType::VeryLow, 0.5 },
+				{ vts_rtc::PriorityType::Low, 1.0 },
+				{ vts_rtc::PriorityType::Medium, 2.0 },
+				{ vts_rtc::PriorityType::High, 4.0 }
+			};
+
+			rtpparams.encodings[0].bitrate_priority = bitrate_priority_map[rtpsender_priority.second];
+			rtpparams.encodings[0].network_priority = static_cast<webrtc::Priority>(rtpsender_priority.second);
+			auto error = rtpsender->SetParameters(rtpparams);
+			if (!error.ok()) {
+				LOG_WARN("Set priority of rtpsender (%s) failed, reason: %s", rtpsender->id().c_str(), error.message());
+			}
+		}
+		else {
+			LOG_WARN("Set priority of rtpsender (%s) failed, reason: encodings empty", rtpsender->id().c_str());
+		}
+	}
+}
+
 void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp) {
 	auto rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
 
@@ -538,14 +567,33 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		auto video_track_sources = rtc_device_manager_->GetVideoTrackSources();
 		for (const auto& track_source : video_track_sources) {
 			auto video_track = peer_conn_factory_->CreateVideoTrack("track_" + track_source->GetLabel(), track_source.get());
-			rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + track_source->GetLabel() });
+			auto rtpsender_error = rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + track_source->GetLabel() });			
+			if (rtpsender_error.ok()) {
+				auto rtpsender = rtpsender_error.value();
+				if (rtpsender) {
+					rtpsender_priority_map_[rtpsender] = track_source->GetPriority();
+				}
+			}
+			else {
+				LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s", track_source->GetLabel().c_str(), rtpsender_error.error().message());
+			}
 		}
 	}
 
 	// Add external feed video tracks
 	for (const auto& id_tracksource : external_feed_tracksources_) {
-		auto video_track = peer_conn_factory_->CreateVideoTrack("track_" + id_tracksource.second->label_, id_tracksource.second.get());
-		rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + id_tracksource.second->label_ });
+		auto track_source = id_tracksource.second;
+		auto video_track = peer_conn_factory_->CreateVideoTrack("track_" + track_source->label_, track_source.get());
+		auto rtpsender_error = rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + track_source->label_ });
+		if (rtpsender_error.ok()) {
+			auto rtpsender = rtpsender_error.value();
+			if (rtpsender) {
+				rtpsender_priority_map_[rtpsender] = track_source->priority_;
+			}
+		}
+		else {
+			LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s", track_source->label_.c_str(), rtpsender_error.error().message());
+		}
 	}
 
 	if (offer_peer) {
@@ -578,6 +626,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		options.offer_to_receive_audio = 1;
 		options.offer_to_receive_video = 1;
 		rtc_conn->peer_conn_->CreateAnswer(rtc_conn->create_sdp_observer_.get(), options);
+
+		this->SetRtpSendersPriority();
 	}
 
 	remotesessionid_rtcconn_map_[remote_sessionid] = rtc_conn;
@@ -598,4 +648,6 @@ void RtcConnectionManager::AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid,
 		return;
 	}
 	rtc_conn->peer_conn_->SetRemoteDescription(std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
+
+	this->SetRtpSendersPriority();
 }

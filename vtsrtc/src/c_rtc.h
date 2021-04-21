@@ -65,12 +65,12 @@ typedef struct RtcVideoDevice {
 
 typedef RtcVideoDevice* RtcVideoDevices;
 
-typedef enum RtcDataChannelPriority {
+typedef enum RtcPriorityType {
 	VeryLow = 0,
 	Low,
 	Medium,
 	High,
-} RtcDataChannelPriority;
+} RtcPriorityType;
 
 typedef struct RtcYUV420pFrame {
 	size_t width;
@@ -100,7 +100,9 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 初始化失败
 	 * @attention 调用其他函数前，必须首先调用该函数
 	 */
-	RTC_API RtcErrorCode RtcInitAgent(const char* config_filepath, RecvMessageHandler recv_msg_handler, RecvFrameHandler recv_frame_handler);
+	RTC_API RtcErrorCode RtcInitAgent(const char* config_filepath,
+		RecvMessageHandler recv_msg_handler,
+		RecvFrameHandler recv_frame_handler);
 	
 	/**
 	 * @brief 释放Rtc Agent资源
@@ -144,7 +146,10 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 增加数据通道失败
 	 * @attention: 必须由加入房间的一端调用才会生效，打开房间的一端调用不会生效
 	 */
-	RTC_API RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label, RtcDataChannelPriority priority, bool ordered, int max_retransmits);
+	RTC_API RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label,
+		RtcPriorityType priority,
+		bool ordered,
+		int max_retransmits);
 
 	/**
 	 * @brief 增加摄像头设备视频源
@@ -156,7 +161,9 @@ extern "C" {
 	 *   @retval RtcErrorCode::AgentNotInited 增加源失败，因为Rtc Agent未成功初始化
 	 *   @retval RtcErrorCode::Failed 增加源失败，设备被占用
 	 */
-	RTC_API RtcErrorCode RtcAddDeviceVideoSource(size_t device_index, const RtcVideoDeviceCapability* device_capability);
+	RTC_API RtcErrorCode RtcAddDeviceVideoSource(size_t device_index,
+		const RtcVideoDeviceCapability* device_capability,
+		RtcPriorityType priority);
 	
 	/**
 	 * @brief 增加来自外部的视频源（图像帧可能来自视频文件，或者是外部程序读取的摄像头捕获帧）
@@ -168,7 +175,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 增加源失败，video_sourceid重复
 	 * @attention 函数参数必须与SendFrame函数和RecvFrameHandler回调函数的video_sourceid相一致
 	 */
-	RTC_API RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid);
+	RTC_API RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid, RtcPriorityType priority);
 
 	/**
 	 * @brief 请求房间的详细信息

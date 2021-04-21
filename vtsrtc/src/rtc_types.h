@@ -49,7 +49,7 @@ struct VideoDevice {
 	std::vector<VideoDeviceCapability> device_capabilities;
 };
 
-enum class DataChannelPriority {
+enum class PriorityType {
 	VeryLow = 0,
 	Low,
 	Medium,

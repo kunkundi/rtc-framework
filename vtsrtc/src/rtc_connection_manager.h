@@ -37,8 +37,13 @@ VTS_RTC_NAMESPACE_END
 
 class RtcExternalFeedTrackSource : public webrtc::VideoTrackSource {
 public:
-	explicit RtcExternalFeedTrackSource(const std::string& label, std::unique_ptr<RtcVideoSource> video_source)
-		: webrtc::VideoTrackSource(false), label_(label), video_source_(std::move(video_source)) {}
+	explicit RtcExternalFeedTrackSource(const std::string& label,
+		std::unique_ptr<RtcVideoSource> video_source,
+		vts_rtc::PriorityType priority)
+		: webrtc::VideoTrackSource(false),
+		label_(label),
+		video_source_(std::move(video_source)),
+		priority_(priority) {}
 
 private:
 	rtc::VideoSourceInterface<webrtc::VideoFrame>* source() override {
@@ -48,6 +53,7 @@ private:
 public:
 	std::string label_ = "external_feed";
 	std::unique_ptr<RtcVideoSource> video_source_;
+	vts_rtc::PriorityType priority_ = vts_rtc::PriorityType::Low;
 };
 
 class RtcConnectionManager {
@@ -63,9 +69,9 @@ public:
 	~RtcConnectionManager();
 	bool Init();
 
-	bool AddDataChannel(const std::string& label, vts_rtc::DataChannelPriority priority,
+	bool AddDataChannel(const std::string& label, vts_rtc::PriorityType priority,
 		bool ordered, int max_retransmits);
-	bool AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid);
+	bool AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid, vts_rtc::PriorityType priority);
 
 	vts_rtc::SessionIds QueryRemoteAgents() const;
 	vts_rtc::RoomCode QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const;
@@ -80,6 +86,8 @@ public:
 private:
 	bool InitPeerConnectionFactory();
 	void InitWebsocketCallbacks(const std::string& signaling_server_url);
+	// @attention: must be called after CreateAnswer on ANSWER side or SetRemoteDescription on OFFER side
+	void SetRtpSendersPriority();
 	void InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp);
 	void AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp);
 
@@ -98,6 +106,7 @@ private:
 
 	std::shared_ptr<RtcDeviceManager> rtc_device_manager_ = nullptr;
 	std::map<vts_rtc::VideoSourceId, rtc::scoped_refptr<RtcExternalFeedTrackSource>> external_feed_tracksources_;
+	std::map<rtc::scoped_refptr<webrtc::RtpSenderInterface>, vts_rtc::PriorityType> rtpsender_priority_map_;
 
 	std::map<std::string, webrtc::DataChannelInit> label_datachannelinit_map_;
 

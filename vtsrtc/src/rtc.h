@@ -20,13 +20,15 @@ public:
 
 	// add data channel (attention: just for JoinRoom side, not work for OpenRoom side)
 	bool AddDataChannel(const std::string& label,
-		DataChannelPriority priority = DataChannelPriority::Low,
+		PriorityType priority = PriorityType::Low,
 		bool ordered = true,
 		int max_retransmits = -1);
 
 	// add video source, from camera capturer OR from external feed
-	bool AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability) const;
-	bool AddVideoSource(const VideoSourceId& video_sourceid) const;
+	bool AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability,
+		PriorityType priority = PriorityType::Low) const;
+	bool AddVideoSource(const VideoSourceId& video_sourceid,
+		PriorityType priority = PriorityType::Low) const;
 
 	// room management
 	// @retval OK, InternalError, RoomNotExisted

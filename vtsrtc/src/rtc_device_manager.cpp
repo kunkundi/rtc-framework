@@ -44,17 +44,21 @@ vts_rtc::VideoDevices RtcDeviceManager::GetVideoDevices() {
 	return video_devices;
 }
 
-bool RtcDeviceManager::AddVideoCapturer(size_t device_index, const vts_rtc::VideoDeviceCapability& device_capability) {
+bool RtcDeviceManager::AddVideoCapturer(size_t device_index,
+	const vts_rtc::VideoDeviceCapability& device_capability,
+	vts_rtc::PriorityType priority) {
 	auto video_devices = this->GetVideoDevices();
 
 	if (device_index >= video_devices.size()) {
-		LOG_ERROR("Get video track sources, device_index (%llu) out of range, video_devices size: %llu", device_index, video_devices.size());
+		LOG_ERROR("Get video track sources, device_index (%llu) out of range, "
+			"video_devices size: %llu", device_index, video_devices.size());
 		return false;
 	}
 
 	auto label = std::string("camera_capturer") + std::to_string(device_index);
 	auto device_uniqueid = video_devices[device_index].device_uniqueid;
-	auto track_source = RtcCameraCapturerTrackSource::Create(label, device_uniqueid, device_capability);
+	auto track_source = RtcCameraCapturerTrackSource::Create(
+		label, device_uniqueid, device_capability, priority);
 	if (track_source) {
 		track_sources_.emplace_back(track_source);
 		return true;

@@ -186,7 +186,7 @@ void RtcWidget::OpenRoom() {
 	auto current_idx = videosources_combobox_->currentIndex();
 	if (current_idx == videosources_combobox_->count() - 1) {
 		// YUV420p video source
-		auto code = RtcAddExternalVideoSource("external_feed");
+		auto code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
 		CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {
@@ -198,7 +198,7 @@ void RtcWidget::OpenRoom() {
 	else {
 		// Camera video source
 		RtcVideoDeviceCapability device_capability { 1280, 720, 30 };
-		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability);
+		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability, RtcPriorityType::High);
 		CHECK_ERRORCODE
 	}
 }
@@ -209,7 +209,7 @@ void RtcWidget::JoinRoom() {
 		return;
 	}
 
-	auto code = RtcAddDataChannel("datachannel", RtcDataChannelPriority::High, true, -1);
+	auto code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
 	CHECK_ERRORCODE
 
 	QByteArray roomid = rooms_combobox_->currentText().toLocal8Bit();
