@@ -35,7 +35,10 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath, const QString& yuv_
 	: yuv_folderpath_(yuv_folderpath), QWidget(parent) {
 	CreateUI();
 
-	auto code = RtcInitAgent(rtc_config_filepath.c_str(), HandleMessage, HandleFrame);
+	auto code = RtcInitAgent(rtc_config_filepath.c_str(), HandleMessage, HandleFrame, nullptr);
+	CHECK_ERRORCODE
+
+	code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
 	CHECK_ERRORCODE
 
 	videosources_combobox_->clear();
@@ -209,11 +212,8 @@ void RtcWidget::JoinRoom() {
 		return;
 	}
 
-	auto code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
-	CHECK_ERRORCODE
-
 	QByteArray roomid = rooms_combobox_->currentText().toLocal8Bit();
-	code = RtcJoinRoom(roomid.data());
+	auto code = RtcJoinRoom(roomid.data());
 	CHECK_ERRORCODE
 }
 

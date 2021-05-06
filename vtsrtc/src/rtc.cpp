@@ -7,7 +7,8 @@ VTS_RTC_NAMESPACE_BEGIN
 
 std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepath, 
 	const RecvMessageHandler& recv_msg_handler,
-	const RecvFrameHandler& recv_frame_handler) {
+	const RecvFrameHandler& recv_frame_handler,
+	const NetworkDisconnectedHandler& network_disconnected_handler) {
 	LogInst->init();
 
 	// check if content of rtc_config_filepath is valid json format
@@ -63,81 +64,151 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepat
 		}
 	}
 
-	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config, recv_msg_handler, recv_frame_handler));
+	if (rtc_cfg_obj.contains("ping_timeout")) {
+		rtc_config.ping_timeout = rtc_cfg_obj["ping_timeout"].get<long>();
+	}
+
+	if (rtc_cfg_obj.contains("pong_timeout")) {
+		rtc_config.pong_timeout = rtc_cfg_obj["pong_timeout"].get<long>();
+	}
+
+	if (rtc_cfg_obj.contains("reconnect_timeout")) {
+		rtc_config.reconnect_timeout = rtc_cfg_obj["reconnect_timeout"].get<long>();
+	}
+
+	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
+		rtc_config, recv_msg_handler, recv_frame_handler, network_disconnected_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
 std::shared_ptr<RtcAgent> RtcAgent::Create(const RtcConfig& rtc_config, 
 	const RecvMessageHandler& recv_msg_handler,
-	const RecvFrameHandler& recv_frame_handler) {
+	const RecvFrameHandler& recv_frame_handler,
+	const NetworkDisconnectedHandler& network_disconnected_handler) {
 	LogInst->init();
 
-	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config, recv_msg_handler, recv_frame_handler));
+	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
+		rtc_config, recv_msg_handler, recv_frame_handler, network_disconnected_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
 RtcAgent::RtcAgent(const RtcConfig& rtc_config, 
 	const RecvMessageHandler& recv_msg_handler,
-	const RecvFrameHandler& recv_frame_handler)
-	: rtc_device_manager_{ std::make_shared<RtcDeviceManager>() },
-	rtc_conn_manager_{ std::make_unique<RtcConnectionManager>(
-		rtc_config, rtc_device_manager_, recv_msg_handler, recv_frame_handler) } {
+	const RecvFrameHandler& recv_frame_handler,
+	const NetworkDisconnectedHandler& network_disconnected_handler) {
+	logic_thread_ = rtc::Thread::Create();
+	logic_thread_->SetName("logic-thread", nullptr);
+	logic_thread_->Start();
+
+	logic_thread_->Invoke<void>(RTC_FROM_HERE,
+		[this, &rtc_config, &recv_msg_handler, &recv_frame_handler, &network_disconnected_handler]() {
+			rtc_device_manager_ = std::make_shared<RtcDeviceManager>();
+			rtc_conn_manager_ = std::make_unique<RtcConnectionManager>(
+				rtc_config, rtc_device_manager_, recv_msg_handler, recv_frame_handler, network_disconnected_handler);
+		});
+}
+
+RtcAgent::~RtcAgent() {
+	logic_thread_->Invoke<void>(RTC_FROM_HERE,
+		[this]() {
+			rtc_device_manager_ = nullptr;
+			rtc_conn_manager_ = nullptr;
+		});
 }
 
 bool RtcAgent::Init() {
-	return rtc_conn_manager_->Init();
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
+		[this]() {
+			return rtc_conn_manager_->Init();
+		});
 }
 
 VideoDevices RtcAgent::GetVideoDevices() const {
-	return rtc_device_manager_->GetVideoDevices();
+	return logic_thread_->Invoke<VideoDevices>(RTC_FROM_HERE,
+		[this]() {
+			return rtc_device_manager_->GetVideoDevices();
+		});
 }
 
 bool RtcAgent::AddDataChannel(const std::string& label,
 	PriorityType priority,
 	bool ordered,
 	int max_retransmits) {
-	return rtc_conn_manager_->AddDataChannel(label, priority, ordered, max_retransmits);
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
+		[this, &label, priority, ordered, max_retransmits]() {
+			return rtc_conn_manager_->AddDataChannel(label, priority, ordered, max_retransmits);
+		});
 }
 
 bool RtcAgent::AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability,
 	PriorityType priority) const {
-	return rtc_device_manager_->AddVideoCapturer(device_index, device_capability, priority);
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
+		[this, device_index, &device_capability, priority]() {
+			return rtc_device_manager_->AddVideoCapturer(device_index, device_capability, priority);
+		});
 }
 
 bool RtcAgent::AddVideoSource(const VideoSourceId& video_sourceid, PriorityType priority) const {
-	return rtc_conn_manager_->AddVideoSource(video_sourceid, priority);
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
+		[this, &video_sourceid, priority]() {
+			return rtc_conn_manager_->AddVideoSource(video_sourceid, priority);
+		});
 }
 
 RoomCode RtcAgent::QueryRoom(const RoomId& roomid, Room& room) const {
-	return rtc_conn_manager_->QueryRoom(roomid, room);
+	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+		[this, &roomid, &room]() {
+			return rtc_conn_manager_->QueryRoom(roomid, room);
+		});
 }
 
 RoomCode RtcAgent::QueryRooms(Rooms& rooms) const {
-	return rtc_conn_manager_->QueryRooms(rooms);
+	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+		[this, &rooms]() {
+			return rtc_conn_manager_->QueryRooms(rooms);
+		});
 }
 
 RoomCode RtcAgent::OpenRoom(const RoomId& roomid, enum RoomType room_type) const {
-	return rtc_conn_manager_->OpenRoom(roomid, room_type);
+	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+		[this, &roomid, room_type]() {
+			return rtc_conn_manager_->OpenRoom(roomid, room_type);
+		});
 }
 
 RoomCode RtcAgent::JoinRoom(const RoomId& roomid) const {
-	return rtc_conn_manager_->JoinRoom(roomid);
+	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+		[this, &roomid]() {
+			return rtc_conn_manager_->JoinRoom(roomid);
+		});
 }
 
 RoomCode RtcAgent::LeaveRoom() const {
-	return rtc_conn_manager_->LeaveRoom();
+	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+		[this]() {
+			return rtc_conn_manager_->LeaveRoom();
+		});
 }
 
 SessionIds RtcAgent::QueryRemoteAgents() const {
-	return rtc_conn_manager_->QueryRemoteAgents();
+	return logic_thread_->Invoke<SessionIds>(RTC_FROM_HERE,
+		[this]() {
+			return rtc_conn_manager_->QueryRemoteAgents();
+		});
 }
 
 bool RtcAgent::SendData(const std::string& channel_label, const std::string& msg) const {
-	return rtc_conn_manager_->SendData(channel_label, msg);
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
+		[this, &channel_label, &msg]() {
+			return rtc_conn_manager_->SendData(channel_label, msg);
+		});
 }
 
 void RtcAgent::SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const {
-	rtc_conn_manager_->SendFrame(video_sourceid, video_frame);
+	return logic_thread_->Invoke<void>(RTC_FROM_HERE,
+		[this, &video_sourceid, &video_frame]() {
+			rtc_conn_manager_->SendFrame(video_sourceid, video_frame);
+		});
 }
 
 VTS_RTC_NAMESPACE_END

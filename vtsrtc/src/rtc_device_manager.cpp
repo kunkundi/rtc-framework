@@ -1,6 +1,13 @@
 #include "rtc_device_manager.h"
 #include "rtc_videocapturer.hpp"
-#include <iostream>
+
+RtcDeviceManager::RtcDeviceManager() :
+	logic_thread_(rtc::Thread::Current()){
+}
+
+RtcDeviceManager::~RtcDeviceManager() {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+}
 
 vts_rtc::VideoDevices RtcDeviceManager::GetVideoDevices() {
 	std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> vcm_deviceinfo(
@@ -47,6 +54,8 @@ vts_rtc::VideoDevices RtcDeviceManager::GetVideoDevices() {
 bool RtcDeviceManager::AddVideoCapturer(size_t device_index,
 	const vts_rtc::VideoDeviceCapability& device_capability,
 	vts_rtc::PriorityType priority) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	auto video_devices = this->GetVideoDevices();
 
 	if (device_index >= video_devices.size()) {
@@ -67,5 +76,7 @@ bool RtcDeviceManager::AddVideoCapturer(size_t device_index,
 }
 
 RtcDeviceManager::RtcCCTrackSources RtcDeviceManager::GetVideoTrackSources() const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	return track_sources_;
 }

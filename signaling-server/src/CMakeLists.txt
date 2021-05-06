@@ -1,4 +1,4 @@
-project(signaling-server VERSION 0.2.0)
+project(signaling-server VERSION 0.3.0)
 set(target signaling-server)
 
 list(APPEND CMAKE_MODULE_PATH
@@ -48,14 +48,17 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG}/web/index.html")
         file(COPY "${CMAKE_SOURCE_DIR}/test_data/web" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+        file(COPY "${CMAKE_SOURCE_DIR}/test_data/signaling-server.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
     endif()
 
     if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE}/web/index.html")
         file(COPY "${CMAKE_SOURCE_DIR}/test_data/web" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
+        file(COPY "${CMAKE_SOURCE_DIR}/test_data/signaling-server.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
     endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/web/index.html")
         file(COPY "${CMAKE_SOURCE_DIR}/test_data/web" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+        file(COPY "${CMAKE_SOURCE_DIR}/test_data/signaling-server.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
     endif()
 endif()
 

@@ -1,11 +1,24 @@
 #include "rtc_connection.h"
 
 RtcConnection::RtcConnection(vts_rtc::SessionId local_sessionid, vts_rtc::SessionId remote_sessionid) 
-	: local_sessionid_(local_sessionid), remote_sessionid_(remote_sessionid) {
+	: logic_thread_(rtc::Thread::Current()),
+	local_sessionid_(local_sessionid),
+	remote_sessionid_(remote_sessionid) {
 	InitObserverCallbacks();
 }
 
 RtcConnection::~RtcConnection() {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	// send an empty frame when destory RtcConnection
+	if (on_frame_received_) {
+		std::vector<unsigned char> empty_buffer(0);
+		for (const auto& videosink : rtc_pc_videosinks_) {
+			on_frame_received_(videosink->trackid_, 0, 0, 4, empty_buffer);
+		}
+	}
+	rtc_pc_videosinks_.clear();
+
 	for (const auto& label_datachannel : label_datachannel_map_) {
 		auto datachannel = label_datachannel.second;
 		if (datachannel) {
@@ -20,6 +33,8 @@ RtcConnection::~RtcConnection() {
 }
 
 RtcConnection::PeerConnState RtcConnection::GetPeerConnectionState() const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	if (peer_conn_) {
 		return peer_conn_->peer_connection_state();
 	}
@@ -27,6 +42,8 @@ RtcConnection::PeerConnState RtcConnection::GetPeerConnectionState() const {
 }
 
 bool RtcConnection::DataChannelExisted(const std::string& label) const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	if (label_datachannel_map_.find(label) == label_datachannel_map_.cend()) {
 		return false;
 	}
@@ -35,6 +52,8 @@ bool RtcConnection::DataChannelExisted(const std::string& label) const {
 }
 
 RtcConnection::DataChannelState RtcConnection::GetDataChannelState(const std::string& label) const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	if (!DataChannelExisted(label)) {
 		return DataChannelState::kClosed;
 	}
@@ -43,6 +62,8 @@ RtcConnection::DataChannelState RtcConnection::GetDataChannelState(const std::st
 }
 
 bool RtcConnection::AddDataChannel(const std::string& label, const webrtc::DataChannelInit& datachannelinit) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	if (DataChannelExisted(label) || !peer_conn_) {
 		return false;
 	}
@@ -56,6 +77,8 @@ bool RtcConnection::AddDataChannel(const std::string& label, const webrtc::DataC
 }
 
 bool RtcConnection::SendData(const std::string& channel_label, const std::string& msg) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	if (!DataChannelExisted(channel_label)) {
 		LOG_ERROR("Send data failed, data channel (%s) not existed", channel_label.c_str());
 		return false;
@@ -71,6 +94,8 @@ bool RtcConnection::SendData(const std::string& channel_label, const std::string
 }
 
 void RtcConnection::InitDataChannelObserverCallbacks(rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	if (!datachannel) {
 		return;
 	}
@@ -93,6 +118,8 @@ void RtcConnection::InitDataChannelObserverCallbacks(rtc::scoped_refptr<webrtc::
 }
 
 void RtcConnection::InitObserverCallbacks() {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	peer_conn_observer_.on_iceconnect_failed = [this]() {
 		if (on_iceconnect_failed) {
 			on_iceconnect_failed(remote_sessionid_);
@@ -115,18 +142,21 @@ void RtcConnection::InitObserverCallbacks() {
 	};
 
 	peer_conn_observer_.on_datachannel_ = [this](rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) {
-		if (!datachannel) {
-			return;
-		}
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, datachannel]() {
+				if (!datachannel) {
+					return;
+				}
 
-		auto label = datachannel->label();
-		if (DataChannelExisted(label)) {
-			return;
-		}
+				auto label = datachannel->label();
+				if (DataChannelExisted(label)) {
+					return;
+				}
 
-		label_datachannel_map_[label] = datachannel;
+				label_datachannel_map_[label] = datachannel;
 
-		InitDataChannelObserverCallbacks(datachannel);
+				InitDataChannelObserverCallbacks(datachannel);
+			});
 	};
 
 	peer_conn_observer_.on_ice_candidate_ = [this](const webrtc::IceCandidateInterface* candidate) {
@@ -145,7 +175,11 @@ void RtcConnection::InitObserverCallbacks() {
 			desc->ToString(&sdp);
 			on_create_sdp_succeed_(remote_sessionid_, sdp);
 		}
-		peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
+
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, desc]() {
+				peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
+			});
 	};
 
 	set_sdp_observer_ = new rtc::RefCountedObject<SetSessionDescriptionObserver>();

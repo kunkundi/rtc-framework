@@ -9,11 +9,13 @@ class RtcAgent {
 public:
 	static std::shared_ptr<RtcAgent> Create(const std::string& rtc_config_filepath, 
 		const RecvMessageHandler& recv_msg_handler = nullptr,
-		const RecvFrameHandler& recv_frame_handler = nullptr);
+		const RecvFrameHandler& recv_frame_handler = nullptr,
+		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
 	static std::shared_ptr<RtcAgent> Create(const RtcConfig& rtc_config, 
 		const RecvMessageHandler& recv_msg_handler = nullptr,
-		const RecvFrameHandler& recv_frame_handler = nullptr);
-	~RtcAgent() = default;
+		const RecvFrameHandler& recv_frame_handler = nullptr,
+		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
+	~RtcAgent();
 
 	// video devices releated
 	VideoDevices GetVideoDevices() const;
@@ -52,11 +54,13 @@ public:
 private:
 	explicit RtcAgent(const RtcConfig& rtc_config, 
 		const RecvMessageHandler& recv_msg_handler, 
-		const RecvFrameHandler& recv_frame_handler);
+		const RecvFrameHandler& recv_frame_handler,
+		const NetworkDisconnectedHandler& network_disconnected_handler);
 	// Init RtcAgent, mainly for RtcConnectionManager initialization
 	bool Init();
 
 private:
+	std::unique_ptr<rtc::Thread> logic_thread_;
 	std::shared_ptr<RtcDeviceManager> rtc_device_manager_;
 	std::unique_ptr<RtcConnectionManager> rtc_conn_manager_;
 };

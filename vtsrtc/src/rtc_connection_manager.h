@@ -60,12 +60,14 @@ class RtcConnectionManager {
 	using HttpClient = SimpleWeb::Client<SimpleWeb::HTTP>;
 	using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 	using WsConnection = std::shared_ptr<WsClient::Connection>;
+	using SteadyTimer = std::shared_ptr<SimpleWeb::asio::steady_timer>;
 
 public:
 	explicit RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 		std::shared_ptr<RtcDeviceManager> device_manager,
 		const vts_rtc::RecvMessageHandler& recv_msg_handler,
-		const vts_rtc::RecvFrameHandler& recv_frame_handler);
+		const vts_rtc::RecvFrameHandler& recv_frame_handler,
+		const vts_rtc::NetworkDisconnectedHandler& network_disconnected_handler);
 	~RtcConnectionManager();
 	bool Init();
 
@@ -85,22 +87,37 @@ public:
 
 private:
 	bool InitPeerConnectionFactory();
-	void InitWebsocketCallbacks(const std::string& signaling_server_url);
+	void InitWebsocket();
+	void SetPingTimeout(const SimpleWeb::error_code& ec);
+	void ReconnectWebsocket();
 	// @attention: must be called after CreateAnswer on ANSWER side or SetRemoteDescription on OFFER side
 	void SetRtpSendersPriority();
 	void InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp);
 	void AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp);
 
 private:
-	vts_rtc::RtcConfig rtc_config_;
+	// logic_thread_ is created in RtcAgent Constructor method
+	// @attention: call some method in logic_thread_ to avoid data synchronization, mainly
+	// for InteractRemotePeer method and AckRemotePeerSdp method
+	rtc::Thread* logic_thread_ = nullptr;
+
+	const vts_rtc::RtcConfig rtc_config_;
 	vts_rtc::RecvMessageHandler recv_msg_handler_ = nullptr;
 	vts_rtc::RecvFrameHandler recv_frame_handler_ = nullptr;
+	vts_rtc::NetworkDisconnectedHandler network_disconnected_handler_ = nullptr;
 
-	std::shared_ptr<HttpClient> http_client_;
-	std::shared_ptr<vts_rtc::SessionId> current_sessionid_ = nullptr;
+	std::shared_ptr<HttpClient> http_client_ = nullptr;
+	// @attention: io_context run, stop, get_executor method is thread-safe
+	std::shared_ptr<SimpleWeb::io_context> ws_io_context_ = nullptr;
+	bool network_disconnected_notified_ = false;
+	bool lock_reconnect_ = false;
+	SteadyTimer ping_timer_ = nullptr, pong_timer_ = nullptr, reconnect_timer_ = nullptr;
 	// @attention: WsClient start() and stop() method is thread-safe
 	std::shared_ptr<WsClient> ws_client_ = nullptr;
-	std::thread ws_client_thread_;
+	std::unique_ptr<rtc::Thread> ws_client_thread_ = nullptr;
+	// shared mutex for current_sessionid_ and ws_conn_
+	std::mutex cursessionid_wsconn_mtx_;
+	std::shared_ptr<vts_rtc::SessionId> current_sessionid_ = nullptr;
 	// @attention: WsConnection send() and send_close() is thread-safe
 	WsConnection ws_conn_ = nullptr;
 

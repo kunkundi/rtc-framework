@@ -12,19 +12,33 @@ RtcErrorCode ConvertCode(vts_rtc::RoomCode roomcode) {
 
 RtcErrorCode RtcInitAgent(const char* config_filepath,
 	RecvMessageHandler recv_msg_handler,
-	RecvFrameHandler recv_frame_handler) {
+	RecvFrameHandler recv_frame_handler,
+	NetworkDisconnectedHandler network_disconnected_handler) {
 	RtcDestoryAgent();
 
-	auto msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid, const std::string& channel_label, const std::string& msg) {
-		recv_msg_handler(sessionid, channel_label.c_str(), msg.c_str());
-	};
+	vts_rtc::RecvMessageHandler msg_handler = nullptr;
+	if (recv_msg_handler) {
+		msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid, const std::string& channel_label, const std::string& msg) {
+			recv_msg_handler(sessionid, channel_label.c_str(), msg.c_str());
+		};
+	}
 
-	auto frame_handler = [recv_frame_handler](const vts_rtc::VideoSourceId& video_sourceid,
-		size_t width, size_t height, size_t dimension, const std::vector<unsigned char>& framebuffer) {
-		recv_frame_handler(video_sourceid.c_str(), width, height, dimension, framebuffer.data(), framebuffer.size());
-	};
+	vts_rtc::RecvFrameHandler frame_handler = nullptr;
+	if (recv_frame_handler) {
+		frame_handler = [recv_frame_handler](const vts_rtc::VideoSourceId& video_sourceid,
+			size_t width, size_t height, size_t dimension, const std::vector<unsigned char>& framebuffer) {
+				recv_frame_handler(video_sourceid.c_str(), width, height, dimension, framebuffer.data(), framebuffer.size());
+		};
+	}
+	
+	vts_rtc::NetworkDisconnectedHandler net_disconnected_handler = nullptr;
+	if (network_disconnected_handler) {
+		net_disconnected_handler = [network_disconnected_handler]() {
+			network_disconnected_handler();
+		};
+	}
 
-	rtc_agent = vts_rtc::RtcAgent::Create(std::string(config_filepath), msg_handler, frame_handler);
+	rtc_agent = vts_rtc::RtcAgent::Create(std::string(config_filepath), msg_handler, frame_handler, net_disconnected_handler);
 
 	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }

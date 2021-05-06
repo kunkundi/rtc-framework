@@ -20,6 +20,7 @@ using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
 using RecvMessageHandler = std::function<void(SessionId, const std::string&, const std::string&)>;
 using RecvFrameHandler = std::function<void(const VideoSourceId&, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
+using NetworkDisconnectedHandler = std::function<void()>;
 
 struct RtcConfig {
 	struct IceServer {
@@ -31,6 +32,10 @@ struct RtcConfig {
 	std::string api_server_url;
 	std::string signaling_server_url;
 	std::vector<IceServer> ice_servers;
+
+	long ping_timeout = 2000;
+	long pong_timeout = 4000;
+	long reconnect_timeout = 2000;  // unit: milliseconds
 };
 
 struct VideoDeviceCapability {

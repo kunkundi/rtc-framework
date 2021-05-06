@@ -177,3 +177,20 @@
 ```
 
 7. 信令服务器直接转发candidate
+
+#### WebSocket长连接心跳管理
+1. 客户端每隔一段时间发送PING心跳包
+```
+{
+    "command": "take_heartbeat",
+    "type": "ping"
+}
+```
+
+2. 服务端收到客户端心跳包，立即返回PONG心跳包
+```
+{
+    "command": "take_heartbeat",
+    "type": "pong"
+}
+```

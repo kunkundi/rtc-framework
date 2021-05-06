@@ -55,6 +55,9 @@ class RtcDeviceManager {
 	using RtcCCTrackSources = std::vector<rtc::scoped_refptr<RtcCameraCapturerTrackSource>>;
 
 public:
+	explicit RtcDeviceManager();
+	~RtcDeviceManager();
+
 	static vts_rtc::VideoDevices GetVideoDevices();
 	bool AddVideoCapturer(size_t device_index,
 		const vts_rtc::VideoDeviceCapability& device_capability,
@@ -62,5 +65,9 @@ public:
 	RtcCCTrackSources GetVideoTrackSources() const;
 
 private:
+	// logic_thread_ is created in RtcAgent Constructor method
+	// @attention: call some method in logic_thread_ to avoid data synchronization
+	rtc::Thread* logic_thread_ = nullptr;
+
 	RtcCCTrackSources track_sources_;
 };

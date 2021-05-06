@@ -10,7 +10,6 @@ using Rooms = std::map<RoomId, Room>;
 using SessionId = unsigned int;
 using SessionIds = std::vector<SessionId>;
 using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
-using SessionidConnMap = std::map<SessionId, std::shared_ptr<WsServer::Connection>>;
 using json = nlohmann::json;
 
 enum class RoomType {
@@ -63,9 +62,12 @@ private:
 class WsController {
 	friend class HttpController;
 	using WsConnection = std::shared_ptr<WsServer::Connection>;
+	using SteadyTimer = std::shared_ptr<SimpleWeb::asio::steady_timer>;
 
 public:
-	explicit WsController(std::shared_ptr<WsServer> ws_server);
+	explicit WsController(std::shared_ptr<SimpleWeb::io_context> io_context,
+		long client_ping_timeout,
+		std::shared_ptr<WsServer> ws_server);
 	~WsController() = default;
 
 private:
@@ -74,13 +76,17 @@ private:
 	void OnError(WsConnection conn, const SimpleWeb::error_code& error_code);
 	void OnClose(WsConnection conn, int status, const std::string& reason);
 
+	void SetClientPingTimeout(const SimpleWeb::error_code& ec, SteadyTimer pingtimer);
 	bool IsSessionidExisted(SessionId sessionid, RoomId& roomid) const;
 	void LeaveRoom(SessionId sessionid);
-	void CloseConnection(WsConnection conn);
+	void CloseConnectionAndTimer(WsConnection conn, bool notify_client);
 	
-
 private:
+	long client_ping_timeout_ = 3000;  // unit: milliseconds
+	std::shared_ptr<SimpleWeb::io_context> io_context_;
+	std::map<WsConnection, SteadyTimer> conn_pingtimer_map_;
+
 	IdGenerator<SessionId> sessionid_generator_;
 	Rooms rooms_;
-	SessionidConnMap sessionid_conn_map_;
+	std::map<SessionId, WsConnection> sessionid_conn_map_;
 };

@@ -4,30 +4,55 @@
 RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	std::shared_ptr<RtcDeviceManager> device_manager,
 	const vts_rtc::RecvMessageHandler& recv_msg_handler,
-	const vts_rtc::RecvFrameHandler& recv_frame_handler)
-	: rtc_config_(rtc_config), rtc_device_manager_(device_manager),
-	recv_msg_handler_(recv_msg_handler), recv_frame_handler_(recv_frame_handler) {
+	const vts_rtc::RecvFrameHandler& recv_frame_handler,
+	const vts_rtc::NetworkDisconnectedHandler& network_disconnected_handler)
+	: logic_thread_(rtc::Thread::Current()),
+	rtc_config_(rtc_config),
+	rtc_device_manager_(device_manager),
+	recv_msg_handler_(recv_msg_handler),
+	recv_frame_handler_(recv_frame_handler),
+	network_disconnected_handler_(network_disconnected_handler) {
 	http_client_ = std::make_shared<HttpClient>(rtc_config_.api_server_url);
+	// 通过优化语句顺序，可以做到不加锁
+	ws_io_context_ = std::make_shared<SimpleWeb::io_context>();
 }
 
 RtcConnectionManager::~RtcConnectionManager() {
-	if (ws_conn_) {
-		ws_conn_->send_close(1000, "Rtcagent closed");
-	}
+	RTC_DCHECK_RUN_ON(logic_thread_);
 
-	if (ws_client_) {
-		ws_client_->stop();
-		if (ws_client_thread_.joinable()) {
-			ws_client_thread_.join();
+	this->LeaveRoom();
+
+	{
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+		if (ws_conn_) {
+			ws_conn_->send_close(1000, "Rtcagent closed");
 		}
 	}
 
-	worker_thread_->Invoke<void>(RTC_FROM_HERE,
-		[this]() {
-			RTC_DCHECK(worker_thread_.get() == rtc::Thread::Current());
-			adm_taskqueue_ = nullptr;
-			audio_device_moudle_ = nullptr;
-		});
+	if (worker_thread_) {
+		worker_thread_->Invoke<void>(RTC_FROM_HERE,
+			[this]() {
+				adm_taskqueue_ = nullptr;
+				audio_device_moudle_ = nullptr;
+			});
+	}
+
+	// @attention: io_context stop method is thread-safe
+	// 不能在ws_client_thread_线程中停止，因为ws_io_context_->run()已经阻塞住ws_client_thread_线程
+	if (ws_io_context_) {
+		ws_io_context_->stop();
+	}
+
+	if (ws_client_thread_) {
+		ws_client_thread_->Invoke<void>(RTC_FROM_HERE,
+			[this]() {
+				ping_timer_ = nullptr;
+				pong_timer_ = nullptr;
+				reconnect_timer_ = nullptr;
+				ws_client_ = nullptr;
+				ws_io_context_ = nullptr;
+			});
+	}
 
 	// TO DO
 	// @attention: must be called here, otherwise crash (why!!!)
@@ -35,8 +60,18 @@ RtcConnectionManager::~RtcConnectionManager() {
 }
 
 bool RtcConnectionManager::Init() {
-	if (InitPeerConnectionFactory()) {
-		InitWebsocketCallbacks(rtc_config_.signaling_server_url);
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	if (logic_thread_ && InitPeerConnectionFactory()) {
+		ws_client_thread_ = rtc::Thread::Create();
+		ws_client_thread_->SetName("websocket-client", nullptr);
+		ws_client_thread_->Start();
+
+		ws_client_thread_->PostTask(RTC_FROM_HERE,
+			[this]() {
+				InitWebsocket();
+			});
+
 		return true;
 	}
 
@@ -44,6 +79,8 @@ bool RtcConnectionManager::Init() {
 }
 
 bool RtcConnectionManager::InitPeerConnectionFactory() {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	network_thread_ = rtc::Thread::CreateWithSocketServer();
 	network_thread_->SetName("network", nullptr);
 	network_thread_->Start();
@@ -58,10 +95,10 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 
 	// To be improved
 	// create dummy AudioDeviceModule for fixing initialization crash of VTS apollo docker
+	// @attention: invoke method will block the current thread until execution is complete
 	audio_device_moudle_ = worker_thread_->Invoke<rtc::scoped_refptr<webrtc::AudioDeviceModule>>(
 		RTC_FROM_HERE,
 		[this]() {
-			RTC_DCHECK(worker_thread_.get() == rtc::Thread::Current());
 			adm_taskqueue_ = webrtc::CreateDefaultTaskQueueFactory();
 			return webrtc::AudioDeviceModule::Create(webrtc::AudioDeviceModule::AudioLayer::kDummyAudio, adm_taskqueue_.get());
 		});
@@ -84,46 +121,39 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 	return true;
 }
 
-void RtcConnectionManager::InitWebsocketCallbacks(const std::string& signaling_server_url) {
-	ws_client_ = std::make_shared<WsClient>(signaling_server_url);
+void RtcConnectionManager::InitWebsocket() {
+	RTC_DCHECK_RUN_ON(ws_client_thread_.get());
+
+	ws_client_ = std::make_shared<WsClient>(rtc_config_.signaling_server_url);
+	ws_client_->io_service = ws_io_context_;
 
 	ws_client_->on_open = [this](WsConnection conn) {
 		LOG_INFO("Websocket onopen, remote peer: %s:%u",
 			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
+		
+		network_disconnected_notified_ = false;
 
-		ws_conn_ = conn;
-	};
-
-	ws_client_->on_error = [this](WsConnection conn, const SimpleWeb::error_code& ec) {
-		LOG_ERROR("Websocket onerror, remote peer: %s:%u, error value: %d, error message: %s",
-			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
-			ec.value(), ec.message().c_str());
-
-		// 10053: A established connection was aborted by the software in your host machine
-		// 10054: Connection closed by peer
-		if (ec.value() == 10053 || ec.value() == 10054) {
-			// To be improved
-			// support websocket reconnection
-			this->LeaveRoom();
-			current_sessionid_ = nullptr;
+		{
+			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+			ws_conn_ = conn;
 		}
-	};
 
-	ws_client_->on_close = [this](WsConnection conn, int status, const std::string& reason) {
-		LOG_INFO("Websocket onclose, remote peer: %s:%u, status value: %d, reason: %s",
-			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
-			status, reason.c_str());
+		if (reconnect_timer_) {
+			reconnect_timer_->cancel();
+		}
+		lock_reconnect_ = false;
 
-		// To be improved
-		// support websocket reconnection
-		this->LeaveRoom();
-		current_sessionid_ = nullptr;
+		if (!ping_timer_) {
+			ping_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
+				ws_io_context_->get_executor(), std::chrono::milliseconds(rtc_config_.ping_timeout));
+		}
+		else {
+			ping_timer_->expires_after(std::chrono::milliseconds(rtc_config_.ping_timeout));
+		}
+		ping_timer_->async_wait(std::bind(&RtcConnectionManager::SetPingTimeout, this, std::placeholders::_1));
 	};
 
 	ws_client_->on_message = [this](WsConnection conn, std::shared_ptr<WsClient::InMessage> in_message) {
-		LOG_INFO("Websocket onmessage, remote peer: %s:%u, receive message size: %llu",
-			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(), in_message->size());
-
 		auto msg_json = json::parse(in_message->string(), nullptr, false);
 		if (msg_json.is_discarded()) {
 			LOG_ERROR("Websocket onmessage, parse message failed, not vaild json");
@@ -136,12 +166,27 @@ void RtcConnectionManager::InitWebsocketCallbacks(const std::string& signaling_s
 		}
 
 		auto command = msg_json["command"].get<std::string>();
-		if (command == "take_info") {
+
+		// filter heartbeat log info
+		if (command != "take_heartbeat") {
+			LOG_INFO("Websocket onmessage, remote peer: %s:%u, receive message size: %llu",
+				conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(), in_message->size());
+		}
+
+		if (command == "take_heartbeat") {
+			if (pong_timer_) {
+				pong_timer_->cancel();
+			}
+			ping_timer_->expires_after(std::chrono::milliseconds(rtc_config_.ping_timeout));
+			ping_timer_->async_wait(std::bind(&RtcConnectionManager::SetPingTimeout, this, std::placeholders::_1));
+		}
+		else if (command == "take_info") {
 			if (msg_json.contains("type")) {
 				auto type = msg_json["type"].get<std::string>();
 				if (type == "login_succeed") {
 					if (msg_json.contains("sessionid")) {
 						auto sessionid = msg_json["sessionid"].get<vts_rtc::SessionId>();
+						std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 						current_sessionid_ = std::make_shared<vts_rtc::SessionId>(sessionid);
 					}
 				}
@@ -158,53 +203,170 @@ void RtcConnectionManager::InitWebsocketCallbacks(const std::string& signaling_s
 			auto from_sessionid = msg_json["from"].get<vts_rtc::SessionId>();
 			auto to_sessionid = msg_json["to"].get<vts_rtc::SessionId>();
 
-			// just check
-			if (!current_sessionid_ || (current_sessionid_ && to_sessionid != *current_sessionid_)) {
-				LOG_ERROR("Websocket onmessage, current_sessionid_ is nullptr or to_sessionid != *current_sessionid_");
-			}
-
 			auto roomid = msg_json["roomid"].get<vts_rtc::RoomId>();
 			if (type == "forward_offer") {
-				this->InteractRemotePeer(from_sessionid, false, sdp);
+				logic_thread_->PostTask(RTC_FROM_HERE,
+					[this, from_sessionid, sdp]() {
+						this->InteractRemotePeer(from_sessionid, false, sdp);
+					});
 			}
 			else if (type == "forward_answer") {
-				this->AckRemotePeerSdp(from_sessionid, sdp);
+				logic_thread_->PostTask(RTC_FROM_HERE,
+					[this, from_sessionid, sdp]() {
+						this->AckRemotePeerSdp(from_sessionid, sdp);
+					});
 			}
 		}
 		else if (command == "take_candidate") {
-			auto from_sessionid = msg_json["from"].get<vts_rtc::SessionId>();
-			auto to_sessionid = msg_json["to"].get<vts_rtc::SessionId>();
+			logic_thread_->PostTask(RTC_FROM_HERE,
+				[this, msg_json]() {
+					auto from_sessionid = msg_json["from"].get<vts_rtc::SessionId>();
+					auto to_sessionid = msg_json["to"].get<vts_rtc::SessionId>();
 
-			// just check
-			if (!current_sessionid_ || (current_sessionid_ && to_sessionid != *current_sessionid_)) {
-				LOG_ERROR("Websocket onmessage, current_sessionid_ is nullptr or to_sessionid != *current_sessionid_");
-			}
+					if (remotesessionid_rtcconn_map_.find(from_sessionid) == remotesessionid_rtcconn_map_.cend()) {
+						LOG_ERROR("Websocket onmessage, rtc connection of remote_sessionid: %u do not exist when take candidate", from_sessionid);
+						return;
+					}
 
-			if (remotesessionid_rtcconn_map_.find(from_sessionid) == remotesessionid_rtcconn_map_.cend()) {
-				LOG_ERROR("Websocket onmessage, rtc connection of remote_sessionid: %u do not exist when take candidate", from_sessionid);
-				return;
-			}
-
-			auto rtc_conn = remotesessionid_rtcconn_map_[from_sessionid];
-			auto candidate = msg_json["candidate"].get<std::string>();
-			auto sdp_mid = msg_json["sdp_mid"].get<std::string>();
-			int sdp_mline_index = msg_json["sdp_mline_index"].get<int>();
-			webrtc::SdpParseError error;
-			auto candidate_object = webrtc::CreateIceCandidate(sdp_mid, sdp_mline_index, candidate, &error);
-			bool flag = rtc_conn->peer_conn_->AddIceCandidate(candidate_object);
-			if (!flag) {
-				LOG_ERROR("Websocket onmessage, rtc connection add ice candidate failed");
-			}
+					auto rtc_conn = remotesessionid_rtcconn_map_[from_sessionid];
+					auto candidate = msg_json["candidate"].get<std::string>();
+					auto sdp_mid = msg_json["sdp_mid"].get<std::string>();
+					int sdp_mline_index = msg_json["sdp_mline_index"].get<int>();
+					webrtc::SdpParseError error;
+					auto candidate_object = webrtc::CreateIceCandidate(sdp_mid, sdp_mline_index, candidate, &error);
+					bool flag = rtc_conn->peer_conn_->AddIceCandidate(candidate_object);
+					if (!flag) {
+						LOG_ERROR("Websocket onmessage, rtc connection add ice candidate failed");
+					}
+				});
 		}
 	};
+	
+	ws_client_->on_error = [this](WsConnection conn, const SimpleWeb::error_code& ec) {
+		LOG_ERROR("Websocket onerror, remote peer: %s:%u, error value: %d, error message: %s",
+			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
+			ec.value(), ec.message().c_str());
 
-	ws_client_thread_ = std::thread([this]() {
-		ws_client_->start([]() { LOG_INFO("Websocket client is connecting..."); });
+		{
+			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+			current_sessionid_ = nullptr;
+			ws_conn_ = nullptr;
+		}
+
+		ReconnectWebsocket();
+	};
+
+	ws_client_->on_close = [this](WsConnection conn, int status, const std::string& reason) {
+		LOG_INFO("Websocket onclose, remote peer: %s:%u, status value: %d, reason: %s",
+			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
+			status, reason.c_str());
+
+		{
+			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+			current_sessionid_ = nullptr;
+			ws_conn_ = nullptr;
+		}
+
+		ReconnectWebsocket();
+	};
+	
+	ws_client_->start([]() { LOG_INFO("Websocket client is connecting..."); });
+	ws_io_context_->run();
+}
+
+void RtcConnectionManager::SetPingTimeout(const SimpleWeb::error_code& ec) {
+	RTC_DCHECK_RUN_ON(ws_client_thread_.get());
+
+	if (!ec) {
+		// exclude SimpleWeb::asio::error::operation_aborted
+		json heartbeat_json = {
+			{ "command", "take_heartbeat" },
+			{ "type", "ping" }
+		};
+		{
+			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+			ws_conn_->send(heartbeat_json.dump());
+		}
+		
+		
+		if (!pong_timer_) {
+			pong_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
+				ws_io_context_->get_executor(), std::chrono::milliseconds(rtc_config_.pong_timeout));
+		}
+		else {
+			pong_timer_->expires_after(std::chrono::milliseconds(rtc_config_.pong_timeout));
+		}
+		pong_timer_->async_wait([this](const SimpleWeb::error_code& ec) {
+			if (!ec) {
+				// this means client is disconnected from websocket server
+				LOG_WARN("pong timeout, server not available");
+				
+				{
+					std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+					ws_conn_->send_close(1000, "Rtcagent closed");
+					current_sessionid_ = nullptr;
+					ws_conn_ = nullptr;
+				}
+
+				ReconnectWebsocket();
+			}
+			});
+	}
+}
+
+void RtcConnectionManager::ReconnectWebsocket() {
+	RTC_DCHECK_RUN_ON(ws_client_thread_.get());
+
+	if (!network_disconnected_notified_) {
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this]() {
+				this->LeaveRoom();
+
+				if (network_disconnected_handler_) {
+					network_disconnected_handler_();
+				}
+			});
+
+		network_disconnected_notified_ = true;
+	}
+
+	if (lock_reconnect_) {
+		return;
+	}
+
+	if (ping_timer_) {
+		ping_timer_->cancel();
+	}
+	if (pong_timer_) {
+		pong_timer_->cancel();
+	}
+
+	// stop first
+	ws_client_->stop();
+	ws_client_->start([]() { LOG_INFO("Websocket client is reconnecting..."); });
+
+	//InitWebsocket();
+	lock_reconnect_ = true;
+	
+	if (!reconnect_timer_) {
+		reconnect_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
+			ws_io_context_->get_executor(), std::chrono::milliseconds(rtc_config_.reconnect_timeout));
+	}
+	else {
+		reconnect_timer_->expires_after(std::chrono::milliseconds(rtc_config_.reconnect_timeout));
+	}
+	reconnect_timer_->async_wait([this](const SimpleWeb::error_code& ec) {
+		if (!ec) {
+			lock_reconnect_ = false;
+			ReconnectWebsocket();
+		}
 		});
 }
 
 bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::PriorityType priority,
 	bool ordered, int max_retransmits) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	if (label_datachannelinit_map_.find(label) != label_datachannelinit_map_.cend()) {
 		return false;
 	}
@@ -223,6 +385,8 @@ bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::Pri
 }
 
 bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid, vts_rtc::PriorityType priority) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
 		return false;
 	}
@@ -233,6 +397,8 @@ bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_so
 }
 
 vts_rtc::SessionIds RtcConnectionManager::QueryRemoteAgents() const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	vts_rtc::SessionIds remote_sessionids;
 	remote_sessionids.reserve(remotesessionid_rtcconn_map_.size());
 	for (const auto& sessionid_rtcconn : remotesessionid_rtcconn_map_) {
@@ -242,6 +408,8 @@ vts_rtc::SessionIds RtcConnectionManager::QueryRemoteAgents() const {
 }
 
 vts_rtc::RoomCode RtcConnectionManager::QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	try {
 		LOG_INFO("Http client query room info by roomid: %s", roomid.c_str());
 		auto response = http_client_->request("GET", "/room/" + roomid);
@@ -274,6 +442,8 @@ vts_rtc::RoomCode RtcConnectionManager::QueryRoom(const vts_rtc::RoomId& roomid,
 }
 
 vts_rtc::RoomCode RtcConnectionManager::QueryRooms(vts_rtc::Rooms& rooms) const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	try {
 		LOG_INFO("Http client query rooms");
 		auto response = http_client_->request("GET", "/rooms");
@@ -302,7 +472,17 @@ vts_rtc::RoomCode RtcConnectionManager::QueryRooms(vts_rtc::Rooms& rooms) const 
 }
 
 vts_rtc::RoomCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type) {
-	if (!current_sessionid_) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	auto copy_sessionid = -1;
+	{
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+		if (current_sessionid_) {
+			copy_sessionid = *current_sessionid_;
+		}
+	}
+
+	if (copy_sessionid == -1) {
 		LOG_ERROR("Http client cannot open room, agent not logined");
 		return vts_rtc::RoomCode::AgentNotLogined;
 	}
@@ -312,11 +492,11 @@ vts_rtc::RoomCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, 
 			{ vts_rtc::RoomType::VideoBroadcasting, "VideoBroadcasting" },
 			{ vts_rtc::RoomType::VideoConference, "VideoConference" }
 		};
-		LOG_INFO("Http client open room by sessionid: %u, roomid: %s, room type: %s", 
-			*current_sessionid_, roomid.c_str(), roomtype_map[room_type]);
+		LOG_INFO("Http client open room by sessionid: %d, roomid: %s, room type: %s", 
+			copy_sessionid, roomid.c_str(), roomtype_map[room_type]);
 
 		json room_obj = {
-			{ "sessionid", *current_sessionid_ },
+			{ "sessionid", copy_sessionid },
 			{ "roomid", roomid },
 			{ "room_type", room_type }
 		};
@@ -352,16 +532,27 @@ vts_rtc::RoomCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, 
 }
 
 vts_rtc::RoomCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) {
-	if (!current_sessionid_) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	auto copy_sessionid = -1;
+	{
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+		if (current_sessionid_) {
+			copy_sessionid = *current_sessionid_;
+		}
+	}
+
+	if (copy_sessionid == -1) {
 		LOG_ERROR("Http client cannot join room, agent not logined");
 		return vts_rtc::RoomCode::AgentNotLogined;
 	}
 
 	try {
-		LOG_INFO("Http client join room by sessionid: %u, roomid: %s", *current_sessionid_, roomid.c_str());
+		LOG_INFO("Http client join room by sessionid: %d, roomid: %s",
+			copy_sessionid, roomid.c_str());
 
 		json room_obj = {
-			{ "sessionid", *current_sessionid_ },
+			{ "sessionid", copy_sessionid },
 			{ "roomid", roomid }
 		};
 		auto response = http_client_->request("POST", "/room/join", room_obj.dump());
@@ -385,7 +576,7 @@ vts_rtc::RoomCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) 
 				break;
 			case vts_rtc::RoomType::VideoConference:
 				for (auto sessionid : room.sessionids) {
-					if (*current_sessionid_ != sessionid) {
+					if (copy_sessionid != sessionid) {
 						this->InteractRemotePeer(sessionid, true, "");
 					}
 				}
@@ -413,16 +604,26 @@ vts_rtc::RoomCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) 
 }
 
 vts_rtc::RoomCode RtcConnectionManager::LeaveRoom() {
-	if (!current_sessionid_) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	auto copy_sessionid = -1;
+	{
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+		if (current_sessionid_) {
+			copy_sessionid = *current_sessionid_;
+		}
+	}
+
+	if (copy_sessionid == -1) {
 		LOG_ERROR("Http client cannot leave room, agent not logined");
 		return vts_rtc::RoomCode::AgentNotLogined;
 	}
 
 	try {
-		LOG_INFO("Http client leave room by sessionid: %u", *current_sessionid_);
+		LOG_INFO("Http client leave room by sessionid: %d", copy_sessionid);
 
 		json room_obj = {
-			{ "sessionid", *current_sessionid_ }
+			{ "sessionid", copy_sessionid }
 		};
 		auto response = http_client_->request("POST", "/room/leave", room_obj.dump());
 		json result_obj = json::parse(response->content.string(), nullptr, false);
@@ -450,6 +651,8 @@ vts_rtc::RoomCode RtcConnectionManager::LeaveRoom() {
 }
 
 bool RtcConnectionManager::SendData(const std::string& channel_label, const std::string& msg) const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	bool succeed = false;
 	for (const auto& sessionid_rtcconn : remotesessionid_rtcconn_map_) {
 		succeed |= sessionid_rtcconn.second->SendData(channel_label, msg);
@@ -459,6 +662,8 @@ bool RtcConnectionManager::SendData(const std::string& channel_label, const std:
 }
 
 void RtcConnectionManager::SendFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
 		auto I420buffer = webrtc::I420Buffer::Copy(frame.width, frame.height,
 			frame.buffer, frame.stride_Y,
@@ -475,6 +680,8 @@ void RtcConnectionManager::SendFrame(const vts_rtc::VideoSourceId& video_sourcei
 }
 
 void RtcConnectionManager::SetRtpSendersPriority() {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	for (const auto& rtpsender_priority : rtpsender_priority_map_) {
 		auto& rtpsender = rtpsender_priority.first;
 		auto rtpparams = rtpsender->GetParameters();
@@ -500,18 +707,29 @@ void RtcConnectionManager::SetRtpSendersPriority() {
 }
 
 void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp) {
-	auto rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	std::shared_ptr<RtcConnection> rtc_conn = nullptr;
+	{
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+		rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
+	}
 
 	rtc_conn->on_iceconnect_failed = [this](vts_rtc::SessionId remote_sessionid) {
-		// TO DO
-		// Fix bug: cannot re-create PeerConnection when uncomment the following code
-		//if (remotesessionid_rtcconn_map_.find(remote_sessionid) != remotesessionid_rtcconn_map_.cend()) {
-		//	remotesessionid_rtcconn_map_.erase(remote_sessionid);
-		//}
 		LOG_INFO("Reconnect remote peer failed, remote sessionid: %u", remote_sessionid);
+
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, remote_sessionid]() {
+				// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
+				if (remotesessionid_rtcconn_map_.find(remote_sessionid) != remotesessionid_rtcconn_map_.cend()) {
+					remotesessionid_rtcconn_map_.erase(remote_sessionid);
+				}
+			});
 	};
 
 	rtc_conn->on_create_sdp_succeed_ = [this, offer_peer](vts_rtc::SessionId remote_sessionid, const std::string& sdp) {
+		// @attention: in signaling thread
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 		if (current_sessionid_ && ws_conn_) {
 			json msg_obj = {
 				{ "command", "take_configuration" },
@@ -527,6 +745,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 	};
 
 	rtc_conn->on_ice_candidate_received_ = [this](vts_rtc::SessionId remote_sessionid, const std::tuple<std::string, std::string, int>& ice_candidate) {
+		// @attention: in signaling thread
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 		if (current_sessionid_ && ws_conn_) {
 			json msg_obj = {
 				{ "command", "take_candidate" },
@@ -634,6 +854,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 }
 
 void RtcConnectionManager::AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
 	if (remotesessionid_rtcconn_map_.find(remote_sessionid) == remotesessionid_rtcconn_map_.cend()) {
 		LOG_ERROR("Ack remote peer SDP, rtc connection of remote_sessionid: %u do not exist", remote_sessionid);
 		return;

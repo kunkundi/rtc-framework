@@ -3,7 +3,9 @@
 <head>
     <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
     <title>RTC Video Broadcast Demo</title>
+    <script src="HackTimer.js"></script>
     <script src="jquery-3.5.1.js"></script>
+    <script src="websocket-heartbeat.js"></script>
     <script type="text/javascript">
         $(document).ready(function() {
             // set camera list
@@ -41,16 +43,31 @@
         var local_stream = undefined;
         var remotesessionid_rtcconn_map = {};
 
-        var ws_client = new WebSocket(signaling_server_wsurl);
+        var ws_client = new WebsocketHeartbeatJs({
+            "url": signaling_server_wsurl,
+            "pingTimeout": 2000,
+            "pongTimeout": 4000,
+            "reconnectTimeout": 2000,
+            "pingMsg": JSON.stringify({
+                "command": "take_heartbeat",
+                "type": "ping"
+            }),
+            "repeatLimit": null
+        });
+
         ws_client.onopen = function(event) {
             console.log("websocket onopen, event: ", event);
         };
 
         ws_client.onmessage = function(event) {
-            console.log("websocket onmessage, event: ", event);
-
             var msg_obj = JSON.parse(event.data);
             var command = msg_obj["command"];
+
+            // filter heartbeat log info
+            if(command != "take_heartbeat") {
+                console.log("websocket onmessage, event: ", event);
+            }
+
             if(command == "take_info") {
                 if(msg_obj["type"] == "login_succeed") {
                     current_sessionid = msg_obj["sessionid"];

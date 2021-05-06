@@ -84,6 +84,7 @@ typedef struct RtcYUV420pFrame {
 
 typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel, const char*);
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, size_t, size_t, size_t, const unsigned char*, size_t);
+typedef void(*NetworkDisconnectedHandler)();
 
 #ifdef  __cplusplus
 extern "C" {
@@ -102,7 +103,8 @@ extern "C" {
 	 */
 	RTC_API RtcErrorCode RtcInitAgent(const char* config_filepath,
 		RecvMessageHandler recv_msg_handler,
-		RecvFrameHandler recv_frame_handler);
+		RecvFrameHandler recv_frame_handler,
+		NetworkDisconnectedHandler network_disconnected_handler);
 	
 	/**
 	 * @brief 释放Rtc Agent资源

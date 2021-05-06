@@ -25,9 +25,14 @@ private:
 	void InitObserverCallbacks();
 
 private:
+	// logic_thread_ is created in RtcConnectionManager InteractRemotePeer method
+	// @attention: call some method in logic_thread_ to avoid data synchronization, mainly
+	// for peer_conn_, label_datachannel_map_ variable
+	rtc::Thread* logic_thread_ = nullptr;
+
 	// local peer sessionid and remote peer sessionid
-	vts_rtc::SessionId local_sessionid_;
-	vts_rtc::SessionId remote_sessionid_;
+	const vts_rtc::SessionId local_sessionid_;
+	const vts_rtc::SessionId remote_sessionid_;
 	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn_ = nullptr;
 	std::map<std::string, rtc::scoped_refptr<webrtc::DataChannelInterface>> label_datachannel_map_;
 	std::vector<std::unique_ptr<RtcVideoSink>> rtc_pc_videosinks_;
