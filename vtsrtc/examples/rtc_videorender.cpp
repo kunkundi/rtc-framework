@@ -6,15 +6,27 @@ RtcVideoRender::RtcVideoRender() {
 }
 
 RtcVideoRender::~RtcVideoRender() {
+	if (framebuffer_) {
+		delete[] framebuffer_;
+		framebuffer_ = nullptr;
+	}
+
 	glDeleteTextures(1, &texture_);
 }
 
 void RtcVideoRender::OnFrame(const char* sourceid, size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {
 	// std::cout << sourceid << ", " << width << ", " << height << ", " << sz_buffer << std::endl;
+
 	new_width_ = width;
 	new_height_ = height;
-	framebuffer_ = const_cast<unsigned char*>(buffer);
+	if (width_ != new_width_ || height_ != new_height_) {
+		if (framebuffer_) {
+			delete[] framebuffer_;
+		}
+		framebuffer_ = new unsigned char[sz_buffer];
+	}
+	memcpy(framebuffer_, buffer, sz_buffer);
 
 	update();
 }

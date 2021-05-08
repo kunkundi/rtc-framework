@@ -190,7 +190,7 @@ void RtcWidget::OpenRoom() {
 	if (current_idx == videosources_combobox_->count() - 1) {
 		// YUV420p video source
 		auto code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
-		CHECK_ERRORCODE
+		//CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {
 			LoadYUVData();
@@ -202,7 +202,7 @@ void RtcWidget::OpenRoom() {
 		// Camera video source
 		RtcVideoDeviceCapability device_capability { 1280, 720, 30 };
 		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability, RtcPriorityType::High);
-		CHECK_ERRORCODE
+		//CHECK_ERRORCODE
 	}
 }
 

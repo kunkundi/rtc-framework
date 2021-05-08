@@ -10,15 +10,6 @@ RtcConnection::RtcConnection(vts_rtc::SessionId local_sessionid, vts_rtc::Sessio
 RtcConnection::~RtcConnection() {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
-	// send an empty frame when destory RtcConnection
-	if (on_frame_received_) {
-		std::vector<unsigned char> empty_buffer(0);
-		for (const auto& videosink : rtc_pc_videosinks_) {
-			on_frame_received_(videosink->trackid_, 0, 0, 4, empty_buffer);
-		}
-	}
-	rtc_pc_videosinks_.clear();
-
 	for (const auto& label_datachannel : label_datachannel_map_) {
 		auto datachannel = label_datachannel.second;
 		if (datachannel) {

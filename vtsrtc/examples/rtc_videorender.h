@@ -21,6 +21,6 @@ protected:
 private:
 	size_t width_ = 0, height_ = 0;
 	size_t new_width_ = 0, new_height_ = 0;
-	unsigned char* framebuffer_;
+	unsigned char* framebuffer_ = nullptr;
 	GLuint texture_;
 };

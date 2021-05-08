@@ -36,6 +36,7 @@ function WebsocketHeartbeatJs({
     this.onerror = () => {};
     this.onopen = () => {};
     this.onmessage = () => {};
+    this.onpongtimeout = () => {};
     this.onreconnect = () => {};
 
     this.createWebSocket();
@@ -104,10 +105,12 @@ WebsocketHeartbeatJs.prototype.heartStart = function(){
         this.ws.send(this.opts.pingMsg);
         //如果超过一定时间还没重置，说明后端主动断开了
         this.pongTimeoutId = setTimeout(() => {
-            //如果onclose会执行reconnect，我们执行ws.close()就行了.如果直接执行reconnect 会触发onclose导致重连两次
-            this.ws.close();
-            // print pong timeout log
-            console.warn("pong timeout, server not available");
+            this.onpongtimeout();
+            this.reconnect();
+            
+            // to be checked
+            // //如果onclose会执行reconnect，我们执行ws.close()就行了.如果直接执行reconnect 会触发onclose导致重连两次
+            // this.ws.close();            
         }, this.opts.pongTimeout);
     }, this.opts.pingTimeout);
 };

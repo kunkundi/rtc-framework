@@ -320,7 +320,8 @@ void RtcConnectionManager::ReconnectWebsocket() {
 	if (!network_disconnected_notified_) {
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this]() {
-				this->LeaveRoom();
+				// remove p2p connections when WebSocket disconnected
+				remotesessionid_rtcconn_map_.clear();
 
 				if (network_disconnected_handler_) {
 					network_disconnected_handler_();
