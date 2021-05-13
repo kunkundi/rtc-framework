@@ -10,16 +10,19 @@
 #include <QDebug>
 
 #define CHECK_ERRORCODE if (code != RtcErrorCode::OK) {  \
-		QMessageBox::warning(nullptr, tr("Warning"), tr(errorcode_map[code])); \
+		QMessageBox::warning(nullptr, tr("Warning"), tr(RtcErrorMessage(code))); \
 		return; \
 	}
 
 QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
 RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
 
-void RtcWidget::HandleMessage(RtcSessionId remote_sessionid, const char* channel_label, const char* msg) {
+void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,const char* channel_label, const char* msg, size_t msg_size) {
 	if (recv_msg_listwgt_) {
-		QString item_text = QString("%1 [from sessionid: %2, channel label: %3]").arg(QString::fromLocal8Bit(msg)).arg(remote_sessionid).arg(QString::fromLocal8Bit(channel_label));
+		QString item_text = QString("%1 [from sessionid: %2, channel label: %3]")
+			.arg(QString::fromLocal8Bit(msg, msg_size))
+			.arg(remote_sessionid)
+			.arg(QString::fromLocal8Bit(channel_label));
 		recv_msg_listwgt_->insertItem(0, item_text);
 	}
 }
@@ -31,11 +34,15 @@ void RtcWidget::HandleFrame(RtcVideoSourceId sourceid, size_t width, size_t heig
 	}
 }
 
+void RtcWidget::HandleNetworkDisconnected() {
+	qDebug() << "Network is disconnected!";
+}
+
 RtcWidget::RtcWidget(const std::string& rtc_config_filepath, const QString& yuv_folderpath, QWidget* parent)
 	: yuv_folderpath_(yuv_folderpath), QWidget(parent) {
 	CreateUI();
 
-	auto code = RtcInitAgent(rtc_config_filepath.c_str(), HandleMessage, HandleFrame, nullptr);
+	auto code = RtcInitAgent(rtc_config_filepath.c_str(), HandleMessage, HandleFrame, HandleNetworkDisconnected);
 	CHECK_ERRORCODE
 
 	code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
@@ -203,6 +210,15 @@ void RtcWidget::OpenRoom() {
 		RtcVideoDeviceCapability device_capability { 1280, 720, 30 };
 		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability, RtcPriorityType::High);
 		//CHECK_ERRORCODE
+
+		//code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
+		//CHECK_ERRORCODE
+
+		//if (!external_feed_inited_) {
+		//	LoadYUVData();
+		//	SendFrame();
+		//	external_feed_inited_ = true;
+		//}
 	}
 }
 
@@ -229,6 +245,6 @@ void RtcWidget::SendMessage() {
 	}
 
 	QByteArray msg = send_msg_edit_->text().toLocal8Bit();
-	auto code = RtcSendData("datachannel", msg.data());
+	auto code = RtcSendData("datachannel", msg.data(), msg.size());
 	CHECK_ERRORCODE
 }

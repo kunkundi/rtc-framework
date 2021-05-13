@@ -82,7 +82,7 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
-typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel, const char*);
+typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel, const char*, size_t);
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, size_t, size_t, size_t, const unsigned char*, size_t);
 typedef void(*NetworkDisconnectedHandler)();
 
@@ -274,7 +274,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 发送失败
 	 * @attention 发送消息到远端Rtc Agent，至少一个发送成功便认为执行成功
 	 */
-	RTC_API RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg);
+	RTC_API RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg, size_t msg_size);
 
 	/**
 	 * @brief 发送图像帧
@@ -286,6 +286,14 @@ extern "C" {
 	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
 	 */
 	RTC_API RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame* video_frame);
+
+	/**
+	 * @brief ErrorCode转换为便于阅读的字符串
+	 *
+	 * @param code ErrorCode
+	 * @return 可读的字符串
+	 */
+	RTC_API const char* RtcErrorMessage(RtcErrorCode code);
 
 #ifdef  __cplusplus
 }

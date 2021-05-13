@@ -16,9 +16,10 @@ public:
 	~RtcWidget();
 
 private:
-	static void HandleMessage(RtcSessionId remote_sessionid, const char* channel_label, const char* msg);
+	static void HandleMessage(RtcSessionId remote_sessionid, const char* channel_label, const char* msg, size_t msg_size);
 	static void HandleFrame(RtcVideoSourceId sourceid, size_t width, size_t height, size_t dimension, 
 		const unsigned char* buffer, size_t sz_buffer);
+	static void HandleNetworkDisconnected();
 	void CreateUI();
 	void LoadYUVData();
 	void SendFrame();
@@ -31,17 +32,6 @@ private slots:
 	void SendMessage();
 
 private:
-	std::map<RtcErrorCode, const char*> errorcode_map = {
-		{ RtcErrorCode::OK, "OK" },
-		{ RtcErrorCode::InternalError, "InternalError" },
-		{ RtcErrorCode::RoomNotExisted, "RoomNotExisted" },
-		{ RtcErrorCode::RoomAlreadyExisted, "RoomAlreadyExisted" },
-		{ RtcErrorCode::AgentAlreadyInRoom, "AgentAlreadyInRoom" },
-		{ RtcErrorCode::AgentNotLogined, "AgentNotLogined" },
-		{ RtcErrorCode::AgentNotInited, "AgentNotInited" },
-		{ RtcErrorCode::Failed, "Failed" },
-	};
-
 	bool external_feed_inited_ = false;
 	QString yuv_folderpath_;
 	std::vector<RtcYUV420pFrame> yuv_frames_;

@@ -6,6 +6,17 @@
 
 std::shared_ptr<vts_rtc::RtcAgent> rtc_agent = nullptr;
 
+std::map<RtcErrorCode, const char*> rtcerrorcode_map = {
+	{ RtcErrorCode::OK, "OK" },
+	{ RtcErrorCode::InternalError, "Internal error" },
+	{ RtcErrorCode::RoomNotExisted, "Room not existed" },
+	{ RtcErrorCode::RoomAlreadyExisted, "Room already existed" },
+	{ RtcErrorCode::AgentAlreadyInRoom, "Agent already in room" },
+	{ RtcErrorCode::AgentNotLogined, "Agent not logined" },
+	{ RtcErrorCode::AgentNotInited, "Agent not initialized" },
+	{ RtcErrorCode::Failed, "Failed" },
+};
+
 RtcErrorCode ConvertCode(vts_rtc::RoomCode roomcode) {
 	return static_cast<RtcErrorCode>(roomcode);
 }
@@ -19,7 +30,7 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 	vts_rtc::RecvMessageHandler msg_handler = nullptr;
 	if (recv_msg_handler) {
 		msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid, const std::string& channel_label, const std::string& msg) {
-			recv_msg_handler(sessionid, channel_label.c_str(), msg.c_str());
+			recv_msg_handler(sessionid, channel_label.c_str(), msg.c_str(), msg.size());
 		};
 	}
 
@@ -230,10 +241,10 @@ RtcErrorCode RtcLeaveRoom() {
 	return ConvertCode(roomcode);
 }
 
-RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg) {
+RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg, size_t msg_size) {
 	CHECK_RTCAGENT_INITED
 
-	return rtc_agent->SendData(std::string(channel_label), std::string(msg)) ?
+	return rtc_agent->SendData(std::string(channel_label), std::string(msg, msg_size)) ?
 		RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
@@ -252,4 +263,8 @@ RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame
 
 	rtc_agent->SendFrame(std::string(video_sourceid), video_frame);
 	return RtcErrorCode::OK;
+}
+
+const char* RtcErrorMessage(RtcErrorCode code) {
+	return rtcerrorcode_map[code];
 }
