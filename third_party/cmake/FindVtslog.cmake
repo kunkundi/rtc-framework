@@ -8,7 +8,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 		optimized ${VTSLOG_ROOT_DIR}/lib/windows/Release/vtslog.lib
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	set(VTSLOG_LIBRARY ${VTSLOG_ROOT_DIR}/lib/linux/libvtslog.so)
+	set(VTSLOG_LIBRARY ${VTSLOG_ROOT_DIR}/lib/linux/libvtslog.so
+		${VTSLOG_ROOT_DIR}/lib/linux/libminizip.so)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "Configuring for macOS")
 endif()

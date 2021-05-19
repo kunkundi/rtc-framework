@@ -108,10 +108,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	install(FILES
 		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll"
 		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll"
+		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/zlibwapi.dll"
 		DESTINATION "${target}/bin/$<CONFIG>"
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	install(FILES "${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/linux/libvtslog.so"
+	install(FILES 
+		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/linux/libvtslog.so"
+		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/linux/libminizip.so"
 		DESTINATION "${target}/lib/$<CONFIG>"
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
