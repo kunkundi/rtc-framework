@@ -22,13 +22,6 @@ RtcConnectionManager::~RtcConnectionManager() {
 
 	this->LeaveRoom();
 
-	{
-		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
-		if (ws_conn_) {
-			ws_conn_->send_close(1000, "Rtcagent closed");
-		}
-	}
-
 	if (worker_thread_) {
 		worker_thread_->Invoke<void>(RTC_FROM_HERE,
 			[this]() {
@@ -38,6 +31,7 @@ RtcConnectionManager::~RtcConnectionManager() {
 	}
 
 	// @attention: io_context stop method is thread-safe
+	// @attention: io_context must be destoryed in other thread
 	// 不能在ws_client_thread_线程中停止，因为ws_io_context_->run()已经阻塞住ws_client_thread_线程
 	if (ws_io_context_) {
 		ws_io_context_->stop();
@@ -50,7 +44,6 @@ RtcConnectionManager::~RtcConnectionManager() {
 				pong_timer_ = nullptr;
 				reconnect_timer_ = nullptr;
 				ws_client_ = nullptr;
-				ws_io_context_ = nullptr;
 			});
 	}
 

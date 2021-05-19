@@ -102,8 +102,15 @@ void RtcConnection::InitDataChannelObserverCallbacks(rtc::scoped_refptr<webrtc::
 
 	observer->on_message_ = [this, datachannel](const webrtc::DataBuffer& buffer) {
 		if (on_dc_message_received_) {
-			on_dc_message_received_(remote_sessionid_, datachannel->label(), 
-				std::string(buffer.data.data<char>(), buffer.data.size()));
+			logic_thread_->PostTask(RTC_FROM_HERE,
+				[this, datachannel, buffer]() {
+					if (!datachannel) {
+						return;
+					}
+
+					on_dc_message_received_(remote_sessionid_, datachannel->label(),
+						std::string(buffer.data.data<char>(), buffer.data.size()));
+				});
 		}
 	};
 }
@@ -169,6 +176,10 @@ void RtcConnection::InitObserverCallbacks() {
 
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this, desc]() {
+				if (!desc) {
+					return;
+				}
+
 				peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
 			});
 	};

@@ -1,5 +1,15 @@
 #pragma once
 
+/**
+ * @brief 函数运行线程说明
+ * 
+ * RecvMessageHandler: logic-thread线程
+ * RecvFrameHandler: IncomingVideoStream线程
+ * NetworkDisconnectedHandler: logic-thread线程
+ * 
+ * Rtc前缀的功能函数: logic-thread线程
+ */
+
 #ifdef _WIN32
 #ifdef RTC_DLL_EXPORTS
 #define RTC_API __declspec(dllexport)
