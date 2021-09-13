@@ -1,5 +1,9 @@
+#include <cuda.h>
+
 #include "rtc_connection_manager.h"
 #include "http_status_code.hpp"
+#include "nvh264_encoder_factory.h"
+#include "nvh264_decoder_factory.h"
 
 RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	std::shared_ptr<RtcDeviceManager> device_manager,
@@ -96,13 +100,35 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 			return webrtc::AudioDeviceModule::Create(webrtc::AudioDeviceModule::AudioLayer::kDummyAudio, adm_taskqueue_.get());
 		});
 
+	bool cuda_device_available = false;
+	if (cuInit(0) == CUresult::CUDA_SUCCESS) {
+		int num_of_GPUs = 0;
+		if (cuDeviceGetCount(&num_of_GPUs) == CUresult::CUDA_SUCCESS &&
+			num_of_GPUs > 0) {
+			cuda_device_available = true;
+		}
+	}
+
+	std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory = nullptr;
+	std::unique_ptr<webrtc::VideoDecoderFactory> video_decoder_factory = nullptr;
+	if (cuda_device_available) {
+		LOG_INFO("Cuda device available, use Nvidia H264 video codec");
+		video_encoder_factory = std::make_unique<webrtc::NvH264EncoderFactory>();
+		video_decoder_factory = std::make_unique<webrtc::NvH264DecoderFactory>();
+	}
+	else {
+		LOG_INFO("Cuda device not available, use builtin video codec");
+		video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
+		video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
+	}
+
 	peer_conn_factory_ = webrtc::CreatePeerConnectionFactory(
 		network_thread_.get(), worker_thread_.get(), signaling_thread_.get(),
 		audio_device_moudle_,
 		webrtc::CreateBuiltinAudioEncoderFactory(),
 		webrtc::CreateBuiltinAudioDecoderFactory(),
-		webrtc::CreateBuiltinVideoEncoderFactory(),
-		webrtc::CreateBuiltinVideoDecoderFactory(),
+		std::move(video_encoder_factory),
+		std::move(video_decoder_factory),
 		nullptr, nullptr);
 
 	if (!peer_conn_factory_) {
@@ -821,7 +847,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 
 		// create offer
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-		options.offer_to_receive_audio = 1;
+		options.offer_to_receive_audio = 0;
 		options.offer_to_receive_video = 1;
 		rtc_conn->peer_conn_->CreateOffer(rtc_conn->create_sdp_observer_.get(), options);
 	}
@@ -837,7 +863,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 
 		// create answer
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-		options.offer_to_receive_audio = 1;
+		options.offer_to_receive_audio = 0;
 		options.offer_to_receive_video = 1;
 		rtc_conn->peer_conn_->CreateAnswer(rtc_conn->create_sdp_observer_.get(), options);
 

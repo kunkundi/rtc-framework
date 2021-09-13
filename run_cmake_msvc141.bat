@@ -8,7 +8,7 @@ if not exist "%CMAKE_INSTALL_DIR%" mkdir "%CMAKE_INSTALL_DIR%"
 
 pushd "%CMAKE_BUILD_DIR%" && ^
 cmake -G "Visual Studio 15 2017 Win64" ^
-    -DCMAKE_GENERATOR_TOOLSET=v141 ^
+    -DCMAKE_GENERATOR_TOOLSET=ClangCL ^
     -DQTDIR="D:\software\Qt5.12.7\5.12.7\msvc2017_64" ^
     -DBOOST_ROOT="D:\software\boost_1_73_0_msvc141" ^
     -DCMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG="%CMAKE_BUILD_DIR%\runtime\Debug" ^

@@ -6,6 +6,8 @@ list(APPEND CMAKE_MODULE_PATH
 )
 
 find_package(Vtslog)
+find_package(CUDA REQUIRED)
+find_package(Nvcodec REQUIRED)
 find_package(Boost REQUIRED)
 find_package(WebRTC REQUIRED)
 
@@ -14,6 +16,14 @@ add_library(${target} SHARED
 	log_manager.cpp
 	http_status_code.hpp
 	rtc_types.h
+	nvh264_encoder_impl.h
+	nvh264_encoder_impl.cpp
+	nvh264_encoder_factory.h
+	nvh264_encoder_factory.cpp
+	nvh264_decoder_impl.h
+	nvh264_decoder_impl.cpp
+	nvh264_decoder_factory.h
+	nvh264_decoder_factory.cpp
 	rtc_device_manager.h
 	rtc_device_manager.cpp
 	rtc_videosource.hpp
@@ -28,6 +38,9 @@ add_library(${target} SHARED
 	rtc.cpp
 	c_rtc.h
 	c_rtc.cpp
+	${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoder.cpp
+	${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp
+	${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvDecoder/NvDecoder.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -74,12 +87,16 @@ PUBLIC
 	"$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>"
 PRIVATE
 	${VTSLOG_INCLUDE_DIR}
+	${CUDA_INCLUDE_DIRS}
+	${NVCODEC_INCLUDE_DIR}
 	${WEBRTC_INCLUDE_DIR}
 )
 
 target_link_libraries(${target}
 PRIVATE
 	${VTSLOG_LIBRARY}
+	${CUDA_CUDA_LIBRARY}
+	${NVCODEC_LIBRARY}
 	simple-web-server
 	simple-websocket-server
 	nlohmann_json::nlohmann_json
