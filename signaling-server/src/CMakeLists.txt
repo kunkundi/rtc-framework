@@ -5,8 +5,6 @@ list(APPEND CMAKE_MODULE_PATH
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/cmake"
 )
 
-add_definitions(-DBOOST_ALL_DYN_LINK -DBOOST_ALL_NO_LIB)
-
 find_package(Vtslog)
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(OPENSSL_ROOT_DIR "${CMAKE_SOURCE_DIR}/third_party/OpenSSL-Win64")
@@ -24,6 +22,8 @@ add_executable(${target}
     ws_controller.cpp
     main.cpp
 )
+
+target_compile_definitions(${target} PRIVATE BOOST_ALL_NO_LIB)
 
 target_include_directories(${target}
 PRIVATE
@@ -64,14 +64,6 @@ endif()
 
 # copy runtime dlls
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    get_filename_component(BOOSTFS_DEBUG_BASENAME ${Boost_FILESYSTEM_LIBRARY_DEBUG} NAME_WE)
-    get_filename_component(BOOSTFS_DEBUG_PATH ${Boost_FILESYSTEM_LIBRARY_DEBUG} PATH)
-    file(COPY "${BOOSTFS_DEBUG_PATH}/${BOOSTFS_DEBUG_BASENAME}.dll" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
-
-    get_filename_component(BOOSTFS_RELEASE_BASENAME ${Boost_FILESYSTEM_LIBRARY_RELEASE} NAME_WE)
-    get_filename_component(BOOSTFS_RELEASE_PATH ${Boost_FILESYSTEM_LIBRARY_RELEASE} PATH)
-    file(COPY "${BOOSTFS_RELEASE_PATH}/${BOOSTFS_RELEASE_BASENAME}.dll" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
-
 	add_custom_command(TARGET ${target}
 		POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different

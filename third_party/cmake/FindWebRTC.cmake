@@ -25,18 +25,6 @@ set(WEBRTC_LIBRARY_DIR
   ${WEBRTC_DIR}/lib
 )
 
-# settings for visual studio 2017 and 2019
-if(MSVC)
-  set(WEBRTC_LIBRARY_DIR
-    ${WEBRTC_DIR}/lib/msvc142
-  )
-  if(MSVC_TOOLSET_VERSION EQUAL 141)
-    set(WEBRTC_LIBRARY_DIR
-      ${WEBRTC_DIR}/lib/msvc141
-    )
-  endif()
-endif()
-
 find_library(WEBRTC_LIBRARY_DEBUG
   NAMES webrtcd
   PATHS ${WEBRTC_LIBRARY_DIR}

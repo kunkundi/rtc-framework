@@ -76,11 +76,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "TODO configure for macOS")
 endif()
 
-target_compile_definitions(${target}
-PRIVATE
-	BOOST_ALL_DYN_LINK
-	BOOST_ALL_NO_LIB
-)
+target_compile_definitions(${target} PRIVATE BOOST_ALL_NO_LIB)
 
 target_include_directories(${target}
 PUBLIC
