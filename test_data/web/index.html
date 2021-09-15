@@ -36,8 +36,11 @@
         });
 
         // room management and data channel management
-        var signaling_server_httpurl = "http://localhost:8090";
-        var signaling_server_wsurl = "ws://localhost:8090/signaling";
+        var host = window.location.host;
+        var signaling_server_httpurl = "http://" + host;
+        var signaling_server_wsurl = "ws://" + host + "/signaling";
+        console.log("http server url: ", signaling_server_httpurl);
+        console.log("websocket server url: ", signaling_server_wsurl);
 
         var current_sessionid = undefined;
         var local_stream = undefined;
@@ -173,7 +176,16 @@
 
         function InteractRemotePeer(remote_sessionid, offer_peer, remote_sdp) {
             const config = { 
-                iceServers: [],
+                "iceServers": [
+                        {
+                                "urls": [ "stun:47.96.251.52:3478" ]
+                        },
+                        {
+                                "urls": [ "turn:47.96.251.52:3478" ],
+                                "username": "zhejianglab",
+                                "credential": "passwd"
+                        }
+                ],
                 sdpSemantics: "plan-b"  // To be improved
             };
             var peerconn = new RTCPeerConnection(config);

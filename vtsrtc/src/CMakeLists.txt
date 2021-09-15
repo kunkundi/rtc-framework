@@ -1,4 +1,4 @@
-project(vtsrtc VERSION 0.3.0)
+project(vtsrtc VERSION 0.5.0)
 set(target vtsrtc)
 
 list(APPEND CMAKE_MODULE_PATH
@@ -6,7 +6,7 @@ list(APPEND CMAKE_MODULE_PATH
 )
 
 find_package(Vtslog)
-find_package(CUDA REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 find_package(Nvcodec REQUIRED)
 find_package(Boost REQUIRED)
 find_package(WebRTC REQUIRED)
@@ -83,7 +83,7 @@ PUBLIC
 	"$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>"
 PRIVATE
 	${VTSLOG_INCLUDE_DIR}
-	${CUDA_INCLUDE_DIRS}
+	${CUDAToolkit_INCLUDE_DIRS}
 	${NVCODEC_INCLUDE_DIR}
 	${WEBRTC_INCLUDE_DIR}
 )
@@ -91,7 +91,7 @@ PRIVATE
 target_link_libraries(${target}
 PRIVATE
 	${VTSLOG_LIBRARY}
-	${CUDA_CUDA_LIBRARY}
+	CUDA::cuda_driver
 	${NVCODEC_LIBRARY}
 	simple-web-server
 	simple-websocket-server
@@ -126,8 +126,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	install(FILES 
-		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/linux/libvtslog.so"
-		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/linux/libminizip.so"
+		"${VTSLOG_LIBRARY}"
+		"${NVCODEC_LIBRARY}"
 		DESTINATION "${target}/lib/$<CONFIG>"
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")

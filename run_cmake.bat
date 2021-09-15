@@ -21,9 +21,9 @@ cmake -G "Visual Studio 16 2019" -A x64 ^
     -DCMAKE_INSTALL_PREFIX="%CMAKE_INSTALL_DIR%" ^
     ..
 
-cmake --build . --config Debug
+cmake --build . --config Debug  --parallel 12
 cmake --install . --config Debug
-cmake --build . --config Release
+cmake --build . --config Release  --parallel 12
 cmake --install . --config Release
 popd
 
