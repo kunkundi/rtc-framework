@@ -794,7 +794,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		peer_conn_config.servers.emplace_back(webrtc_ice_server);
 	}
 	// TO DO
-	//peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
 	webrtc::PeerConnectionDependencies depends(&rtc_conn->peer_conn_observer_);
 	rtc_conn->peer_conn_ = peer_conn_factory_->CreatePeerConnection(peer_conn_config, std::move(depends));
 	if (!rtc_conn->peer_conn_) {
@@ -845,10 +845,9 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 			}
 		}
 
-		// create offer
+		// create offer (declare the directional attribute by using RtpTransceiver API instead of RTCOfferAnswerOptions parameters for Unified Plan)
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-		options.offer_to_receive_audio = 0;
-		options.offer_to_receive_video = 1;
+		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO);
 		rtc_conn->peer_conn_->CreateOffer(rtc_conn->create_sdp_observer_.get(), options);
 	}
 	else {
@@ -863,8 +862,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 
 		// create answer
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-		options.offer_to_receive_audio = 0;
-		options.offer_to_receive_video = 1;
+		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO);
 		rtc_conn->peer_conn_->CreateAnswer(rtc_conn->create_sdp_observer_.get(), options);
 
 		this->SetRtpSendersPriority();
