@@ -17,7 +17,7 @@ std::map<RtcErrorCode, const char*> rtcerrorcode_map = {
 	{ RtcErrorCode::Failed, "Failed" },
 };
 
-RtcErrorCode ConvertCode(vts_rtc::RoomCode roomcode) {
+RtcErrorCode ConvertCode(vts_rtc::ErrorCode roomcode) {
 	return static_cast<RtcErrorCode>(roomcode);
 }
 
@@ -157,7 +157,7 @@ RtcErrorCode RtcQueryRoom(const RtcRoomId roomid, RtcRoom* out_room) {
 
 	vts_rtc::Room room;
 	auto roomcode = rtc_agent->QueryRoom(std::string(roomid), room);
-	if (roomcode == vts_rtc::RoomCode::OK) {
+	if (roomcode == vts_rtc::ErrorCode::OK) {
 		out_room->roomid = new char[strlen(roomid) + 1];
 		strcpy(out_room->roomid, roomid);
 		out_room->room_type = static_cast<RtcRoomType>(room.room_type);
@@ -189,7 +189,7 @@ RtcErrorCode RtcQueryRooms(RtcRooms* out_rooms, size_t* out_sz_rooms) {
 
 	vts_rtc::Rooms rooms;
 	auto roomcode = rtc_agent->QueryRooms(rooms);
-	if (roomcode == vts_rtc::RoomCode::OK) {
+	if (roomcode == vts_rtc::ErrorCode::OK) {
 		auto len = rooms.size();
 		*out_sz_rooms = len;
 		*out_rooms = new RtcRoom[len];
@@ -239,6 +239,38 @@ RtcErrorCode RtcLeaveRoom() {
 
 	auto roomcode = rtc_agent->LeaveRoom();
 	return ConvertCode(roomcode);
+}
+
+RtcErrorCode RtcPublishToSRS(const RtcSRSStreamurl SRS_streamurl) {
+	CHECK_RTCAGENT_INITED
+
+	auto SRScode = rtc_agent->PublishToSRS(std::string(SRS_streamurl));
+	return ConvertCode(SRScode);
+}
+
+RtcErrorCode RtcUnpublishToSRS(const RtcSRSStreamurl SRS_streamurl,
+	const RtcSRSSessionId SRS_sessionid) {
+	CHECK_RTCAGENT_INITED
+
+	auto SRScode = rtc_agent->UnpublishToSRS(std::string(SRS_streamurl),
+		std::string(SRS_sessionid));
+	return ConvertCode(SRScode);
+}
+
+RtcErrorCode RtcPlayFromSRS(const RtcSRSStreamurl SRS_streamurl) {
+	CHECK_RTCAGENT_INITED
+
+	auto SRScode = rtc_agent->PlayFromSRS(std::string(SRS_streamurl));
+	return ConvertCode(SRScode);
+}
+
+RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl,
+	const RtcSRSSessionId SRS_sessionid) {
+	CHECK_RTCAGENT_INITED
+
+	auto SRScode = rtc_agent->UnplayFromSRS(std::string(SRS_streamurl),
+		std::string(SRS_sessionid));
+	return ConvertCode(SRScode);
 }
 
 RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg, size_t msg_size) {

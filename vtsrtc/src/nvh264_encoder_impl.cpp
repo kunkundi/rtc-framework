@@ -19,7 +19,7 @@ namespace webrtc {
 
 static const int index_of_GPU = 0;
 static const GUID codec_guid = NV_ENC_CODEC_H264_GUID;
-static const GUID preset_guid = NV_ENC_PRESET_P3_GUID;
+static const GUID preset_guid = NV_ENC_PRESET_P2_GUID;
 static const NV_ENC_TUNING_INFO tuning_info =
 	NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
 
@@ -50,6 +50,8 @@ NvH264EncoderImpl::~NvH264EncoderImpl() {
 
 int NvH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 	const VideoEncoder::Settings& settings) {
+	LOG_INFO("[WebRTC] Init Nvidia H264 encoder");
+
 	ReportInit();
 
 	if (!codec_settings || codec_settings->codecType != kVideoCodecH264) {
@@ -74,6 +76,7 @@ int NvH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 		return ret;
 	}
 
+	// TO DO: support SVC feature
 	auto num_of_streams =
 		SimulcastUtility::NumberOfSimulcastStreams(*codec_settings);
 	if (num_of_streams > 1) {
@@ -83,7 +86,7 @@ int NvH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 	codec_ = *codec_settings;
 	max_payload_size_ = settings.max_payload_size;
 
-	// Code expects simulcastStream resolutions to be correct, make sure they are
+	// Codec expects simulcastStream resolutions to be correct, make sure they are
 	// filled even when there are no simulcast layers.
 	if (codec_.numberOfSimulcastStreams == 0) {
 		codec_.simulcastStream[0].width = codec_.width;
@@ -115,6 +118,7 @@ int NvH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 		frame_height,
 		NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_IYUV);
 
+	// Init encoder session
 	NV_ENC_INITIALIZE_PARAMS init_params;
 	init_params.version = NV_ENC_INITIALIZE_PARAMS_VER;
 	NV_ENC_CONFIG encode_config = { NV_ENC_CONFIG_VER };
@@ -128,12 +132,21 @@ int NvH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 
 	init_params.encodeWidth = frame_width;
 	init_params.encodeHeight = frame_height;
-	init_params.encodeConfig->gopLength = NVENC_INFINITE_GOPLENGTH;
-	init_params.encodeConfig->frameIntervalP = 1;
+	init_params.encodeConfig->profileGUID = NV_ENC_H264_PROFILE_BASELINE_GUID;
+	init_params.encodeConfig->encodeCodecConfig.h264Config.level =
+		NV_ENC_LEVEL::NV_ENC_LEVEL_AUTOSELECT;
 	// TO TEST: not tested yet
-// 	init_params.encodeConfig->encodeCodecConfig.h264Config.sliceMode = 1;
-// 	init_params.encodeConfig->encodeCodecConfig.h264Config.sliceModeData =
-// 		max_payload_size_;
+	//init_params.encodeConfig->gopLength = NVENC_INFINITE_GOPLENGTH;
+	init_params.encodeConfig->gopLength = codec_settings->H264().keyFrameInterval;
+	// Donot use B-frame for realtime application
+	init_params.encodeConfig->frameIntervalP = 1;
+	init_params.encodeConfig->rcParams.rateControlMode =
+		NV_ENC_PARAMS_RC_MODE::NV_ENC_PARAMS_RC_VBR;
+	init_params.encodeConfig->rcParams.maxBitRate =
+		codec_settings->maxBitrate * 1000;
+ 	init_params.encodeConfig->encodeCodecConfig.h264Config.sliceMode = 1;
+ 	init_params.encodeConfig->encodeCodecConfig.h264Config.sliceModeData =
+ 		max_payload_size_;
 
 	nvh264_encoder_->CreateEncoder(&init_params);
 
@@ -174,41 +187,26 @@ int32_t NvH264EncoderImpl::RegisterEncodeCompleteCallback(
 }
 
 void NvH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
-// 	LOG_INFO("[WebRTC] SetRates: fps: %f, bitrate: %d",
-// 		parameters.framerate_fps, parameters.bitrate.get_sum_bps());
+	auto fps = static_cast<uint32_t>(parameters.framerate_fps);
+	codec_.maxFramerate = fps;
+
+	auto bitrate = parameters.bitrate.GetBitrate(0, 0);
+	codec_.maxBitrate = bitrate;
+
+	LOG_INFO("[WebRTC] SetRates for Nvidia H264 encoder: fps: %d, bitrate: %d",
+		fps, bitrate);
 
 	if (!nvh264_encoder_) {
 		LOG_WARN("[WebRTC] SetRates failed when encoder is uninitialized.");
 		return;
 	}
 
-	if (parameters.framerate_fps < 1.0) {
-		LOG_WARN("[WebRTC] SetRates failed because framerate is invalid: %f",
-			parameters.framerate_fps);
+	if (fps < 1 || bitrate < 1) {
+		LOG_WARN("[WebRTC] SetRates failed because framerate or bitrate is invalid");
 		return;
 	}
 
-	codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
-
-	NV_ENC_RECONFIGURE_PARAMS reconfig_params;
-	reconfig_params.version = NV_ENC_RECONFIGURE_PARAMS_VER;
-
-	NV_ENC_INITIALIZE_PARAMS init_params;
-	NV_ENC_CONFIG encode_config = { NV_ENC_CONFIG_VER };
-	init_params.encodeConfig = &encode_config;
-	nvh264_encoder_->GetInitializeParams(&init_params);
-
-	init_params.frameRateDen = 1;
-	init_params.frameRateNum = init_params.frameRateDen * parameters.framerate_fps;
-	init_params.encodeConfig->rcParams.maxBitRate =
-		parameters.bitrate.GetBitrate(0, 0);
-
-	reconfig_params.reInitEncodeParams = init_params;
-	// TO TEST: not tested yet
-// 	reconfig_params.resetEncoder = 1;
-// 	reconfig_params.forceIDR = 1;
-
-	nvh264_encoder_->Reconfigure(&reconfig_params);
+	this->ReconfigureEncoderRates(fps, bitrate);
 }
 
 int32_t NvH264EncoderImpl::Encode(const VideoFrame& input_frame,
@@ -225,89 +223,102 @@ int32_t NvH264EncoderImpl::Encode(const VideoFrame& input_frame,
 		return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 	}
 
+	// TO DO
+// 	if (codec_.maxFramerate < 1 || codec_.maxBitrate < 1) {
+// 	}
+
 	auto frame_buffer = input_frame.video_frame_buffer()->ToI420();
 
 	RTC_DCHECK_EQ(encoded_image_._encodedWidth, frame_buffer->width());
 	RTC_DCHECK_EQ(encoded_image_._encodedHeight, frame_buffer->height());
 
-	if (!frame_types || (*frame_types)[0] != VideoFrameType::kEmptyFrame) {
-		const NvEncInputFrame* encoder_inputframe =
-			nvh264_encoder_->GetNextInputFrame();
+	if (frame_types && (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
+		return WEBRTC_VIDEO_CODEC_OK;
+	}
 
-		NvEncoderCuda::CopyToDeviceFrame(cuda_context_,
-			(void*)frame_buffer->DataY(), // NOLINT
-			0,
-			(CUdeviceptr)encoder_inputframe->inputPtr,
-			encoder_inputframe->pitch,
-			nvh264_encoder_->GetEncodeWidth(),
-			nvh264_encoder_->GetEncodeHeight(),
-			CU_MEMORYTYPE_HOST,
-			encoder_inputframe->bufferFormat,
-			encoder_inputframe->chromaOffsets,
-			encoder_inputframe->numChromaPlanes);
+	const NvEncInputFrame* encoder_inputframe =
+		nvh264_encoder_->GetNextInputFrame();
 
-		nvh264_encoder_->EncodeFrame(encoded_packets_);
+	NvEncoderCuda::CopyToDeviceFrame(cuda_context_,
+		(void*)frame_buffer->DataY(), // NOLINT
+		0,
+		(CUdeviceptr)encoder_inputframe->inputPtr,
+		encoder_inputframe->pitch,
+		nvh264_encoder_->GetEncodeWidth(),
+		nvh264_encoder_->GetEncodeHeight(),
+		CU_MEMORYTYPE_HOST,
+		encoder_inputframe->bufferFormat,
+		encoder_inputframe->chromaOffsets,
+		encoder_inputframe->numChromaPlanes);
 
-		if (encoded_packets_.size() < 1) {
-			return WEBRTC_VIDEO_CODEC_ERROR;
+	// Request Key frame
+	if (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
+		LOG_INFO("[WebRTC] Encode a KEY frame");
+		this->ReconfigureEncoderIDR();
+	}
+
+	nvh264_encoder_->EncodeFrame(encoded_packets_);
+
+	if (encoded_packets_.size() < 1) {
+		return WEBRTC_VIDEO_CODEC_ERROR;
+	}
+
+	for (const auto& packet : encoded_packets_) {
+		encoded_image_.set_size(packet.size());
+		// TO TEST: not tested yet
+		//encoded_image_.playout_delay_ = { 0, 0 };
+		encoded_image_.SetTimestamp(input_frame.timestamp());
+ 		encoded_image_.ntp_time_ms_ = input_frame.ntp_time_ms();
+ 		encoded_image_.capture_time_ms_ = input_frame.render_time_ms();
+ 		encoded_image_.rotation_ = input_frame.rotation();
+ 		encoded_image_.SetColorSpace(input_frame.color_space());
+ 		encoded_image_.content_type_ =
+ 			codec_.mode == VideoCodecMode::kScreensharing ?
+ 			VideoContentType::SCREENSHARE : VideoContentType::UNSPECIFIED;
+ 		encoded_image_.SetSpatialIndex(0);
+ 		if ((packet[4] & 0x1f) == 0x07) {
+ 			encoded_image_._frameType = VideoFrameType::kVideoFrameKey;
+ 		} else if ((packet[4] & 0x1f) == 0x01) {
+ 			encoded_image_._frameType = VideoFrameType::kVideoFrameDelta;
+ 		} else {
+ 			encoded_image_._frameType = VideoFrameType::kEmptyFrame;
+ 		}
+
+		memcpy(encoded_image_.data(), packet.data(), packet.size());
+
+		RTPFragmentationHeader frag_header;
+		auto nalu_indices = H264::FindNaluIndices(packet.data(), packet.size());
+		auto nalu_size = nalu_indices.size();
+
+		if (nalu_size == 0) {
+			return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
 		}
 
-		for (const auto& packet : encoded_packets_) {
-			encoded_image_.set_size(packet.size());
-/*			encoded_image_.playout_delay_ = { 0, 0 };*/
-			encoded_image_.SetTimestamp(input_frame.timestamp());
- 			encoded_image_.ntp_time_ms_ = input_frame.ntp_time_ms();
- 			encoded_image_.capture_time_ms_ = input_frame.render_time_ms();
- 			encoded_image_.rotation_ = input_frame.rotation();
- 			encoded_image_.SetColorSpace(input_frame.color_space());
- 			encoded_image_.content_type_ =
- 				codec_.mode == VideoCodecMode::kScreensharing ?
- 				VideoContentType::SCREENSHARE : VideoContentType::UNSPECIFIED;
- 			encoded_image_.SetSpatialIndex(0);
- 			if ((packet[4] & 0x1f) == 0x07) {
- 				encoded_image_._frameType = VideoFrameType::kVideoFrameKey;
- 			} else if ((packet[4] & 0x1f) == 0x01) {
- 				encoded_image_._frameType = VideoFrameType::kVideoFrameDelta;
- 			} else {
- 				encoded_image_._frameType = VideoFrameType::kEmptyFrame;
- 			}
-
-			memcpy(encoded_image_.data(), packet.data(), packet.size());
-
-			RTPFragmentationHeader frag_header;
-			auto nalu_indices = H264::FindNaluIndices(packet.data(), packet.size());
-			auto nalu_size = nalu_indices.size();
-
-			if (nalu_size == 0) {
-				return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
-			}
-
-			frag_header.VerifyAndAllocateFragmentationHeader(nalu_size);
-			for (auto i = 0; i < nalu_size; ++i) {
-				frag_header.fragmentationOffset[i] = nalu_indices[i].payload_start_offset;
-				frag_header.fragmentationLength[i] = nalu_indices[i].payload_size;
-			}
-
-			if (encoded_image_.size() > 0) {
-				h264_bitstream_parser_.ParseBitstream(
-					encoded_image_.data(), encoded_image_.size());
-				auto qp = h264_bitstream_parser_.GetLastSliceQp();
-				if (qp.has_value()) {
-					encoded_image_.qp_ = qp.value();
-				}
-			}
-
-			CodecSpecificInfo codec_specific;
-			codec_specific.codecType = kVideoCodecH264;
-			codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
-			codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
-			codec_specific.codecSpecific.H264.idr_frame =
-				(encoded_image_._frameType == VideoFrameType::kVideoFrameKey);
-			codec_specific.codecSpecific.H264.base_layer_sync = false;
-
-			encoded_image_callback_->OnEncodedImage(
-				encoded_image_, &codec_specific, &frag_header);
+		frag_header.VerifyAndAllocateFragmentationHeader(nalu_size);
+		for (auto i = 0; i < nalu_size; ++i) {
+			frag_header.fragmentationOffset[i] = nalu_indices[i].payload_start_offset;
+			frag_header.fragmentationLength[i] = nalu_indices[i].payload_size;
 		}
+
+		if (encoded_image_.size() > 0) {
+			h264_bitstream_parser_.ParseBitstream(
+				encoded_image_.data(), encoded_image_.size());
+			auto qp = h264_bitstream_parser_.GetLastSliceQp();
+			if (qp.has_value()) {
+				encoded_image_.qp_ = qp.value();
+			}
+		}
+
+		CodecSpecificInfo codec_specific;
+		codec_specific.codecType = kVideoCodecH264;
+		codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
+		codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
+		codec_specific.codecSpecific.H264.idr_frame =
+			(encoded_image_._frameType == VideoFrameType::kVideoFrameKey);
+		codec_specific.codecSpecific.H264.base_layer_sync = false;
+
+		encoded_image_callback_->OnEncodedImage(
+			encoded_image_, &codec_specific, &frag_header);
 	}
 
 	return WEBRTC_VIDEO_CODEC_OK;
@@ -344,6 +355,40 @@ void NvH264EncoderImpl::OnLossNotification(
 // 		loss_notification.timestamp_of_last_received;
 // 	LOG_INFO("[WEBRTC] OnLossNotification timestamp between"
 // 		"last decodable and last received frame: %d", delta);
+}
+
+void NvH264EncoderImpl::ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate) {
+	NV_ENC_RECONFIGURE_PARAMS reconfig_params;
+	reconfig_params.version = NV_ENC_RECONFIGURE_PARAMS_VER;
+
+	NV_ENC_INITIALIZE_PARAMS init_params;
+	NV_ENC_CONFIG encode_config = { NV_ENC_CONFIG_VER };
+	init_params.encodeConfig = &encode_config;
+	nvh264_encoder_->GetInitializeParams(&init_params);
+
+	init_params.frameRateDen = 1;
+	init_params.frameRateNum = init_params.frameRateDen * fps;
+	init_params.encodeConfig->rcParams.maxBitRate = bitrate;
+
+	reconfig_params.reInitEncodeParams = init_params;
+
+	nvh264_encoder_->Reconfigure(&reconfig_params);
+}
+
+void NvH264EncoderImpl::ReconfigureEncoderIDR() {
+	NV_ENC_RECONFIGURE_PARAMS reconfig_params;
+	reconfig_params.version = NV_ENC_RECONFIGURE_PARAMS_VER;
+
+	NV_ENC_INITIALIZE_PARAMS init_params;
+	NV_ENC_CONFIG encode_config = { NV_ENC_CONFIG_VER };
+	init_params.encodeConfig = &encode_config;
+	nvh264_encoder_->GetInitializeParams(&init_params);
+
+	reconfig_params.reInitEncodeParams = init_params;
+	reconfig_params.forceIDR = 1;
+	reconfig_params.resetEncoder = 1;
+
+	nvh264_encoder_->Reconfigure(&reconfig_params);
 }
 
 void NvH264EncoderImpl::ReportInit() {

@@ -5,6 +5,27 @@
 #include "nvh264_encoder_factory.h"
 #include "nvh264_decoder_factory.h"
 
+vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
+	switch (http_code)
+	{
+	case HttpStatus::OK:
+		return vts_rtc::ErrorCode::OK;
+		break;
+	case HttpStatus::RoomNotExisted:
+		return vts_rtc::ErrorCode::RoomNotExisted;
+		break;
+	case HttpStatus::RoomAlreadyExisted:
+		return vts_rtc::ErrorCode::RoomAlreadyExisted;
+		break;
+	case HttpStatus::SessionidAlreadyInRoom:
+		return vts_rtc::ErrorCode::AgentAlreadyInRoom;
+		break;
+	default:
+		return vts_rtc::ErrorCode::InternalError;
+		break;
+	}
+}
+
 RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	std::shared_ptr<RtcDeviceManager> device_manager,
 	const vts_rtc::RecvMessageHandler& recv_msg_handler,
@@ -17,6 +38,10 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	recv_frame_handler_(recv_frame_handler),
 	network_disconnected_handler_(network_disconnected_handler) {
 	http_client_ = std::make_shared<HttpClient>(rtc_config_.api_server_url);
+	if (!rtc_config_.SRS_api_server_url.empty()) {
+		SRS_http_client_ = std::make_unique<HttpClient>(
+			rtc_config_.SRS_api_server_url);
+	}
 	// 通过优化语句顺序，可以做到不加锁
 	ws_io_context_ = std::make_shared<SimpleWeb::io_context>();
 }
@@ -427,7 +452,7 @@ vts_rtc::SessionIds RtcConnectionManager::QueryRemoteAgents() const {
 	return remote_sessionids;
 }
 
-vts_rtc::RoomCode RtcConnectionManager::QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const {
+vts_rtc::ErrorCode RtcConnectionManager::QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 	
 	try {
@@ -436,32 +461,29 @@ vts_rtc::RoomCode RtcConnectionManager::QueryRoom(const vts_rtc::RoomId& roomid,
 		json result_obj = json::parse(response->content.string(), nullptr, false);
 		if (result_obj.is_discarded()) {
 			LOG_ERROR("Http client query room info, parse content failed, not valid json");
-			return vts_rtc::RoomCode::InternalError;
+			return vts_rtc::ErrorCode::InternalError;
 		}
 
 		auto status = result_obj[HttpStatus::status_field].get<int>();
+		auto status_code = static_cast<HttpStatus::Code>(status);
 		auto message = result_obj[HttpStatus::message_field].get<std::string>();
-		LOG_INFO("Http client query room info, error code: %d, error message: %s", status, message.c_str());
+		LOG_INFO("Http client query room info, error code: %d, error message: %s",
+			status, message.c_str());
 
-		if (status == HttpStatus::OK) {
+		if (status_code == HttpStatus::OK) {
 			json data_obj = result_obj[HttpStatus::data_field];
 			room = data_obj.get<vts_rtc::Room>();
-			return vts_rtc::RoomCode::OK;
 		}
 
-		if (status == HttpStatus::RoomNotExisted) {
-			return vts_rtc::RoomCode::RoomNotExisted;
-		}
-
-		return vts_rtc::RoomCode::InternalError;
+		return ConvertHttpCode(status_code);
 	}
 	catch (const SimpleWeb::system_error& e) {
 		LOG_ERROR("Http client query room info occurs error: %s", e.what());
-		return vts_rtc::RoomCode::InternalError;
+		return vts_rtc::ErrorCode::InternalError;
 	}
 }
 
-vts_rtc::RoomCode RtcConnectionManager::QueryRooms(vts_rtc::Rooms& rooms) const {
+vts_rtc::ErrorCode RtcConnectionManager::QueryRooms(vts_rtc::Rooms& rooms) const {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 	
 	try {
@@ -470,28 +492,29 @@ vts_rtc::RoomCode RtcConnectionManager::QueryRooms(vts_rtc::Rooms& rooms) const 
 		json result_obj = json::parse(response->content.string(), nullptr, false);
 		if (result_obj.is_discarded()) {
 			LOG_ERROR("Http client query rooms, parse content failed, not valid json");
-			return vts_rtc::RoomCode::InternalError;
+			return vts_rtc::ErrorCode::InternalError;
 		}
 
 		auto status = result_obj[HttpStatus::status_field].get<int>();
+		auto status_code = static_cast<HttpStatus::Code>(status);
 		auto message = result_obj[HttpStatus::message_field].get<std::string>();
-		LOG_INFO("Http client query rooms, error code: %d, error message: %s", status, message.c_str());
+		LOG_INFO("Http client query rooms, error code: %d, error message: %s",
+			status, message.c_str());
 
-		if (status == HttpStatus::OK) {
+		if (status_code == HttpStatus::OK) {
 			json data_obj = result_obj[HttpStatus::data_field];
 			rooms = data_obj.get<vts_rtc::Rooms>();
-			return vts_rtc::RoomCode::OK;
 		}
 
-		return vts_rtc::RoomCode::InternalError;
+		return ConvertHttpCode(status_code);
 	}
 	catch (const SimpleWeb::system_error& e) {
 		LOG_ERROR("Http client query rooms occurs error: %s", e.what());
-		return vts_rtc::RoomCode::InternalError;
+		return vts_rtc::ErrorCode::InternalError;
 	}
 }
 
-vts_rtc::RoomCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type) {
+vts_rtc::ErrorCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
 	auto copy_sessionid = -1;
@@ -504,7 +527,7 @@ vts_rtc::RoomCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, 
 
 	if (copy_sessionid == -1) {
 		LOG_ERROR("Http client cannot open room, agent not logined");
-		return vts_rtc::RoomCode::AgentNotLogined;
+		return vts_rtc::ErrorCode::AgentNotLogined;
 	}
 
 	try {
@@ -524,34 +547,24 @@ vts_rtc::RoomCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, 
 		json result_obj = json::parse(response->content.string(), nullptr, false);
 		if (result_obj.is_discarded()) {
 			LOG_ERROR("Http client open room, parse content failed, not valid json");
-			return vts_rtc::RoomCode::InternalError;
+			return vts_rtc::ErrorCode::InternalError;
 		}
 
 		auto status = result_obj[HttpStatus::status_field].get<int>();
+		auto status_code = static_cast<HttpStatus::Code>(status);
 		auto message = result_obj[HttpStatus::message_field].get<std::string>();
-		LOG_INFO("Http client open room, error code: %d, error message: %s", status, message.c_str());
+		LOG_INFO("Http client open room, error code: %d, error message: %s",
+			status, message.c_str());
 
-		if (status == HttpStatus::OK) {
-			return vts_rtc::RoomCode::OK;
-		}
-
-		if (status == HttpStatus::RoomAlreadyExisted) {
-			return vts_rtc::RoomCode::RoomAlreadyExisted;
-		}
-
-		if (status == HttpStatus::SessionidAlreadyInRoom) {
-			return vts_rtc::RoomCode::AgentAlreadyInRoom;
-		}
-
-		return vts_rtc::RoomCode::InternalError;
+		return ConvertHttpCode(status_code);
 	}
 	catch (const SimpleWeb::system_error& e) {
 		LOG_ERROR("Http client open room occurs error: %s", e.what());
-		return vts_rtc::RoomCode::InternalError;
+		return vts_rtc::ErrorCode::InternalError;
 	}
 }
 
-vts_rtc::RoomCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) {
+vts_rtc::ErrorCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
 	auto copy_sessionid = -1;
@@ -564,7 +577,7 @@ vts_rtc::RoomCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) 
 
 	if (copy_sessionid == -1) {
 		LOG_ERROR("Http client cannot join room, agent not logined");
-		return vts_rtc::RoomCode::AgentNotLogined;
+		return vts_rtc::ErrorCode::AgentNotLogined;
 	}
 
 	try {
@@ -579,12 +592,14 @@ vts_rtc::RoomCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) 
 		json result_obj = json::parse(response->content.string(), nullptr, false);
 		if (result_obj.is_discarded()) {
 			LOG_ERROR("Http client join room, parse content failed, not valid json");
-			return vts_rtc::RoomCode::InternalError;
+			return vts_rtc::ErrorCode::InternalError;
 		}
 
 		auto status = result_obj[HttpStatus::status_field].get<int>();
+		auto status_code = static_cast<HttpStatus::Code>(status);
 		auto message = result_obj[HttpStatus::message_field].get<std::string>();
-		LOG_INFO("Http client join room, error code: %d, error message: %s", status, message.c_str());
+		LOG_INFO("Http client join room, error code: %d, error message: %s",
+			status, message.c_str());
 
 		if (status == HttpStatus::OK) {
 			json data_obj = result_obj[HttpStatus::data_field];
@@ -604,26 +619,17 @@ vts_rtc::RoomCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) 
 			default:
 				break;
 			}
-			return vts_rtc::RoomCode::OK;
 		}
 
-		if (status == HttpStatus::RoomNotExisted) {
-			return vts_rtc::RoomCode::RoomNotExisted;
-		}
-
-		if (status == HttpStatus::SessionidAlreadyInRoom) {
-			return vts_rtc::RoomCode::AgentAlreadyInRoom;
-		}
-
-		return vts_rtc::RoomCode::InternalError;
+		return ConvertHttpCode(status_code);
 	}
 	catch (const SimpleWeb::system_error& e) {
 		LOG_ERROR("Http client join room occurs error: %s", e.what());
-		return vts_rtc::RoomCode::InternalError;
+		return vts_rtc::ErrorCode::InternalError;
 	}
 }
 
-vts_rtc::RoomCode RtcConnectionManager::LeaveRoom() {
+vts_rtc::ErrorCode RtcConnectionManager::LeaveRoom() {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
 	auto copy_sessionid = -1;
@@ -636,7 +642,7 @@ vts_rtc::RoomCode RtcConnectionManager::LeaveRoom() {
 
 	if (copy_sessionid == -1) {
 		LOG_ERROR("Http client cannot leave room, agent not logined");
-		return vts_rtc::RoomCode::AgentNotLogined;
+		return vts_rtc::ErrorCode::AgentNotLogined;
 	}
 
 	try {
@@ -649,25 +655,310 @@ vts_rtc::RoomCode RtcConnectionManager::LeaveRoom() {
 		json result_obj = json::parse(response->content.string(), nullptr, false);
 		if (result_obj.is_discarded()) {
 			LOG_ERROR("Http client leave room, parse content failed, not valid json");
-			return vts_rtc::RoomCode::InternalError;
+			return vts_rtc::ErrorCode::InternalError;
 		}
 
 		auto status = result_obj[HttpStatus::status_field].get<int>();
+		auto status_code = static_cast<HttpStatus::Code>(status);
 		auto message = result_obj[HttpStatus::message_field].get<std::string>();
-		LOG_INFO("Http client leave room, error code: %d, error message: %s", status, message.c_str());
+		LOG_INFO("Http client leave room, error code: %d, error message: %s",
+			status, message.c_str());
 
 		if (status == HttpStatus::OK) {
 			remotesessionid_rtcconn_map_.clear();
-
-			return vts_rtc::RoomCode::OK;
 		}
 
-		return vts_rtc::RoomCode::InternalError;
+		return ConvertHttpCode(status_code);
 	}
 	catch (const SimpleWeb::system_error& e) {
 		LOG_ERROR("Http client leave room occurs error: %s", e.what());
-		return vts_rtc::RoomCode::InternalError;
+		return vts_rtc::ErrorCode::InternalError;
 	}
+}
+
+vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
+	const vts_rtc::SRSStreamurl& streamurl) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	if (!SRS_http_client_) {
+		return vts_rtc::ErrorCode::InternalError;
+	}
+
+	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl);
+
+	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
+	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+	// peer_conn_config.enable_dtls_srtp = true;
+	webrtc::PeerConnectionDependencies depends(&SRS_conn->peer_conn_observer_);
+	auto peer_conn = peer_conn_factory_->CreatePeerConnection(
+		peer_conn_config, std::move(depends));
+	if (!peer_conn) {
+		LOG_ERROR("Publish RTC to SRS, create peer connection failed");
+		return vts_rtc::ErrorCode::InternalError;
+	}
+
+	webrtc::RtpTransceiverInit rtp_transceiver_init;
+	rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendOnly;
+	peer_conn->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, rtp_transceiver_init);
+	peer_conn->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+
+	// Add audio track
+	rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track(
+		peer_conn_factory_->CreateAudioTrack("SRS_track_audio",
+			peer_conn_factory_->CreateAudioSource(cricket::AudioOptions()))
+	);
+	peer_conn->AddTrack(audio_track, { "SRS_stream_audio" });
+
+	this->AddVideoTrack2PeerConnection(peer_conn, "SRS_");
+
+	// create offer (declare the directional attribute by using RtpTransceiver
+	// API instead of RTCOfferAnswerOptions parameters for Unified Plan)
+	webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+	peer_conn->CreateOffer(SRS_conn->create_sdp_observer_.get(), options);
+
+	SRS_conn->peer_conn_ = peer_conn;
+
+	SRS_conn->on_iceconnect_failed =
+		[this](const vts_rtc::SRSStreamurl& SRS_streamurl) {
+		LOG_INFO("Reconnect SRS remote peer failed, remote streamurl: %s",
+			SRS_streamurl.c_str());
+
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, SRS_streamurl]() {
+				// @attention: must run in logic thread, otherwise cannot re-create
+				// PeerConnection
+				auto iter = std::find_if(SRS_publish_conns_.begin(), SRS_publish_conns_.end(),
+					[&SRS_streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
+						return conn->SRS_streamurl_ == SRS_streamurl;
+					});
+				if (iter != SRS_publish_conns_.end()) {
+					*iter = nullptr;
+					SRS_publish_conns_.erase(iter);
+				}
+			});
+	};
+
+	std::weak_ptr<Rtc2SRSConnection> weak_SRS_conn(SRS_conn);
+	SRS_conn->on_sdp_create_succeed_ =
+		[this, weak_SRS_conn](const std::string& offer_sdp) {
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, weak_SRS_conn, offer_sdp]() {
+				auto shared_SRS_conn = weak_SRS_conn.lock();
+				if (!shared_SRS_conn) {
+					LOG_ERROR("Publish RTC to SRS failed, SRS_conn is null!");
+					return;
+				}
+
+				auto raw_SRS_conn = shared_SRS_conn.get();
+				auto RemoveCurrecntConnection = [this, raw_SRS_conn]() {
+					auto iter = std::find_if(SRS_publish_conns_.begin(), SRS_publish_conns_.end(),
+						[raw_SRS_conn](std::shared_ptr<Rtc2SRSConnection> conn) {
+							return conn.get() == raw_SRS_conn;
+						});
+					if (iter != SRS_publish_conns_.end()) {
+						*iter = nullptr;
+						SRS_publish_conns_.erase(iter);
+					}
+				};
+
+				try {
+					auto streamurl = shared_SRS_conn->SRS_streamurl_;
+					LOG_INFO("Publish RTC to SRS with streamurl: %s", streamurl.c_str());
+
+					json publisher_obj = {
+						{ "streamurl", streamurl },
+						{ "sdp", offer_sdp }
+					};
+					auto response = SRS_http_client_->request(
+						"POST", "/rtc/v1/publish/", publisher_obj.dump());
+					json result_obj = json::parse(response->content.string(), nullptr, false);
+					if (result_obj.is_discarded()) {
+						LOG_ERROR("SRS http client publish RTC to SRS, parse content failed, "
+							"not valid json");
+						RemoveCurrecntConnection();
+						return;
+					}
+
+					auto code = result_obj["code"].get<int>();
+					if (code == 0) {
+						auto answer_sdp = result_obj["sdp"].get<std::string>();
+						auto SRS_sessionid = result_obj["sessionid"].get<vts_rtc::SRSSessionId>();
+
+						shared_SRS_conn->SetSRSSessionid(SRS_sessionid);
+
+						webrtc::SdpParseError error;
+						auto remote_sdp = webrtc::CreateSessionDescription(
+							webrtc::SdpType::kAnswer, answer_sdp, &error);
+						if (!remote_sdp) {
+							LOG_ERROR("Publish RTC to SRS, create answer SDP failed, line: %s, "
+								"description: %s", error.line.c_str(),
+								error.description.c_str());
+							RemoveCurrecntConnection();
+							return;
+						}
+
+						shared_SRS_conn->peer_conn_->SetRemoteDescription(std::move(remote_sdp),
+							shared_SRS_conn->set_remote_sdp_observer_);
+					} else {
+						LOG_ERROR("Publish RTC to SRS failed, error code: %d", code);
+						RemoveCurrecntConnection();
+					}
+				} catch (const SimpleWeb::system_error& e) {
+					LOG_ERROR("Publish RTC to SRS occurs error: %s", e.what());
+					RemoveCurrecntConnection();
+				}
+			});
+	};
+
+	SRS_publish_conns_.emplace_back(SRS_conn);
+
+	return vts_rtc::ErrorCode::OK;
+}
+
+vts_rtc::ErrorCode RtcConnectionManager::UnpublishRtc2SRS(
+	const vts_rtc::SRSStreamurl& streamurl,
+	const vts_rtc::SRSSessionId& sessionid) {
+	// TO DO
+	return vts_rtc::ErrorCode::OK;
+}
+
+vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
+	const vts_rtc::SRSStreamurl& streamurl) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	if (!SRS_http_client_) {
+		return vts_rtc::ErrorCode::InternalError;
+	}
+
+	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl);
+
+	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
+	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+	//peer_conn_config.enable_dtls_srtp = true;
+	webrtc::PeerConnectionDependencies depends(&SRS_conn->peer_conn_observer_);
+	auto peer_conn = peer_conn_factory_->CreatePeerConnection(
+		peer_conn_config, std::move(depends));
+	if (!peer_conn) {
+		LOG_ERROR("Play RTC from SRS, create peer connection failed");
+		return vts_rtc::ErrorCode::InternalError;
+	}
+
+	webrtc::RtpTransceiverInit rtp_transceiver_init;
+	rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kRecvOnly;
+	peer_conn->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, rtp_transceiver_init);
+	peer_conn->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+
+	// create offer (declare the directional attribute by using RtpTransceiver
+	// API instead of RTCOfferAnswerOptions parameters for Unified Plan)
+	webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+	peer_conn->CreateOffer(SRS_conn->create_sdp_observer_.get(), options);
+
+	SRS_conn->peer_conn_ = peer_conn;
+
+	SRS_conn->on_frame_received_ = recv_frame_handler_;
+
+	SRS_conn->on_iceconnect_failed =
+		[this](const vts_rtc::SRSStreamurl& SRS_streamurl) {
+		LOG_INFO("Reconnect SRS remote peer failed, remote streamurl: %s",
+			SRS_streamurl.c_str());
+
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, SRS_streamurl]() {
+				// @attention: must run in logic thread, otherwise cannot re-create
+				// PeerConnection
+				auto iter = std::find_if(SRS_play_conns_.begin(), SRS_play_conns_.end(),
+					[&SRS_streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
+						return conn->SRS_streamurl_ == SRS_streamurl;
+					});
+				if (iter != SRS_play_conns_.end()) {
+					*iter = nullptr;
+					SRS_play_conns_.erase(iter);
+				}
+			});
+	};
+
+	std::weak_ptr<Rtc2SRSConnection> weak_SRS_conn(SRS_conn);
+	SRS_conn->on_sdp_create_succeed_ =
+		[this, weak_SRS_conn](const std::string& offer_sdp) {
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, weak_SRS_conn, offer_sdp]() {
+				auto shared_SRS_conn = weak_SRS_conn.lock();
+				if (!shared_SRS_conn) {
+					LOG_ERROR("Play RTC from SRS failed, SRS_conn is null!");
+					return;
+				}
+
+				auto raw_SRS_conn = shared_SRS_conn.get();
+				auto RemoveCurrecntConnection = [this, raw_SRS_conn]() {
+					auto iter = std::find_if(SRS_play_conns_.begin(), SRS_play_conns_.end(),
+						[raw_SRS_conn](std::shared_ptr<Rtc2SRSConnection> conn) {
+							return conn.get() == raw_SRS_conn;
+						});
+					if (iter != SRS_play_conns_.end()) {
+						*iter = nullptr;
+						SRS_play_conns_.erase(iter);
+					}
+				};
+
+				try {
+					auto streamurl = shared_SRS_conn->SRS_streamurl_;
+					LOG_INFO("Play RTC from SRS with streamurl: %s", streamurl.c_str());
+
+					json play_obj = {
+						{ "streamurl", streamurl },
+						{ "sdp", offer_sdp }
+					};
+					auto response = SRS_http_client_->request(
+						"POST", "/rtc/v1/play/", play_obj.dump());
+					json result_obj = json::parse(response->content.string(), nullptr, false);
+					if (result_obj.is_discarded()) {
+						LOG_ERROR("SRS http client play RTC from SRS, parse content failed, "
+							"not valid json");
+						RemoveCurrecntConnection();
+						return;
+					}
+
+					auto code = result_obj["code"].get<int>();
+					if (code == 0) {
+						auto answer_sdp = result_obj["sdp"].get<std::string>();
+						auto SRS_sessionid = result_obj["sessionid"].get<vts_rtc::SRSSessionId>();
+
+						shared_SRS_conn->SetSRSSessionid(SRS_sessionid);
+
+						webrtc::SdpParseError error;
+						auto remote_sdp = webrtc::CreateSessionDescription(
+							webrtc::SdpType::kAnswer, answer_sdp, &error);
+						if (!remote_sdp) {
+							LOG_ERROR("Play RTC from SRS, create answer SDP failed, line: %s, "
+								"description: %s", error.line.c_str(),
+								error.description.c_str());
+							RemoveCurrecntConnection();
+							return;
+						}
+
+						shared_SRS_conn->peer_conn_->SetRemoteDescription(std::move(remote_sdp),
+							shared_SRS_conn->set_remote_sdp_observer_);
+					} else {
+						LOG_ERROR("Play RTC from SRS failed, error code: %d", code);
+						RemoveCurrecntConnection();
+					}
+				} catch (const SimpleWeb::system_error& e) {
+					LOG_ERROR("Play RTC from SRS occurs error: %s", e.what());
+					RemoveCurrecntConnection();
+				}
+			});
+	};
+
+	SRS_play_conns_.emplace_back(SRS_conn);
+
+	return vts_rtc::ErrorCode::OK;
+}
+
+vts_rtc::ErrorCode RtcConnectionManager::UnplayFromSRS(
+	const vts_rtc::SRSStreamurl& streamurl,
+	const vts_rtc::SRSSessionId& sessionid) {
+	// TO DO
+	return vts_rtc::ErrorCode::OK;
 }
 
 bool RtcConnectionManager::SendData(const std::string& channel_label, const std::string& msg) const {
@@ -726,6 +1017,57 @@ void RtcConnectionManager::SetRtpSendersPriority() {
 	}
 }
 
+void RtcConnectionManager::AddVideoTrack2PeerConnection(
+	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn,
+	const std::string& label_prefix) {
+	// @attention
+	// 由于接收端的MediaStreamTrack的id域是唯一的GUID，并不具有业务含义，
+	// 所以此处约定一个track只属于一个stream，同时track和stream的label值相同，
+	// 通过访问接收端的MediaStream的id域作为VideoSourceId值
+
+	// Add camera capturer video tracks
+	if (rtc_device_manager_) {
+		auto video_track_sources = rtc_device_manager_->GetVideoTrackSources();
+		for (const auto& track_source : video_track_sources) {
+			auto newlabel = label_prefix + track_source->GetLabel();
+			auto video_track = peer_conn_factory_->CreateVideoTrack(
+				newlabel, track_source.get());
+			auto rtpsender_error = peer_conn->AddTrack(
+				video_track, { newlabel });
+			if (rtpsender_error.ok()) {
+				auto rtpsender = rtpsender_error.value();
+				if (rtpsender) {
+					rtpsender_priority_map_[rtpsender] = track_source->GetPriority();
+				}
+			}
+			else {
+				LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s",
+					newlabel.c_str(), rtpsender_error.error().message());
+			}
+		}
+	}
+
+	// Add external feed video tracks
+	for (const auto& id_tracksource : external_feed_tracksources_) {
+		auto track_source = id_tracksource.second;
+		auto newlabel = label_prefix + track_source->label_;
+		auto video_track = peer_conn_factory_->CreateVideoTrack(
+			newlabel, track_source.get());
+		auto rtpsender_error = peer_conn->AddTrack(
+			video_track, { newlabel });
+		if (rtpsender_error.ok()) {
+			auto rtpsender = rtpsender_error.value();
+			if (rtpsender) {
+				rtpsender_priority_map_[rtpsender] = track_source->priority_;
+			}
+		}
+		else {
+			LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s",
+				newlabel.c_str(), rtpsender_error.error().message());
+		}
+	}
+}
+
 void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
@@ -747,7 +1089,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 			});
 	};
 
-	rtc_conn->on_create_sdp_succeed_ = [this, offer_peer](vts_rtc::SessionId remote_sessionid, const std::string& sdp) {
+	rtc_conn->on_sdp_create_succeed_ = [this, offer_peer](vts_rtc::SessionId remote_sessionid, const std::string& sdp) {
 		// @attention: in signaling thread
 		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 		if (current_sessionid_ && ws_conn_) {
@@ -793,7 +1135,6 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		webrtc_ice_server.password = ice_server.password;
 		peer_conn_config.servers.emplace_back(webrtc_ice_server);
 	}
-	// TO DO
 	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
 	webrtc::PeerConnectionDependencies depends(&rtc_conn->peer_conn_observer_);
 	rtc_conn->peer_conn_ = peer_conn_factory_->CreatePeerConnection(peer_conn_config, std::move(depends));
@@ -801,40 +1142,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		LOG_ERROR("Interact remote peer, create peer connection failed");
 		return;
 	}
-
-	// Add camera capturer video tracks
-	if (rtc_device_manager_) {
-		auto video_track_sources = rtc_device_manager_->GetVideoTrackSources();
-		for (const auto& track_source : video_track_sources) {
-			auto video_track = peer_conn_factory_->CreateVideoTrack("track_" + track_source->GetLabel(), track_source.get());
-			auto rtpsender_error = rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + track_source->GetLabel() });			
-			if (rtpsender_error.ok()) {
-				auto rtpsender = rtpsender_error.value();
-				if (rtpsender) {
-					rtpsender_priority_map_[rtpsender] = track_source->GetPriority();
-				}
-			}
-			else {
-				LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s", track_source->GetLabel().c_str(), rtpsender_error.error().message());
-			}
-		}
-	}
-
-	// Add external feed video tracks
-	for (const auto& id_tracksource : external_feed_tracksources_) {
-		auto track_source = id_tracksource.second;
-		auto video_track = peer_conn_factory_->CreateVideoTrack("track_" + track_source->label_, track_source.get());
-		auto rtpsender_error = rtc_conn->peer_conn_->AddTrack(video_track, { "stream_" + track_source->label_ });
-		if (rtpsender_error.ok()) {
-			auto rtpsender = rtpsender_error.value();
-			if (rtpsender) {
-				rtpsender_priority_map_[rtpsender] = track_source->priority_;
-			}
-		}
-		else {
-			LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s", track_source->label_.c_str(), rtpsender_error.error().message());
-		}
-	}
+	this->AddVideoTrack2PeerConnection(rtc_conn->peer_conn_, "");
 
 	if (offer_peer) {
 		// Add data channels (just for offer side for now)
@@ -845,9 +1153,14 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 			}
 		}
 
-		// create offer (declare the directional attribute by using RtpTransceiver API instead of RTCOfferAnswerOptions parameters for Unified Plan)
+		// create offer (declare the directional attribute by using
+		// RtpTransceiver API instead of RTCOfferAnswerOptions parameters
+		// for Unified Plan)
+		webrtc::RtpTransceiverInit rtp_transceiver_init;
+		rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
+		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO);
 		rtc_conn->peer_conn_->CreateOffer(rtc_conn->create_sdp_observer_.get(), options);
 	}
 	else {
@@ -861,8 +1174,11 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		rtc_conn->peer_conn_->SetRemoteDescription(std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
 
 		// create answer
+		webrtc::RtpTransceiverInit rtp_transceiver_init;
+		rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
+		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO);
 		rtc_conn->peer_conn_->CreateAnswer(rtc_conn->create_sdp_observer_.get(), options);
 
 		this->SetRtpSendersPriority();

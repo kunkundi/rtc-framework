@@ -3,6 +3,14 @@
 
 RtcVideoRender::RtcVideoRender() {
 	this->setMinimumSize(600, 400);
+
+	track_label_ = new QLabel(trackid_, this);
+	QFont ft;
+	ft.setPointSize(16);
+	track_label_->setFont(ft);
+	QPalette pa;
+	pa.setColor(QPalette::WindowText, Qt::red);
+	track_label_->setPalette(pa);
 }
 
 RtcVideoRender::~RtcVideoRender() {
@@ -17,6 +25,8 @@ RtcVideoRender::~RtcVideoRender() {
 void RtcVideoRender::OnFrame(const char* sourceid, size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {
 	// std::cout << sourceid << ", " << width << ", " << height << ", " << sz_buffer << std::endl;
+
+	trackid_ = QString(sourceid);
 
 	new_width_ = width;
 	new_height_ = height;
@@ -82,6 +92,9 @@ void RtcVideoRender::paintGL() {
 
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glFlush();
+
+	track_label_->setText(trackid_);
+	track_label_->adjustSize();
 }
 
 void RtcVideoRender::resizeGL(int width, int height) {

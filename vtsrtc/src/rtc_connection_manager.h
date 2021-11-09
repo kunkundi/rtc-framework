@@ -76,11 +76,20 @@ public:
 	bool AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid, vts_rtc::PriorityType priority);
 
 	vts_rtc::SessionIds QueryRemoteAgents() const;
-	vts_rtc::RoomCode QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const;
-	vts_rtc::RoomCode QueryRooms(vts_rtc::Rooms& rooms) const;
-	vts_rtc::RoomCode OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type);
-	vts_rtc::RoomCode JoinRoom(const vts_rtc::RoomId& roomid);
-	vts_rtc::RoomCode LeaveRoom();
+	vts_rtc::ErrorCode QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const;
+	vts_rtc::ErrorCode QueryRooms(vts_rtc::Rooms& rooms) const;
+	vts_rtc::ErrorCode OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type);
+	vts_rtc::ErrorCode JoinRoom(const vts_rtc::RoomId& roomid);
+	vts_rtc::ErrorCode LeaveRoom();
+
+	vts_rtc::ErrorCode PublishToSRS(const vts_rtc::SRSStreamurl& streamurl);
+	vts_rtc::ErrorCode UnpublishRtc2SRS(
+		const vts_rtc::SRSStreamurl& streamurl,
+		const vts_rtc::SRSSessionId& sessionid);
+	vts_rtc::ErrorCode PlayFromSRS(const vts_rtc::SRSStreamurl& streamurl);
+	vts_rtc::ErrorCode UnplayFromSRS(
+		const vts_rtc::SRSStreamurl& streamurl,
+		const vts_rtc::SRSSessionId& sessionid);
 
 	bool SendData(const std::string& channel_label, const std::string& msg) const;
 	void SendFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame);
@@ -92,6 +101,9 @@ private:
 	void ReconnectWebsocket();
 	// @attention: must be called after CreateAnswer on ANSWER side or SetRemoteDescription on OFFER side
 	void SetRtpSendersPriority();
+	void AddVideoTrack2PeerConnection(
+		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn,
+		const std::string& label_prefix);
 	void InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp);
 	void AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp);
 
@@ -107,6 +119,7 @@ private:
 	vts_rtc::NetworkDisconnectedHandler network_disconnected_handler_ = nullptr;
 
 	std::shared_ptr<HttpClient> http_client_ = nullptr;
+	std::unique_ptr<HttpClient> SRS_http_client_ = nullptr;
 	// @attention: io_context run, stop, get_executor method is thread-safe
 	std::shared_ptr<SimpleWeb::io_context> ws_io_context_ = nullptr;
 	bool network_disconnected_notified_ = false;
@@ -131,5 +144,8 @@ private:
 	rtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_moudle_;
 	std::unique_ptr<rtc::Thread> signaling_thread_, worker_thread_, network_thread_;
 	rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_conn_factory_;
-	std::map<vts_rtc::SessionId, std::shared_ptr<RtcConnection>> remotesessionid_rtcconn_map_;
+	std::map<vts_rtc::SessionId, std::shared_ptr<RtcConnection>>
+		remotesessionid_rtcconn_map_;
+	std::vector<std::shared_ptr<Rtc2SRSConnection>>
+		SRS_publish_conns_, SRS_play_conns_;
 };

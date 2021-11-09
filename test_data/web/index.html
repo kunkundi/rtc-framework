@@ -175,16 +175,16 @@
         };
 
         function InteractRemotePeer(remote_sessionid, offer_peer, remote_sdp) {
-            const config = { 
+            const config = {
                 "iceServers": [
-                        {
-                                "urls": [ "stun:47.96.251.52:3478" ]
-                        },
-                        {
-                                "urls": [ "turn:47.96.251.52:3478" ],
-                                "username": "zhejianglab",
-                                "credential": "passwd"
-                        }
+                    {
+                        "urls": [ "stun:47.96.251.52:3478" ]
+                    },
+                    {
+                        "urls": [ "turn:47.96.251.52:3478" ],
+                        "username": "zhejianglab",
+                        "credential": "passwd"
+                    }
                 ],
                 sdpSemantics: "unified-plan"
             };
@@ -233,6 +233,12 @@
             peerconn.ontrack = function(event) {
                 console.log("ontrack", event);
 
+                var remote_video_label = $("<div />", {
+                    style: "color: red; font-weight: bold; background: lightgray;",
+                    html: event.streams[0].id
+                });
+                $("#remote_videos").append(remote_video_label);
+
                 var remote_video = $("<video />", {
                     id: event.track.id,
                     style: "clear: both; display: block; margin: auto;"
@@ -242,7 +248,6 @@
                 remote_video[0].onloadedmetadata = function (event) {
                     remote_video[0].play();
                 };
-
                 remote_video[0].srcObject = event.streams[0];
             };
 
@@ -253,13 +258,13 @@
             };
             
             if(offer_peer) {
+                peerconn.addTransceiver("audio", { "direction": "recvonly" });
+                peerconn.addTransceiver("video", { "direction": "recvonly" });
+
                 rtcconn.data_channel = peerconn.createDataChannel("datachannel", { "ordered": true, "priority": "high" });
                 SetDataChannelEventHandler(rtcconn.data_channel);
 
-                peerconn.createOffer({
-                    offerToReceiveAudio: true,
-                    offerToReceiveVideo: true
-                })
+                peerconn.createOffer()
                 .then(function(sdp_offer) {
                     peerconn.setLocalDescription(sdp_offer);
 
@@ -282,12 +287,10 @@
                     "sdp": remote_sdp
                 }))
                 .then(function() {
-                    return peerconn.createAnswer({
-                        mandatory: {
-                            OfferToReceiveAudio: false,
-                            OfferToReceiveVideo: false
-                        }
-                    });
+                    peerconn.addTransceiver("audio", { "direction": "sendonly" });
+                    peerconn.addTransceiver("video", { "direction": "sendonly" });
+
+                    return peerconn.createAnswer();
                 })
                 .then(function(sdp_answer) {
                     peerconn.setLocalDescription(sdp_answer);
@@ -362,8 +365,7 @@
 
                             $("#local_video")[0].onloadedmetadata = function(event) {
                                 $("#local_video")[0].play();
-                            };
-                            
+                            };             
                             $("#local_video")[0].srcObject = stream;
                         })
                         .catch(alert);
@@ -479,6 +481,196 @@
                 else { alert("rtcconn datachannel not open"); }
             }
         };
+
+        // SRS WebRTC推流和拉流文档：https://github.com/rtcdn/rtcdn-draft
+        // 推流RTC到SRS
+        var SRS_serverurl = "http://47.96.251.52:1985";
+        var SRS_publish_peerconn = undefined;
+        var SRS_publish_sessionid = undefined;
+        var SRS_publish_stream = undefined;
+        var SRS_play_peerconn = undefined;
+        var SRS_play_sessionid = undefined;
+        var SRS_play_stream = undefined;
+
+        function PublishRTC2SRS() {
+            console.log("Publish RTC to SRS");
+
+            SRS_publish_peerconn = new RTCPeerConnection(null);
+            SRS_publish_peerconn.addTransceiver("audio", { "direction": "sendonly" });
+            SRS_publish_peerconn.addTransceiver("video", { "direction": "sendonly" });
+            
+            // 播放本地流
+            const constraints = {
+                "audio": {
+                    "deviceId": $("#audioinput_select").val() == null ? undefined : 
+                    { "exact": $("#audioinput_select").val() }
+                },
+                "video": {
+                    "deviceId": $("#videoinput_select").val() == null ? undefined :
+                    { "exact": $("#videoinput_select").val() },
+                    "width": 1280,
+                    "height": 720
+                }
+            };
+
+            navigator.mediaDevices.getUserMedia(constraints)
+            .then(function(stream) {
+                SRS_publish_stream = stream;
+
+                $("#SRS_local_video")[0].onloadedmetadata = function(event) {
+                    $("#SRS_local_video")[0].play();
+                };
+                $("#SRS_local_video")[0].srcObject = stream;
+
+                stream.getTracks().forEach(track => SRS_publish_peerconn.addTrack(track, stream));
+
+                SRS_publish_peerconn.createOffer()
+                .then(function(sdp_offer) {
+                    SRS_publish_peerconn.setLocalDescription(sdp_offer);
+
+                    $.ajax({
+                        type: "POST",
+                        url: SRS_serverurl + "/rtc/v1/publish/",
+                        data: JSON.stringify({
+                            "streamurl": $("#SRS_RTC_streamurl_input").val(),
+                            "sdp": sdp_offer["sdp"],
+                            "clientip": null
+                        }),
+                        contentType: "application/json",
+                        dataType: "json",
+                        success: function(data) {
+                            console.log("Publish RTC to SRS response: ", data);
+                            
+                            if(data["code"] == 0) {
+                                SRS_publish_sessionid = data["sessionid"];
+
+                                SRS_publish_peerconn.setRemoteDescription(new RTCSessionDescription({
+                                    "type": "answer",
+                                    "sdp": data["sdp"]
+                                }));
+                            }
+                        },
+                        error: function(data) { alert("Publish RTC to SRS failed: ", data); }
+                    });
+                })
+                .catch(alert);
+            })
+            .catch(alert);
+        };
+
+        // 停止推流RTC到SRS（貌似没生效）
+        function UnpublishRTC2SRS() {
+            console.log("Unpublish RTC to SRS");
+
+            $.ajax({
+                type: "POST",
+                url: SRS_serverurl + "/rtc/v1/unpublish/",
+                data: JSON.stringify({
+                    "streamurl": $("#SRS_RTC_streamurl_input").val(),
+                    "sessionid": SRS_publish_sessionid
+                }),
+                contentType: "application/json",
+                dataType: "json",
+                success: function(data) {
+                    console.log("Unpublish RTC to SRS response: ", data);
+
+                    SRS_publish_sessionid = undefined;
+                    //if (SRS_publish_stream) {
+                    //    SRS_publish_stream.getTracks().forEach(track => track.stop());
+                    //    SRS_publish_stream = undefined;
+                    //}
+                    if (SRS_publish_peerconn) {
+                        SRS_publish_peerconn.close();
+                        SRS_publish_peerconn = undefined;
+                    }
+                },
+                error: function(data) { alert("Unpublish RTC to SRS failed: ", data); }
+            });
+        };
+
+        // 从SRS拉取RTC流
+        function PlayRTCFromSRS() {
+            console.log("Play RTC from SRS");
+
+            SRS_play_peerconn = new RTCPeerConnection(null);
+            SRS_play_peerconn.addTransceiver("audio", { "direction": "recvonly" });
+            SRS_play_peerconn.addTransceiver("video", { "direction": "recvonly" });
+
+            // ontrack
+            SRS_play_peerconn.ontrack = function(event) {
+                console.log("ontrack", event);
+
+                SRS_play_stream = event.streams[0];
+
+                $("#SRS_remote_video_label").html(SRS_play_stream.id);
+
+                $("#SRS_remote_video")[0].onloadedmetadata = function (event) {
+                    $("#SRS_remote_video")[0].play();
+                };
+                $("#SRS_remote_video")[0].srcObject = SRS_play_stream;
+            };
+
+            SRS_play_peerconn.createOffer()
+            .then(function(sdp_offer) {
+                SRS_play_peerconn.setLocalDescription(sdp_offer);
+
+                $.ajax({
+                    type: "POST",
+                    url: SRS_serverurl + "/rtc/v1/play/",
+                    data: JSON.stringify({
+                        "streamurl": $("#SRS_RTC_streamurl_input").val(),
+                        "sdp": sdp_offer["sdp"],
+                        "clientip": null
+                    }),
+                    contentType: "application/json",
+                    dataType: "json",
+                    success: function(data) {
+                        console.log("Play RTC from SRS response: ", data);
+                        
+                        if(data["code"] == 0) {
+                            SRS_play_sessionid = data["sessionid"];
+
+                            SRS_play_peerconn.setRemoteDescription(new RTCSessionDescription({
+                                "type": "answer",
+                                "sdp": data["sdp"]
+                            }));
+                        }
+                    },
+                    error: function(data) { alert("Publish RTC to SRS failed: ", data); }
+                });
+            })
+            .catch(alert);
+        };
+
+        // 停止从SRS拉取RTC流
+        function UnplayRTCFromSRS() {
+            console.log("Unplay RTC from SRS");
+
+            $.ajax({
+                type: "POST",
+                url: SRS_serverurl + "/rtc/v1/unplay/",
+                data: JSON.stringify({
+                    "streamurl": $("#SRS_RTC_streamurl_input").val(),
+                    "sessionid": SRS_play_sessionid
+                }),
+                contentType: "application/json",
+                dataType: "json",
+                success: function(data) {
+                    console.log("Unplay RTC from SRS response: ", data);
+
+                    SRS_play_sessionid = undefined;
+                    //if (SRS_play_stream) {
+                    //    SRS_play_stream.getTracks().forEach(track => track.stop());
+                    //    SRS_play_stream = undefined;
+                    //}
+                    if (SRS_play_peerconn) {
+                        SRS_play_peerconn.close();
+                        SRS_play_peerconn = undefined;
+                    }
+                },
+                error: function(data) { alert("Unplay RTC from SRS failed: ", data); }
+            });
+        };
     </script>
 </head>
 <body>
@@ -501,10 +693,22 @@
         <input id="msg_input" value="hello world" /><button onclick="SendMessage()">Send Message</button><br />
     </div>
 
-    <div id="remote_videos"></div>
+    <div style="border: 1px solid gray; padding: 5px; margin: 5px;">
+        <input id="SRS_RTC_streamurl_input" value="webrtc://47.96.251.52/AR/livestream" />
+        <button onclick="PublishRTC2SRS()">Publish RTC2SRS</button>
+        <button onclick="UnpublishRTC2SRS()">Unpublish RTC2SRS</button>
+        <button onclick="PlayRTCFromSRS()">Play RTCFromSRS</button>
+        <button onclick="UnplayRTCFromSRS()">Unplay RTCFromSRS</button>
+    </div>
+
+    <div id="remote_videos">
+        <div id="SRS_remote_video_label" style="color: red; font-weight: bold; background: lightgray;"></div>
+        <video id="SRS_remote_video" style="clear: both; display: block; margin: auto;"></video>
+    </div>
 
     <div id="local_videos">
         <video id="local_video" style="clear: both; display: block; margin: auto;"></video>
+        <video id="SRS_local_video" style="clear: both; display: block; margin: auto;"></video>
     </div>
 </body>
 </html>

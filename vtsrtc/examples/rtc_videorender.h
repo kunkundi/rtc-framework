@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QLabel>
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions_2_0>
 
@@ -19,6 +20,8 @@ protected:
 	void resizeGL(int width, int height) override;
 
 private:
+	QString trackid_ = QString("No video track");
+	QLabel* track_label_;
 	size_t width_ = 0, height_ = 0;
 	size_t new_width_ = 0, new_height_ = 0;
 	unsigned char* framebuffer_ = nullptr;

@@ -23,21 +23,28 @@ private:
 	void CreateUI();
 	void LoadYUVData();
 	void SendFrame();
+	void AddVideoSource();
 
 private slots:
 	void QueryRooms();
 	void OpenRoom();
 	void JoinRoom();
 	void LeaveRoom();
+	void PublishToSRS();
+	void UnpublishToSRS();
+	void PlayFromSRS();
+	void UnplayFromSRS();
 	void SendMessage();
 
 private:
 	bool external_feed_inited_ = false;
+	bool video_source_added_ = false;
 	QString yuv_folderpath_;
 	std::vector<RtcYUV420pFrame> yuv_frames_;
 	QComboBox* videosources_combobox_;
 	QLineEdit* open_room_edit_;
 	QComboBox* rooms_combobox_;
+	QLineEdit* SRS_streamurl_edit_;
 	static QListWidget* recv_msg_listwgt_;
 	QLineEdit* send_msg_edit_;
 	static RtcVideoRender* rtc_videorender_;

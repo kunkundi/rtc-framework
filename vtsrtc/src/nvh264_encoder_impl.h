@@ -51,6 +51,10 @@ public:
 	void OnLossNotification(const LossNotification& loss_notification) override;
 
 private:
+	// Reconfigure encoder
+	void ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate);
+	void ReconfigureEncoderIDR();
+
 	// Reports statistics with histograms.
 	void ReportInit();
 	void ReportError();

@@ -97,6 +97,21 @@ void RtcWidget::CreateUI() {
 	room_layout->addWidget(leave_room_btn, 1, 4, 1, 1);
 	room_groupbox->setLayout(room_layout);
 
+	// SRS管理
+	QGroupBox* SRS_groupbox = new QGroupBox(tr("SRS Management"));
+	QHBoxLayout* SRS_layout = new QHBoxLayout;
+	SRS_streamurl_edit_ = new QLineEdit("webrtc://47.96.251.52/AR/livestream");
+	QPushButton* publish_to_SRS_btn = new QPushButton(tr("Publish to SRS"));
+	QPushButton* unpublish_to_SRS_btn = new QPushButton(tr("Unpublish to SRS"));
+	QPushButton* play_from_SRS_btn = new QPushButton(tr("Play from SRS"));
+	QPushButton* unplay_from_SRS_btn = new QPushButton(tr("Unplay from SRS"));
+	SRS_layout->addWidget(SRS_streamurl_edit_);
+	SRS_layout->addWidget(publish_to_SRS_btn);
+	SRS_layout->addWidget(unpublish_to_SRS_btn);
+	SRS_layout->addWidget(play_from_SRS_btn);
+	SRS_layout->addWidget(unplay_from_SRS_btn);
+	SRS_groupbox->setLayout(SRS_layout);
+
 	// 消息管理
 	QGroupBox* msg_groupbox = new QGroupBox(tr("Message Management"));
 	QGridLayout* msg_layout = new QGridLayout;
@@ -114,6 +129,7 @@ void RtcWidget::CreateUI() {
 
 	main_layout->addWidget(videosource_groupbox);
 	main_layout->addWidget(room_groupbox);
+	main_layout->addWidget(SRS_groupbox);
 	main_layout->addWidget(msg_groupbox);
 	main_layout->addWidget(rtc_videorender_, 0, Qt::AlignCenter);
 
@@ -125,6 +141,10 @@ void RtcWidget::CreateUI() {
 	connect(open_room_btn, SIGNAL(clicked()), this, SLOT(OpenRoom()));
 	connect(join_room_btn, SIGNAL(clicked()), this, SLOT(JoinRoom()));
 	connect(leave_room_btn, SIGNAL(clicked()), this, SLOT(LeaveRoom()));
+	connect(publish_to_SRS_btn, SIGNAL(clicked()), this, SLOT(PublishToSRS()));
+	connect(unpublish_to_SRS_btn, SIGNAL(clicked()), this, SLOT(UnpublishToSRS()));
+	connect(play_from_SRS_btn, SIGNAL(clicked()), this, SLOT(PlayFromSRS()));
+	connect(unplay_from_SRS_btn, SIGNAL(clicked()), this, SLOT(UnplayFromSRS()));
 	connect(send_msg_btn, SIGNAL(clicked()), this, SLOT(SendMessage()));
 }
 
@@ -173,6 +193,36 @@ void RtcWidget::SendFrame() {
 	}
 }
 
+void RtcWidget::AddVideoSource() {
+	auto current_idx = videosources_combobox_->currentIndex();
+	if (current_idx == videosources_combobox_->count() - 1) {
+		// YUV420p video source
+		auto code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
+		//CHECK_ERRORCODE
+
+		if (!external_feed_inited_) {
+			LoadYUVData();
+			SendFrame();
+			external_feed_inited_ = true;
+		}
+	}
+	else {
+		// Camera video source
+		RtcVideoDeviceCapability device_capability{ 1280, 720, 30 };
+		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability, RtcPriorityType::High);
+		//CHECK_ERRORCODE
+
+		//code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
+		//CHECK_ERRORCODE
+
+		//if (!external_feed_inited_) {
+		//	LoadYUVData();
+		//	SendFrame();
+		//	external_feed_inited_ = true;
+		//}
+	}
+}
+
 void RtcWidget::QueryRooms() {
 	RtcRooms rooms = nullptr;
 	size_t sz_rooms = 0;
@@ -193,32 +243,9 @@ void RtcWidget::OpenRoom() {
 	auto code = RtcOpenRoom(roomid.data(), RtcRoomType::VideoBroadcasting);
 	CHECK_ERRORCODE
 
-	auto current_idx = videosources_combobox_->currentIndex();
-	if (current_idx == videosources_combobox_->count() - 1) {
-		// YUV420p video source
-		auto code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
-		//CHECK_ERRORCODE
-
-		if (!external_feed_inited_) {
-			LoadYUVData();
-			SendFrame();
-			external_feed_inited_ = true;
-		}
-	}
-	else {
-		// Camera video source
-		RtcVideoDeviceCapability device_capability { 1280, 720, 30 };
-		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability, RtcPriorityType::High);
-		//CHECK_ERRORCODE
-
-		//code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
-		//CHECK_ERRORCODE
-
-		//if (!external_feed_inited_) {
-		//	LoadYUVData();
-		//	SendFrame();
-		//	external_feed_inited_ = true;
-		//}
+	if (!video_source_added_) {
+		this->AddVideoSource();
+		video_source_added_ = true;
 	}
 }
 
@@ -236,6 +263,31 @@ void RtcWidget::JoinRoom() {
 void RtcWidget::LeaveRoom() {
 	auto code = RtcLeaveRoom();
 	CHECK_ERRORCODE
+}
+
+void RtcWidget::PublishToSRS() {
+	if (!video_source_added_) {
+		this->AddVideoSource();
+		video_source_added_ = true;
+	}
+
+	QByteArray SRS_streamurl = SRS_streamurl_edit_->text().toLocal8Bit();
+	auto code = RtcPublishToSRS(SRS_streamurl.data());
+	CHECK_ERRORCODE
+}
+
+void RtcWidget::UnpublishToSRS() {
+	qDebug() << "Unpublish to SRS";
+}
+
+void RtcWidget::PlayFromSRS() {
+	QByteArray SRS_streamurl = SRS_streamurl_edit_->text().toLocal8Bit();
+	auto code = RtcPlayFromSRS(SRS_streamurl.data());
+	CHECK_ERRORCODE
+}
+
+void RtcWidget::UnplayFromSRS() {
+	qDebug() << "Unplay from SRS";
 }
 
 void RtcWidget::SendMessage() {

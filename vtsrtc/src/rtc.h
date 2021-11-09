@@ -34,17 +34,29 @@ public:
 
 	// room management
 	// @retval OK, InternalError, RoomNotExisted
-	RoomCode QueryRoom(const RoomId& roomid, Room& room) const;
+	ErrorCode QueryRoom(const RoomId& roomid, Room& room) const;
 	// @retval OK, InternalError
-	RoomCode QueryRooms(Rooms& rooms) const;
+	ErrorCode QueryRooms(Rooms& rooms) const;
 	// @retval OK, InternalError, AgentNotLogined, RoomAlreadyExisted, AgentAlreadyInRoom
-	RoomCode OpenRoom(const RoomId& roomid, enum RoomType room_type = RoomType::VideoBroadcasting) const;
+	ErrorCode OpenRoom(const RoomId& roomid, enum RoomType room_type = RoomType::VideoBroadcasting) const;
 	// @retval OK, InternalError, AgentNotLogined, RoomNotExisted, AgentAlreadyInRoom
-	RoomCode JoinRoom(const RoomId& roomid) const;
+	ErrorCode JoinRoom(const RoomId& roomid) const;
 	// @retval OK, InternalError, AgentNotLogined
-	RoomCode LeaveRoom() const;
+	ErrorCode LeaveRoom() const;
 
 	SessionIds QueryRemoteAgents() const;
+
+	// SRS management
+	// @retval OK, InternalError
+	ErrorCode PublishToSRS(const SRSStreamurl& streamurl) const;
+	// @retval OK
+	ErrorCode UnpublishToSRS(const vts_rtc::SRSStreamurl& streamurl,
+		const vts_rtc::SRSSessionId& sessionid) const;
+	// @retval OK, InternalError
+	ErrorCode PlayFromSRS(const SRSStreamurl& streamurl) const;
+	// @retval OK
+	ErrorCode UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl,
+		const vts_rtc::SRSSessionId& sessionid) const;
 
 	// send data
 	bool SendData(const std::string& channel_label, const std::string& msg) const;

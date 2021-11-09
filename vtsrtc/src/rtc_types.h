@@ -16,6 +16,8 @@ using SessionId = unsigned int;
 using SessionIds = std::vector<SessionId>;
 using RoomId = std::string;
 using Rooms = std::map<RoomId, Room>;
+using SRSSessionId = std::string;
+using SRSStreamurl = std::string;
 using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
 using RecvMessageHandler = std::function<void(SessionId, const std::string&, const std::string&)>;
@@ -31,6 +33,7 @@ struct RtcConfig {
 
 	std::string api_server_url;
 	std::string signaling_server_url;
+	std::string SRS_api_server_url;
 	std::vector<IceServer> ice_servers;
 
 	long ping_timeout = 2000;
@@ -73,12 +76,15 @@ struct Room {
 	SessionId broadcaster_sessionid = -1;
 };
 
-enum class RoomCode {
+enum class ErrorCode {
 	OK = 0,
 	InternalError,
 	RoomNotExisted,
 	RoomAlreadyExisted,
 	AgentAlreadyInRoom,
+	SRSAuthFailed,
+	SRSStreamNotExisted,
+	SRSStreamAlreadyExisted,
 	AgentNotLogined,
 };
 

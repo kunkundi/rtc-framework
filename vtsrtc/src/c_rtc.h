@@ -27,6 +27,8 @@ typedef RtcSessionId* RtcSessionIds;
 typedef const char* RtcDataChannelLabel;
 typedef const char* RtcVideoSourceId;
 typedef char* RtcRoomId;
+typedef char* RtcSRSStreamurl;
+typedef char* RtcSRSSessionId;
 
 typedef enum RtcRoomType {
 	VideoBroadcasting = 0,  // one to many
@@ -49,6 +51,9 @@ typedef enum RtcErrorCode {
 	RoomNotExisted,
 	RoomAlreadyExisted,
 	AgentAlreadyInRoom,
+	SRSAuthFailed,
+	SRSStreamNotExisted,
+	SRSStreamAlreadyExisted,
 	AgentNotLogined,
 	AgentNotInited,
 	Failed,
@@ -135,7 +140,6 @@ extern "C" {
 	 */
 	RTC_API RtcErrorCode RtcGetVideoDevices(RtcVideoDevices* video_devices, size_t* sz_video_devices);
 
-
 	/**
 	 * @brief 释放设备信息资源
 	 *
@@ -185,7 +189,12 @@ extern "C" {
 	 *   @retval RtcErrorCode::OK 增加源成功
 	 *   @retval RtcErrorCode::AgentNotInited 增加源失败，因为Rtc Agent未成功初始化
 	 *   @retval RtcErrorCode::Failed 增加源失败，video_sourceid重复
-	 * @attention 函数参数必须与SendFrame函数和RecvFrameHandler回调函数的video_sourceid相一致
+	 * @attention 1. 函数参数必须与SendFrame函数和RecvFrameHandler回调函数的video_sourceid相一致
+	 *               特例：通过RtcPlayFromSRS拉流时，RecvFrameHandler回调函数为区分图像帧来源，
+	 *               SDK内部会为video_sourceid增加SRS_前缀
+	 *            2. 针对WEB平台，当采用Unified Plan形式的SDP，接收端的MediaStreamTrack的id域是唯一的GUID，
+	 *               并不具有业务含义，所以SDK约定一个track只属于一个stream，同时track和stream的label值相同，
+	 *               通过访问接收端的MediaStream的id域可以对VideoTrack进行业务区分
 	 */
 	RTC_API RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid, RtcPriorityType priority);
 
@@ -272,6 +281,32 @@ extern "C" {
 	 *   @retval RtcErrorCode::AgentNotLogined 离开失败，Rtc Agent未成功登录
 	 */
 	RTC_API RtcErrorCode RtcLeaveRoom();
+
+	/**
+	 * @brief 将RTC流推送到SRS [https://github.com/ossrs/srs]
+	 *
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 推流成功
+	 *   @retval RtcErrorCode::InternalError 推流失败，服务器的问题
+	 */
+	RTC_API RtcErrorCode RtcPublishToSRS(const RtcSRSStreamurl SRS_streamurl);
+
+	// Not supported
+	RTC_API RtcErrorCode RtcUnpublishToSRS(const RtcSRSStreamurl SRS_streamurl,
+		const RtcSRSSessionId SRS_sessionid);
+
+	/**
+	 * @brief 从SRS拉取RTC流
+	 *
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 拉流成功
+	 *   @retval RtcErrorCode::InternalError 拉流失败，服务器的问题
+	 */
+	RTC_API RtcErrorCode RtcPlayFromSRS(const RtcSRSStreamurl SRS_streamurl);
+
+	// Not supported
+	RTC_API RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl,
+		const RtcSRSSessionId SRS_sessionid);
 
 	/**
 	 * @brief 发送消息到远端Rtc Agent

@@ -6,7 +6,7 @@
 #include <api/peer_connection_interface.h>
 
 class PeerConnectionObserver : public webrtc::PeerConnectionObserver {
-	friend class RtcConnection;
+	friend class RtcConnectionBase;
 	using P2PSignalingState = webrtc::PeerConnectionInterface::SignalingState;
 	using P2PIceGatheringState = webrtc::PeerConnectionInterface::IceGatheringState;
 	using P2PPeerConnectionState = webrtc::PeerConnectionInterface::PeerConnectionState;
@@ -65,6 +65,8 @@ public:
 				LOG_INFO("[WEBRTC] On remove track, receiverid: %s", receiver->id().c_str());
 			}
 		}
+
+		if (on_removetrack_) { on_removetrack_(receiver); }
 	}
 
 	// Triggered when a remote peer opens a data channel.
@@ -145,12 +147,13 @@ private:
 	std::function<void()> on_iceconnect_failed = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>, 
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&)> on_addtrack_ = nullptr;
+	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>)> on_removetrack_ = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::DataChannelInterface>)> on_datachannel_ = nullptr;
 	std::function<void(const webrtc::IceCandidateInterface*)> on_ice_candidate_ = nullptr;
 };
 
 class DataChannelObserver : public webrtc::DataChannelObserver {
-	friend class RtcConnection;
+	friend class RtcConnectionBase;
 
 public:
 	// The data channel state have changed.
@@ -177,7 +180,7 @@ private:
 
 // Create SessionDescription events.
 class CreateSessionDescriptionObserver : public webrtc::CreateSessionDescriptionObserver {
-	friend class RtcConnection;
+	friend class RtcConnectionBase;
 
 public:
 	// Successfully created a session description.

@@ -36,6 +36,9 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepat
 	}
 	rtc_config.signaling_server_url = rtc_cfg_obj["signaling_server"].get<std::string>();
 
+	rtc_config.SRS_api_server_url = rtc_cfg_obj.contains("SRS_api_server") ?
+		rtc_cfg_obj["SRS_api_server"].get<std::string>() : "";
+
 	auto is_LAN = true;
 	if (rtc_cfg_obj.contains("LAN")) {
 		is_LAN = rtc_cfg_obj["LAN"].get<bool>();
@@ -155,36 +158,36 @@ bool RtcAgent::AddVideoSource(const VideoSourceId& video_sourceid, PriorityType 
 		});
 }
 
-RoomCode RtcAgent::QueryRoom(const RoomId& roomid, Room& room) const {
-	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+ErrorCode RtcAgent::QueryRoom(const RoomId& roomid, Room& room) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
 		[this, &roomid, &room]() {
 			return rtc_conn_manager_->QueryRoom(roomid, room);
 		});
 }
 
-RoomCode RtcAgent::QueryRooms(Rooms& rooms) const {
-	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+ErrorCode RtcAgent::QueryRooms(Rooms& rooms) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
 		[this, &rooms]() {
 			return rtc_conn_manager_->QueryRooms(rooms);
 		});
 }
 
-RoomCode RtcAgent::OpenRoom(const RoomId& roomid, enum RoomType room_type) const {
-	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+ErrorCode RtcAgent::OpenRoom(const RoomId& roomid, enum RoomType room_type) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
 		[this, &roomid, room_type]() {
 			return rtc_conn_manager_->OpenRoom(roomid, room_type);
 		});
 }
 
-RoomCode RtcAgent::JoinRoom(const RoomId& roomid) const {
-	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+ErrorCode RtcAgent::JoinRoom(const RoomId& roomid) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
 		[this, &roomid]() {
 			return rtc_conn_manager_->JoinRoom(roomid);
 		});
 }
 
-RoomCode RtcAgent::LeaveRoom() const {
-	return logic_thread_->Invoke<RoomCode>(RTC_FROM_HERE,
+ErrorCode RtcAgent::LeaveRoom() const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
 		[this]() {
 			return rtc_conn_manager_->LeaveRoom();
 		});
@@ -194,6 +197,36 @@ SessionIds RtcAgent::QueryRemoteAgents() const {
 	return logic_thread_->Invoke<SessionIds>(RTC_FROM_HERE,
 		[this]() {
 			return rtc_conn_manager_->QueryRemoteAgents();
+		});
+}
+
+ErrorCode RtcAgent::PublishToSRS(const SRSStreamurl& streamurl) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
+		[this, &streamurl]() {
+			return rtc_conn_manager_->PublishToSRS(streamurl);
+		});
+}
+
+ErrorCode RtcAgent::UnpublishToSRS(const vts_rtc::SRSStreamurl& streamurl,
+	const vts_rtc::SRSSessionId& sessionid) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
+		[this, &streamurl, &sessionid]() {
+			return rtc_conn_manager_->UnpublishRtc2SRS(streamurl, sessionid);
+		});
+}
+
+ErrorCode RtcAgent::PlayFromSRS(const SRSStreamurl& streamurl) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
+		[this, &streamurl]() {
+			return rtc_conn_manager_->PlayFromSRS(streamurl);
+		});
+}
+
+ErrorCode RtcAgent::UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl,
+	const vts_rtc::SRSSessionId& sessionid) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
+		[this, &streamurl, &sessionid] {
+			return rtc_conn_manager_->UnplayFromSRS(streamurl, sessionid);
 		});
 }
 

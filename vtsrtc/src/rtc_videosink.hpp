@@ -6,7 +6,7 @@
 #include <common_video/libyuv/include/webrtc_libyuv.h>
 
 class RtcVideoSink : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
-	friend class RtcConnection;
+	friend class RtcConnectionBase;
 
 public:
 	explicit RtcVideoSink(const std::string& trackid) : trackid_(trackid) {}
