@@ -7,11 +7,11 @@ VTS_RTC_NAMESPACE_BEGIN
 
 class RtcAgent {
 public:
-	static std::shared_ptr<RtcAgent> Create(const std::string& rtc_config_filepath, 
+	static std::shared_ptr<RtcAgent> Create(const std::string& rtc_config_filepath,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
 		const RecvFrameHandler& recv_frame_handler = nullptr,
 		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
-	static std::shared_ptr<RtcAgent> Create(const RtcConfig& rtc_config, 
+	static std::shared_ptr<RtcAgent> Create(const RtcConfig& rtc_config,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
 		const RecvFrameHandler& recv_frame_handler = nullptr,
 		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
@@ -64,8 +64,8 @@ public:
 	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const;
 
 private:
-	explicit RtcAgent(const RtcConfig& rtc_config, 
-		const RecvMessageHandler& recv_msg_handler, 
+	explicit RtcAgent(const RtcConfig& rtc_config,
+		const RecvMessageHandler& recv_msg_handler,
 		const RecvFrameHandler& recv_frame_handler,
 		const NetworkDisconnectedHandler& network_disconnected_handler);
 	// Init RtcAgent, mainly for RtcConnectionManager initialization

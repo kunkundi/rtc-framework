@@ -29,19 +29,26 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 
 	vts_rtc::RecvMessageHandler msg_handler = nullptr;
 	if (recv_msg_handler) {
-		msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid, const std::string& channel_label, const std::string& msg) {
+		msg_handler = [recv_msg_handler](vts_rtc::SessionId sessionid,
+			const std::string& channel_label, const std::string& msg) {
 			recv_msg_handler(sessionid, channel_label.c_str(), msg.c_str(), msg.size());
 		};
 	}
 
 	vts_rtc::RecvFrameHandler frame_handler = nullptr;
 	if (recv_frame_handler) {
-		frame_handler = [recv_frame_handler](const vts_rtc::VideoSourceId& video_sourceid,
-			size_t width, size_t height, size_t dimension, const std::vector<unsigned char>& framebuffer) {
-				recv_frame_handler(video_sourceid.c_str(), width, height, dimension, framebuffer.data(), framebuffer.size());
+		frame_handler = [recv_frame_handler](
+			const vts_rtc::VideoSourceId& video_sourceid,
+			const vts_rtc::VideoSourceType video_sourcetype,
+			size_t width, size_t height, size_t dimension,
+			const std::vector<unsigned char>& framebuffer) {
+				recv_frame_handler(video_sourceid.c_str(),
+					static_cast<RtcVideoSourceType>(video_sourcetype),
+					width, height, dimension, framebuffer.data(),
+					framebuffer.size());
 		};
 	}
-	
+
 	vts_rtc::NetworkDisconnectedHandler net_disconnected_handler = nullptr;
 	if (network_disconnected_handler) {
 		net_disconnected_handler = [network_disconnected_handler]() {
@@ -49,7 +56,8 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		};
 	}
 
-	rtc_agent = vts_rtc::RtcAgent::Create(std::string(config_filepath), msg_handler, frame_handler, net_disconnected_handler);
+	rtc_agent = vts_rtc::RtcAgent::Create(
+		std::string(config_filepath), msg_handler, frame_handler, net_disconnected_handler);
 
 	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
@@ -60,7 +68,8 @@ void RtcDestoryAgent() {
 	}
 }
 
-RtcErrorCode RtcGetVideoDevices(RtcVideoDevices* out_video_devices, size_t* out_sz_video_devices) {
+RtcErrorCode RtcGetVideoDevices(RtcVideoDevices* out_video_devices,
+	size_t* out_sz_video_devices) {
 	CHECK_RTCAGENT_INITED
 
 	auto video_devices = rtc_agent->GetVideoDevices();
@@ -88,7 +97,7 @@ RtcErrorCode RtcGetVideoDevices(RtcVideoDevices* out_video_devices, size_t* out_
 			out_device_capability.height = device_capability.height;
 			out_device_capability.max_fps = device_capability.max_fps;
 			// TO DO
-			//VideoType video_type;
+			// VideoType video_type;
 		}
 	}
 	return RtcErrorCode::OK;
@@ -126,7 +135,8 @@ RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label,
 	int max_retransmits) {
 	CHECK_RTCAGENT_INITED
 
-	return rtc_agent->AddDataChannel(std::string(label), static_cast<vts_rtc::PriorityType>(priority),
+	return rtc_agent->AddDataChannel(std::string(label),
+		static_cast<vts_rtc::PriorityType>(priority),
 		ordered, max_retransmits) ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
@@ -142,14 +152,17 @@ RtcErrorCode RtcAddDeviceVideoSource(size_t device_index,
 	};
 
 	return rtc_agent->AddVideoSource(device_index, device_capability,
-		static_cast<vts_rtc::PriorityType>(priority)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
+		static_cast<vts_rtc::PriorityType>(priority)) ?
+		RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
-RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid, RtcPriorityType priority) {
+RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid,
+	RtcPriorityType priority) {
 	CHECK_RTCAGENT_INITED
 
 	return rtc_agent->AddVideoSource(std::string(video_sourceid),
-		static_cast<vts_rtc::PriorityType>(priority)) ? RtcErrorCode::OK : RtcErrorCode::Failed;
+		static_cast<vts_rtc::PriorityType>(priority)) ?
+		RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
 RtcErrorCode RtcQueryRoom(const RtcRoomId roomid, RtcRoom* out_room) {
@@ -223,7 +236,8 @@ void RtcDestoryRooms(RtcRooms rooms, size_t sz_rooms) {
 RtcErrorCode RtcOpenRoom(const RtcRoomId roomid, RtcRoomType room_type) {
 	CHECK_RTCAGENT_INITED
 
-	auto roomcode = rtc_agent->OpenRoom(std::string(roomid), static_cast<vts_rtc::RoomType>(room_type));
+	auto roomcode = rtc_agent->OpenRoom(std::string(roomid),
+		static_cast<vts_rtc::RoomType>(room_type));
 	return ConvertCode(roomcode);
 }
 
@@ -289,7 +303,7 @@ RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame
 		in_video_frame->stride_Y,
 		in_video_frame->stride_U,
 		in_video_frame->stride_V,
-		in_video_frame->buffer, // attention: no copy for performance
+		in_video_frame->buffer,  // attention: no copy for performance
 		in_video_frame->sz_buffer
 	};
 

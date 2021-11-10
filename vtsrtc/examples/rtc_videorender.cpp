@@ -22,11 +22,18 @@ RtcVideoRender::~RtcVideoRender() {
 	glDeleteTextures(1, &texture_);
 }
 
-void RtcVideoRender::OnFrame(const char* sourceid, size_t width, size_t height, size_t dimension,
+void RtcVideoRender::OnFrame(const char* sourceid, unsigned int sourcetype,
+	size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {
-	// std::cout << sourceid << ", " << width << ", " << height << ", " << sz_buffer << std::endl;
+	// std::cout << sourceid << ", " << width << ", " << height << ", " <<
+	// sz_buffer << std::endl;
 
 	trackid_ = QString(sourceid);
+	if (sourcetype == 0) {
+		trackid_ += QString(" [From RTC]");
+	} else if (sourcetype == 1) {
+		trackid_ += QString(" [From SRS]");
+	}
 
 	new_width_ = width;
 	new_height_ = height;
@@ -61,11 +68,13 @@ void RtcVideoRender::paintGL() {
 		glBindTexture(GL_TEXTURE_2D, texture_);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width_, height_, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8, framebuffer_);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width_, height_, 0, GL_BGRA,
+			GL_UNSIGNED_INT_8_8_8_8, framebuffer_);
 	}
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, texture_);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8, framebuffer_);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_, GL_BGRA,
+		GL_UNSIGNED_INT_8_8_8_8, framebuffer_);
 
 
 	glEnable(GL_TEXTURE_2D);

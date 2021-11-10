@@ -26,6 +26,7 @@ typedef unsigned int RtcSessionId;
 typedef RtcSessionId* RtcSessionIds;
 typedef const char* RtcDataChannelLabel;
 typedef const char* RtcVideoSourceId;
+typedef unsigned int RtcVideoSourceType;
 typedef char* RtcRoomId;
 typedef char* RtcSRSStreamurl;
 typedef char* RtcSRSSessionId;
@@ -64,7 +65,7 @@ typedef struct RtcVideoDeviceCapability {
 	size_t height;
 	size_t max_fps;
 	// TO DO
-	//VideoType video_type;
+	// VideoType video_type;
 } RtcVideoDeviceCapability;
 
 typedef RtcVideoDeviceCapability* RtcVideoDeviceCapabilities;
@@ -97,8 +98,11 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
-typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel, const char*, size_t);
-typedef void(*RecvFrameHandler)(RtcVideoSourceId, size_t, size_t, size_t, const unsigned char*, size_t);
+typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel,
+	const char*, size_t);
+// RtcVideoSourceType表示视频帧来源，目前来源于RTC（值为0）或者SRS（值为1）
+typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcVideoSourceType,
+	size_t, size_t, size_t, const unsigned char*, size_t);
 typedef void(*NetworkDisconnectedHandler)();
 
 #ifdef  __cplusplus
@@ -120,7 +124,7 @@ extern "C" {
 		RecvMessageHandler recv_msg_handler,
 		RecvFrameHandler recv_frame_handler,
 		NetworkDisconnectedHandler network_disconnected_handler);
-	
+
 	/**
 	 * @brief 释放Rtc Agent资源
 	 *
@@ -128,7 +132,7 @@ extern "C" {
 	 * @attention 程序退出时，必须调用该函数，否则存在内存泄漏
 	 */
 	RTC_API void RtcDestoryAgent();
-	
+
 	/**
 	 * @brief 获取设备信息
 	 *
@@ -138,7 +142,8 @@ extern "C" {
 	 *   @retval RtcErrorCode::OK 获取设备失败
 	 *   @retval RtcErrorCode::AgentNotInited 获取设备失败，因为Rtc Agent未成功初始化
 	 */
-	RTC_API RtcErrorCode RtcGetVideoDevices(RtcVideoDevices* video_devices, size_t* sz_video_devices);
+	RTC_API RtcErrorCode RtcGetVideoDevices(RtcVideoDevices* video_devices,
+		size_t* sz_video_devices);
 
 	/**
 	 * @brief 释放设备信息资源
@@ -147,7 +152,8 @@ extern "C" {
 	 * @return void
 	 * @attention RtcGetVideoDevices函数成功时，必须调用该函数释放房间资源，否则存在内存泄漏
 	 */
-	RTC_API void RtcDestoryVideoDevices(RtcVideoDevices video_devices, size_t sz_video_devices);
+	RTC_API void RtcDestoryVideoDevices(RtcVideoDevices video_devices,
+		size_t sz_video_devices);
 
 	/**
 	 * @brief 加入房间时，增加数据通道
@@ -180,7 +186,7 @@ extern "C" {
 	RTC_API RtcErrorCode RtcAddDeviceVideoSource(size_t device_index,
 		const RtcVideoDeviceCapability* device_capability,
 		RtcPriorityType priority);
-	
+
 	/**
 	 * @brief 增加来自外部的视频源（图像帧可能来自视频文件，或者是外部程序读取的摄像头捕获帧）
 	 *
@@ -190,13 +196,12 @@ extern "C" {
 	 *   @retval RtcErrorCode::AgentNotInited 增加源失败，因为Rtc Agent未成功初始化
 	 *   @retval RtcErrorCode::Failed 增加源失败，video_sourceid重复
 	 * @attention 1. 函数参数必须与SendFrame函数和RecvFrameHandler回调函数的video_sourceid相一致
-	 *               特例：通过RtcPlayFromSRS拉流时，RecvFrameHandler回调函数为区分图像帧来源，
-	 *               SDK内部会为video_sourceid增加SRS_前缀
 	 *            2. 针对WEB平台，当采用Unified Plan形式的SDP，接收端的MediaStreamTrack的id域是唯一的GUID，
 	 *               并不具有业务含义，所以SDK约定一个track只属于一个stream，同时track和stream的label值相同，
 	 *               通过访问接收端的MediaStream的id域可以对VideoTrack进行业务区分
 	 */
-	RTC_API RtcErrorCode RtcAddExternalVideoSource(RtcVideoSourceId video_sourceid, RtcPriorityType priority);
+	RTC_API RtcErrorCode RtcAddExternalVideoSource(
+		RtcVideoSourceId video_sourceid, RtcPriorityType priority);
 
 	/**
 	 * @brief 请求房间的详细信息
@@ -210,7 +215,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::RoomNotExisted 查询失败，因为roomid不存在
 	 */
 	RTC_API RtcErrorCode RtcQueryRoom(const RtcRoomId roomid, RtcRoom* room);
-	
+
 	/**
 	 * @brief 释放房间资源
 	 *
@@ -219,7 +224,7 @@ extern "C" {
 	 * @attention RtcQueryRoom函数成功时，必须调用该函数释放房间资源，否则存在内存泄漏
 	 */
 	RTC_API void RtcDestoryRoom(RtcRoom room);
-	
+
 	/**
 	 * @brief 请求所有房间详细信息
 	 *
@@ -231,7 +236,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::InternalError 查询失败，服务器的问题
 	 */
 	RTC_API RtcErrorCode RtcQueryRooms(RtcRooms* rooms, size_t* sz_rooms);
-	
+
 	/**
 	 * @brief 释放所有房间资源
 	 *
@@ -241,7 +246,7 @@ extern "C" {
 	 * @attention QueryRooms函数成功时，必须调用该函数释放所有房间资源，否则存在内存泄漏
 	 */
 	RTC_API void RtcDestoryRooms(RtcRooms rooms, size_t sz_rooms);
-	
+
 	/**
 	 * @brief 打开房间
 	 *
@@ -255,8 +260,9 @@ extern "C" {
 	 *   @retval RtcErrorCode::RoomAlreadyExisted 打开失败，房间ID已经存在
 	 *   @retval RtcErrorCode::AgentAlreadyInRoom 打开失败，Rtc Agent已经在房间中，无法打开房间
 	 */
-	RTC_API RtcErrorCode RtcOpenRoom(const RtcRoomId roomid, RtcRoomType room_type);
-	
+	RTC_API RtcErrorCode RtcOpenRoom(const RtcRoomId roomid,
+		RtcRoomType room_type);
+
 	/**
 	 * @brief 加入房间
 	 *
@@ -270,7 +276,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::AgentAlreadyInRoom 加入失败，Rtc Agent已经在房间中，无法加入房间
 	 */	
 	RTC_API RtcErrorCode RtcJoinRoom(const RtcRoomId roomid);
-	
+
 	/**
 	 * @brief 离开房间
 	 *
@@ -319,7 +325,8 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 发送失败
 	 * @attention 发送消息到远端Rtc Agent，至少一个发送成功便认为执行成功
 	 */
-	RTC_API RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg, size_t msg_size);
+	RTC_API RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label,
+		const char* msg, size_t msg_size);
 
 	/**
 	 * @brief 发送图像帧
@@ -330,7 +337,8 @@ extern "C" {
 	 *   @retval RtcErrorCode::OK 发送成功
 	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
 	 */
-	RTC_API RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame* video_frame);
+	RTC_API RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid,
+		const RtcYUV420pFrame* video_frame);
 
 	/**
 	 * @brief ErrorCode转换为便于阅读的字符串

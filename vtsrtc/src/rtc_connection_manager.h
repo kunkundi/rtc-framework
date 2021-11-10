@@ -102,8 +102,7 @@ private:
 	// @attention: must be called after CreateAnswer on ANSWER side or SetRemoteDescription on OFFER side
 	void SetRtpSendersPriority();
 	void AddVideoTrack2PeerConnection(
-		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn,
-		const std::string& label_prefix);
+		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn);
 	void InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp);
 	void AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp);
 

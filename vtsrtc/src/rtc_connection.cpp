@@ -259,7 +259,8 @@ void RtcConnection::HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 	size_t width, size_t height, size_t dimension,
 	const std::vector<unsigned char>& buffer) const {
 	if (on_frame_received_) {
-		on_frame_received_(sourceid, width, height, dimension, buffer);
+		on_frame_received_(sourceid, vts_rtc::VideoSourceType::Rtc,
+			width, height, dimension, buffer);
 	}
 }
 /////////////////// END RtcConnection ///////////////////
@@ -307,7 +308,8 @@ void Rtc2SRSConnection::HandleFrameReceived(
 	size_t width, size_t height, size_t dimension,
 	const std::vector<unsigned char>& buffer) const {
 	if (on_frame_received_) {
-		on_frame_received_(sourceid, width, height, dimension, buffer);
+		on_frame_received_(sourceid, vts_rtc::VideoSourceType::SRS,
+			width, height, dimension, buffer);
 	}
 }
 /////////////////// END Rtc2SRSConnection ///////////////////

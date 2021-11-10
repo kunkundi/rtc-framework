@@ -11,13 +11,16 @@ class RtcWidget : public QWidget {
 	Q_OBJECT
 
 public:
-	explicit RtcWidget(const std::string& rtc_config_filepath, const QString& yuv_folderpath, 
-		QWidget* parent = 0);
+	explicit RtcWidget(const std::string& rtc_config_filepath,
+		const QString& yuv_folderpath, QWidget* parent = 0);
 	~RtcWidget();
 
 private:
-	static void HandleMessage(RtcSessionId remote_sessionid, const char* channel_label, const char* msg, size_t msg_size);
-	static void HandleFrame(RtcVideoSourceId sourceid, size_t width, size_t height, size_t dimension, 
+	static void HandleMessage(RtcSessionId remote_sessionid,
+		const char* channel_label, const char* msg, size_t msg_size);
+	static void HandleFrame(RtcVideoSourceId sourceid,
+		RtcVideoSourceType sourcetype,
+		size_t width, size_t height, size_t dimension,
 		const unsigned char* buffer, size_t sz_buffer);
 	static void HandleNetworkDisconnected();
 	void CreateUI();

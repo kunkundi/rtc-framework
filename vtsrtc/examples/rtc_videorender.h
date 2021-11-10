@@ -11,7 +11,8 @@ public:
 	explicit RtcVideoRender();
 	~RtcVideoRender();
 
-	void OnFrame(const char* sourceid, size_t width, size_t height, size_t dimension,
+	void OnFrame(const char* sourceid, unsigned int sourcetype,
+		size_t width, size_t height, size_t dimension,
 		const unsigned char* buffer, size_t sz_buffer);
 
 protected:

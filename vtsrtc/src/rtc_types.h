@@ -20,8 +20,14 @@ using SRSSessionId = std::string;
 using SRSStreamurl = std::string;
 using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
-using RecvMessageHandler = std::function<void(SessionId, const std::string&, const std::string&)>;
-using RecvFrameHandler = std::function<void(const VideoSourceId&, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
+enum class VideoSourceType {
+	Rtc = 0,
+	SRS
+};
+using RecvMessageHandler = std::function<void(SessionId, const std::string&,
+	const std::string&)>;
+using RecvFrameHandler = std::function<void(const VideoSourceId&,
+	enum VideoSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
 using NetworkDisconnectedHandler = std::function<void()>;
 
 struct RtcConfig {
@@ -46,7 +52,7 @@ struct VideoDeviceCapability {
 	size_t height;
 	size_t max_fps;
 	// TO DO
-	//VideoType video_type;
+	// VideoType video_type;
 };
 
 struct VideoDevice {

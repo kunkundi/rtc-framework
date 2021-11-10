@@ -17,7 +17,8 @@
 QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
 RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
 
-void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,const char* channel_label, const char* msg, size_t msg_size) {
+void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
+	const char* channel_label, const char* msg, size_t msg_size) {
 	if (recv_msg_listwgt_) {
 		QString item_text = QString("%1 [from sessionid: %2, channel label: %3]")
 			.arg(QString::fromLocal8Bit(msg, msg_size))
@@ -27,10 +28,13 @@ void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,const char* channel_
 	}
 }
 
-void RtcWidget::HandleFrame(RtcVideoSourceId sourceid, size_t width, size_t height, size_t dimension, 
+void RtcWidget::HandleFrame(RtcVideoSourceId sourceid,
+	RtcVideoSourceType sourcetype,
+	size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {
 	if (rtc_videorender_) {
-		rtc_videorender_->OnFrame(sourceid, width, height, dimension, buffer, sz_buffer);
+		rtc_videorender_->OnFrame(sourceid, sourcetype,
+			width, height, dimension, buffer, sz_buffer);
 	}
 }
 
@@ -38,11 +42,13 @@ void RtcWidget::HandleNetworkDisconnected() {
 	qDebug() << "Network is disconnected!";
 }
 
-RtcWidget::RtcWidget(const std::string& rtc_config_filepath, const QString& yuv_folderpath, QWidget* parent)
+RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
+	const QString& yuv_folderpath, QWidget* parent)
 	: yuv_folderpath_(yuv_folderpath), QWidget(parent) {
 	CreateUI();
 
-	auto code = RtcInitAgent(rtc_config_filepath.c_str(), HandleMessage, HandleFrame, HandleNetworkDisconnected);
+	auto code = RtcInitAgent(rtc_config_filepath.c_str(),
+		HandleMessage, HandleFrame, HandleNetworkDisconnected);
 	CHECK_ERRORCODE
 
 	code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);

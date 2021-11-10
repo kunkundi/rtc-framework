@@ -709,7 +709,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 	);
 	peer_conn->AddTrack(audio_track, { "SRS_stream_audio" });
 
-	this->AddVideoTrack2PeerConnection(peer_conn, "SRS_");
+	this->AddVideoTrack2PeerConnection(peer_conn);
 
 	// create offer (declare the directional attribute by using RtpTransceiver
 	// API instead of RTCOfferAnswerOptions parameters for Unified Plan)
@@ -1018,8 +1018,7 @@ void RtcConnectionManager::SetRtpSendersPriority() {
 }
 
 void RtcConnectionManager::AddVideoTrack2PeerConnection(
-	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn,
-	const std::string& label_prefix) {
+	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn) {
 	// @attention
 	// 由于接收端的MediaStreamTrack的id域是唯一的GUID，并不具有业务含义，
 	// 所以此处约定一个track只属于一个stream，同时track和stream的label值相同，
@@ -1029,11 +1028,11 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 	if (rtc_device_manager_) {
 		auto video_track_sources = rtc_device_manager_->GetVideoTrackSources();
 		for (const auto& track_source : video_track_sources) {
-			auto newlabel = label_prefix + track_source->GetLabel();
+			auto tracklabel = track_source->GetLabel();
 			auto video_track = peer_conn_factory_->CreateVideoTrack(
-				newlabel, track_source.get());
+				tracklabel, track_source.get());
 			auto rtpsender_error = peer_conn->AddTrack(
-				video_track, { newlabel });
+				video_track, { tracklabel });
 			if (rtpsender_error.ok()) {
 				auto rtpsender = rtpsender_error.value();
 				if (rtpsender) {
@@ -1042,7 +1041,7 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 			}
 			else {
 				LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s",
-					newlabel.c_str(), rtpsender_error.error().message());
+					tracklabel.c_str(), rtpsender_error.error().message());
 			}
 		}
 	}
@@ -1050,11 +1049,11 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 	// Add external feed video tracks
 	for (const auto& id_tracksource : external_feed_tracksources_) {
 		auto track_source = id_tracksource.second;
-		auto newlabel = label_prefix + track_source->label_;
+		auto tracklabel = track_source->label_;
 		auto video_track = peer_conn_factory_->CreateVideoTrack(
-			newlabel, track_source.get());
+			tracklabel, track_source.get());
 		auto rtpsender_error = peer_conn->AddTrack(
-			video_track, { newlabel });
+			video_track, { tracklabel });
 		if (rtpsender_error.ok()) {
 			auto rtpsender = rtpsender_error.value();
 			if (rtpsender) {
@@ -1063,7 +1062,7 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 		}
 		else {
 			LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s",
-				newlabel.c_str(), rtpsender_error.error().message());
+				tracklabel.c_str(), rtpsender_error.error().message());
 		}
 	}
 }
@@ -1142,7 +1141,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		LOG_ERROR("Interact remote peer, create peer connection failed");
 		return;
 	}
-	this->AddVideoTrack2PeerConnection(rtc_conn->peer_conn_, "");
+	this->AddVideoTrack2PeerConnection(rtc_conn->peer_conn_);
 
 	if (offer_peer) {
 		// Add data channels (just for offer side for now)

@@ -235,7 +235,7 @@
 
                 var remote_video_label = $("<div />", {
                     style: "color: red; font-weight: bold; background: lightgray;",
-                    html: event.streams[0].id
+                    html: event.streams[0].id + " [From RTC]"
                 });
                 $("#remote_videos").append(remote_video_label);
 
@@ -602,7 +602,7 @@
 
                 SRS_play_stream = event.streams[0];
 
-                $("#SRS_remote_video_label").html(SRS_play_stream.id);
+                $("#SRS_remote_video_label").html(SRS_play_stream.id + " [From SRS]");
 
                 $("#SRS_remote_video")[0].onloadedmetadata = function (event) {
                     $("#SRS_remote_video")[0].play();

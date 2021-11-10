@@ -34,5 +34,6 @@ private:
 	std::string trackid_;
 	size_t width_ = 0, height_ = 0;
 	std::vector<unsigned char> buffer_;
-	vts_rtc::RecvFrameHandler on_frame_ = nullptr;
+	std::function<void(const vts_rtc::VideoSourceId&, size_t, size_t, size_t,
+		const std::vector<unsigned char>&)> on_frame_;
 };
