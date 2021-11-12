@@ -42,6 +42,9 @@ struct RtcConfig {
 	std::string SRS_api_server_url;
 	std::vector<IceServer> ice_servers;
 
+	bool use_NVENC = false;
+	bool use_NVDEC = false;
+
 	long ping_timeout = 2000;
 	long pong_timeout = 4000;
 	long reconnect_timeout = 2000;  // unit: milliseconds

@@ -125,25 +125,23 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 			return webrtc::AudioDeviceModule::Create(webrtc::AudioDeviceModule::AudioLayer::kDummyAudio, adm_taskqueue_.get());
 		});
 
-	bool cuda_device_available = false;
-	if (cuInit(0) == CUresult::CUDA_SUCCESS) {
-		int num_of_GPUs = 0;
-		if (cuDeviceGetCount(&num_of_GPUs) == CUresult::CUDA_SUCCESS &&
-			num_of_GPUs > 0) {
-			cuda_device_available = true;
-		}
-	}
-
 	std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory = nullptr;
 	std::unique_ptr<webrtc::VideoDecoderFactory> video_decoder_factory = nullptr;
-	if (cuda_device_available) {
-		LOG_INFO("Cuda device available, use Nvidia H264 video codec");
+	if (rtc_config_.use_NVENC) {
+		LOG_INFO("Use Nvidia H264 video encoder.");
 		video_encoder_factory = std::make_unique<webrtc::NvH264EncoderFactory>();
+	}
+	else {
+		LOG_INFO("Use builtin video encoder.");
+		video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
+	}
+
+	if (rtc_config_.use_NVDEC) {
+		LOG_INFO("Use Nvidia H264 video decoder.");
 		video_decoder_factory = std::make_unique<webrtc::NvH264DecoderFactory>();
 	}
 	else {
-		LOG_INFO("Cuda device not available, use builtin video codec");
-		video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
+		LOG_INFO("Use builtin video decoder.");
 		video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
 	}
 

@@ -67,6 +67,14 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepat
 		}
 	}
 
+	if (rtc_cfg_obj.contains("use_NVENC")) {
+		rtc_config.use_NVENC = rtc_cfg_obj["use_NVENC"].get<bool>();
+	}
+
+	if (rtc_cfg_obj.contains("use_NVDEC")) {
+		rtc_config.use_NVDEC = rtc_cfg_obj["use_NVDEC"].get<bool>();
+	}
+
 	if (rtc_cfg_obj.contains("ping_timeout")) {
 		rtc_config.ping_timeout = rtc_cfg_obj["ping_timeout"].get<long>();
 	}
