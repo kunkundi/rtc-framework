@@ -1,0 +1,474 @@
+$(document).ready(function() {
+	// set camera list
+	if(navigator.mediaDevices != undefined) {
+		navigator.mediaDevices.enumerateDevices()
+		.then(function(devices) {
+			console.log("devices: ", devices);
+			$.each(devices, function(index, device) {
+				switch(device.kind) {
+					case "videoinput":
+						$("#videoinput_select").append(new Option(device.label, device.deviceId));
+						break;
+					case "audioinput":
+						$("#audioinput_select").append(new Option(device.label, device.deviceId));
+						break;
+					// case "audiooutput":
+					//     $("#audiooutput_select").append(new Option(device.label, device.deviceId));
+					//     break;
+				};
+			});
+		});
+
+		navigator.mediaDevices.addEventListener("devicechange", function(event) {
+			console.log("Media device change, event: ", event);
+			// TO DO
+		});
+	}
+});
+
+// room management and data channel management
+var host = window.location.host;
+var signaling_server_httpurl = "http://" + host;
+var signaling_server_wsurl = "ws://" + host + "/signaling";
+console.log("http server url: ", signaling_server_httpurl);
+console.log("websocket server url: ", signaling_server_wsurl);
+
+var current_sessionid = undefined;
+var local_stream = undefined;
+var remotesessionid_rtcconn_map = {};
+
+function ClearRtcConnections() {
+	for(var remotesessionid in remotesessionid_rtcconn_map) {
+		var rtcconn = remotesessionid_rtcconn_map[remotesessionid];
+		rtcconn.peer_conn.close();
+		rtcconn.peer_conn = null;
+		if(rtcconn.data_channel) {
+			rtcconn.data_channel.close();
+			rtcconn.data_channel = null;
+		}
+
+		delete remotesessionid_rtcconn_map[remotesessionid];
+	}
+}
+
+var ws_client = new WebsocketHeartbeatJs({
+	"url": signaling_server_wsurl,
+	"pingTimeout": 2000,
+	"pongTimeout": 4000,
+	"reconnectTimeout": 2000,
+	"pingMsg": JSON.stringify({
+		"command": "take_heartbeat",
+		"type": "ping"
+	}),
+	"repeatLimit": null
+});
+
+ws_client.onopen = function(event) {
+	console.log("websocket onopen, event: ", event);
+};
+
+ws_client.onmessage = function(event) {
+	var msg_obj = JSON.parse(event.data);
+	var command = msg_obj["command"];
+
+	// filter heartbeat log info
+	if(command != "take_heartbeat") {
+		console.log("websocket onmessage, event: ", event);
+	}
+
+	if(command == "take_info") {
+		if(msg_obj["type"] == "login_succeed") {
+			current_sessionid = msg_obj["sessionid"];
+			console.log("Login signaling server succeed, sessionid: ", current_sessionid);
+		}
+	}
+	else if(command == "take_configuration") {
+		var type = msg_obj["type"];
+		var sdp = msg_obj["sdp"];
+		var from_sessionid = msg_obj["from"];
+		var to_sessionid = msg_obj["to"];
+
+		// just check
+		if(current_sessionid == undefined || 
+		(current_sessionid != undefined && current_sessionid != to_sessionid)) {
+			console.error("current_sessionid is undefined or to_sessionid != current_sessionid");
+		}
+
+		if(type == "forward_offer") {
+			InteractRemotePeer(from_sessionid, false, sdp);
+		}
+		else if(type == "forward_answer") {
+			AckRemotePeerSdp(from_sessionid, sdp);
+		}
+	}
+	else if(command == "take_candidate") {
+		var from_sessionid = msg_obj["from"];
+		var to_sessionid = msg_obj["to"];
+
+		// just check
+		if(current_sessionid == undefined || 
+		(current_sessionid != undefined && current_sessionid != to_sessionid)) {
+			console.error("current_sessionid is undefined or to_sessionid != current_sessionid");
+		}
+
+		if(!(from_sessionid in remotesessionid_rtcconn_map)) {
+			console.error("from_sessionid not in remotesessionid_rtcconn_map, something is wrong.");
+			return;
+		}
+
+		var peerconn = remotesessionid_rtcconn_map[from_sessionid].peer_conn;
+		peerconn.addIceCandidate(new RTCIceCandidate({
+			"candidate": msg_obj["candidate"],
+			"sdpMid": msg_obj["sdp_mid"],
+			"sdpMLineIndex": msg_obj["sdp_mline_index"]
+		}))
+		.catch(alert);
+	}
+};
+
+ws_client.onerror = function(event) {
+	console.error("websocket onerror, event: ", event);
+};
+
+ws_client.onclose = function(event) {
+	console.warn("websocket onclose, event: ", event);
+};
+
+ws_client.onpongtimeout = function(event) {
+	console.warn("pong timeout, server not available");
+}
+
+ws_client.onreconnect = function(event) {
+	console.warn("websocket onreconnect, event: ", event);
+
+	if(current_sessionid) {
+		ClearRtcConnections();
+		current_sessionid = undefined;
+	}
+};
+
+function SetDataChannelEventHandler(data_channel) {
+	data_channel.onmessage = function(event) {
+		console.log("data channel receive message:", event);
+	};
+
+	data_channel.onopen = function(event) {
+		console.log("data channel open: ", event);
+	};
+
+	data_channel.onclose = function(event) {
+		console.log("data channel close: ", event);
+	};
+
+	data_channel.onerror = function(event) {
+		console.log("data channel error: ", event);
+	};
+};
+
+function InteractRemotePeer(remote_sessionid, offer_peer, remote_sdp) {
+	const config = { 
+		"iceServers": [
+				{
+						"urls": [ "stun:47.96.251.52:3478" ]
+				},
+				{
+						"urls": [ "turn:47.96.251.52:3478" ],
+						"username": "zhejianglab",
+						"credential": "passwd"
+				}
+		],
+		sdpSemantics: "unified-plan"  // To be improved
+	};
+	var peerconn = new RTCPeerConnection(config);
+	var rtcconn = {};
+	rtcconn.peer_conn = peerconn;
+	rtcconn.remote_sessionid = remote_sessionid;
+
+	// onconnectionstatechange
+	peerconn.onconnectionstatechange = function(event) {
+		console.log("onconnectionstatechange: ", event);
+		switch(peerconn.connectionState) {
+			case "connected":
+				// The connection has become fully connected
+				console.log("p2p connected");
+			break;
+			case "disconnected":
+				console.log("p2p disconnected");
+			case "failed":
+				// One or more transports has terminated unexpectedly or in an error
+				console.error("p2p failed");
+			break;
+			case "closed":
+				// The connection has been closed
+				console.log("p2p closed");
+			break;
+		};
+	};
+
+	// onicecandidate
+	peerconn.onicecandidate = function(event) {
+		var ice_candidate = event.candidate;
+		if(ice_candidate) {
+			ws_client.send(JSON.stringify({
+				"command": "take_candidate",
+				"candidate": ice_candidate.candidate,
+				"sdp_mid": ice_candidate.sdpMid,
+				"sdp_mline_index": ice_candidate.sdpMLineIndex,
+				"from": current_sessionid,
+				"to": remote_sessionid
+			}));
+		}
+	};
+
+	// ontrack
+	peerconn.ontrack = function(event) {
+		console.log("ontrack", event);
+	
+		var video = document.createElement('video');
+
+            video.id = "streamingVideo";
+			video.addEventListener('loadedmetadata', function(e){
+                video.play();
+				resizePlayerStyle();
+            }, true);
+			video.srcObject = event.streams[0];
+			
+		let playerDiv = document.getElementById('player');
+		playerDiv.appendChild(video);
+		registerInputs(video);
+		registerLockedMouseEvents(video);
+	};
+
+	// ondatachannel
+	peerconn.ondatachannel = function(event) {
+		rtcconn.data_channel = event.channel;
+		SetDataChannelEventHandler(rtcconn.data_channel);
+	};
+	
+	if(offer_peer) {
+		rtcconn.data_channel = peerconn.createDataChannel("datachannel", { "ordered": true, "priority": "high" });
+		SetDataChannelEventHandler(rtcconn.data_channel);
+
+		peerconn.createOffer({
+			offerToReceiveAudio: true,
+			offerToReceiveVideo: true
+		})
+		.then(function(sdp_offer) {
+			peerconn.setLocalDescription(sdp_offer);
+
+			ws_client.send(JSON.stringify({
+				"command": "take_configuration",
+				"type": "offer",
+				"sdp": sdp_offer["sdp"],
+				"from": current_sessionid,
+				"to": remote_sessionid,
+				"roomid": "not_needed"
+			}));
+		})
+		.catch(alert);
+	}
+	else {
+		local_stream.getTracks().forEach(track => peerconn.addTrack(track, local_stream));
+
+		peerconn.setRemoteDescription(new RTCSessionDescription({
+			"type": "offer",
+			"sdp": remote_sdp
+		}))
+		.then(function() {
+			return peerconn.createAnswer({
+				mandatory: {
+					OfferToReceiveAudio: false,
+					OfferToReceiveVideo: false
+				}
+			});
+		})
+		.then(function(sdp_answer) {
+			peerconn.setLocalDescription(sdp_answer);
+
+			ws_client.send(JSON.stringify({
+				"command": "take_configuration",
+				"type": "answer",
+				"sdp": sdp_answer["sdp"],
+				"from": current_sessionid,
+				"to": remote_sessionid,
+				"roomid": "not_needed"
+			}));
+		})
+		.catch(alert);
+	}
+
+	remotesessionid_rtcconn_map[remote_sessionid] = rtcconn;
+};
+
+function AckRemotePeerSdp(remote_sessionid, remote_sdp) {
+	if(!(remote_sessionid in remotesessionid_rtcconn_map)) {
+		console.error("Ack remote peer SDP, rtc connection of remote_sessionid do not exist");
+		return;
+	}
+
+	var peerconn = remotesessionid_rtcconn_map[remote_sessionid].peer_conn;
+	peerconn.setRemoteDescription(new RTCSessionDescription({
+		"type": "answer",
+		"sdp": remote_sdp
+	}))
+	.catch(alert);
+};
+
+// 打开房间
+function OpenRoom() {
+	if(current_sessionid == undefined) {
+		console.error("Not logined to signaling server.");
+		return;
+	}
+
+	$.ajax({
+		type: "POST",
+		url: signaling_server_httpurl + "/room/open",
+		data: JSON.stringify({
+			"sessionid": current_sessionid,
+			"roomid": $("#open_room_input").val(),
+			"room_type": 0
+		}),
+		contentType: "application/json",
+		success: function (data) {
+			var result_obj = JSON.parse(data);
+			if(result_obj["status"] == 0) {
+				console.log("Open room succeed");
+
+				// 播放本地流
+				const constraints = {
+					"audio": {
+						"deviceId": $("#audioinput_select").val() == null ? undefined : 
+						{ "exact": $("#audioinput_select").val() }
+					},
+					"video": {
+						"deviceId": $("#videoinput_select").val() == null ? undefined :
+						{ "exact": $("#videoinput_select").val() },
+						"width": 1280,
+						"height": 720
+					}
+				};
+
+				navigator.mediaDevices.getUserMedia(constraints)
+				.then(function(stream) {
+					local_stream = stream;
+
+					$("#local_video")[0].onloadedmetadata = function(event) {
+						$("#local_video")[0].play();
+					};
+					
+					$("#local_video")[0].srcObject = stream;
+				})
+				.catch(alert);
+			}
+			else { alert("open room failed, reason: " + result_obj["message"]); }
+		},
+		error: function (data) { alert("open room failed: ", data); }
+	});
+};
+
+// 请求房间
+function QueryRooms() {
+	$.ajax({
+		type: "GET",
+		url: signaling_server_httpurl + "/rooms",
+		success: function (data) {
+			var result_obj = JSON.parse(data);
+			if(result_obj["status"] == 0) {
+				console.log("Query rooms succeed");
+
+				// 更新rooms_select元素
+				$("#rooms_select").empty();
+				Object.keys(result_obj["data"]).forEach(function(roomid) {
+					$("#rooms_select").append(new Option(roomid, roomid));
+				});
+			}
+			else { alert("query rooms failed, reason: ", + result_obj["message"]); }
+		},
+		error: function (data) { alert("query rooms failed", data); }
+	});
+};
+
+// 加入房间
+function JoinRoom() {
+	if(current_sessionid == undefined) {
+		console.error("Not logined to signaling server.");
+		return;
+	}
+
+	// 是否已经选择房间
+	var roomid = $("#rooms_select").val();
+	if(roomid == null) {
+		alert("no room is selected");
+		return;
+	}
+
+	$.ajax({
+		type: "POST",
+		url: signaling_server_httpurl + "/room/join",
+		data: JSON.stringify({
+			"sessionid": current_sessionid,
+			"roomid": roomid
+		}),
+		contentType: "application/json",
+		success: function(data) {
+			var result_obj = JSON.parse(data);
+			if(result_obj["status"] == 0) {
+				console.log("Join room succeed");
+
+				var room_type = result_obj["data"]["room_type"];
+				if(room_type == 0) {
+					// Video Broadcasting Type
+					InteractRemotePeer(result_obj["data"]["broadcaster_sessionid"], true, "");
+				}
+				else if(room_type == 1) {
+					// Video Conference Type
+					$.each(result_obj["data"]["sessionids"], function(index, sessionid) {
+						InteractRemotePeer(sessionid, true, "");
+					});
+				}
+				else { console.error("room type not supported for now."); }
+
+			}
+			else { alert("join room failed, reason: " + result_obj["message"]); }
+		},
+		error: function(data) { alert("join room failed: ", data); }
+	});
+};
+
+// 离开房间
+function LeaveRoom() {
+	if(current_sessionid == undefined) {
+		console.error("Not logined to signaling server.");
+		return;
+	}
+
+	$.ajax({
+		type: "POST",
+		url: signaling_server_httpurl + "/room/leave",
+		data: JSON.stringify({ "sessionid": current_sessionid }),
+		contentType: "application/json",
+		success: function(data) {
+			var result_obj = JSON.parse(data);
+			if(result_obj["status"] == 0) { 
+				console.log("Leave room succeed");
+
+				ClearRtcConnections();
+			}
+			else { alert("leave room failed, reason: " + result_obj["message"]); }
+		},
+		error: function(data) { alert("leave room failed: ", data); }
+	});
+};
+
+// 发送消息
+function SendMessage() {
+	var msg = $("#msg_input").val();
+	for(var remotesessionid in remotesessionid_rtcconn_map) {
+		var rtcconn = remotesessionid_rtcconn_map[remotesessionid];
+		if(rtcconn.data_channel && rtcconn.data_channel.readyState == "open") {
+			rtcconn.data_channel.send(msg);
+		}
+		else { alert("rtcconn datachannel not open"); }
+	}
+};
