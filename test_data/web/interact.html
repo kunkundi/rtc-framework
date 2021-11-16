@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <title>RTC Video Broadcast Demo</title>
+    <script src="HackTimer.js"></script>
+    <script src="jquery-3.5.1.js"></script>
+    <script src="websocket-heartbeat.js"></script>
+	<script src="app.js"></script>
+	<script src="interact.js"></script>
+	<link type="text/css" rel="stylesheet" href="cs.css">
+
+</head>
+<body>
+    <div style="border: 1px solid gray; padding: 5px; margin: 5px;">
+        <label>Video Source: </label><select id="videoinput_select"></select>
+        <label>Audio Input Source: </label><select id="audioinput_select"></select>
+        <!-- <label>Audio Output Destination: </label><select id="audiooutput_select"></select> -->
+    </div>
+
+    <div style="border: 1px solid gray; padding: 5px; margin: 5px;">
+        <input id="open_room_input" value="zhejianglab" />
+        <button onclick="OpenRoom()">Open Room</button>
+        <select id="rooms_select"></select>
+        <button onclick="QueryRooms()">Query Rooms</button>
+        <button onclick="JoinRoom()">Join Room</button>
+        <button onclick="LeaveRoom()">Leave Room</button>
+    </div>
+
+    <div style="border: 1px solid gray; padding: 5px; margin: 5px;">
+        <input id="msg_input" value="hello world" /><button onclick="SendMessage()">Send Message</button><br />
+    </div>
+
+    <div id="remote_videos"></div>
+	
+	<div id="player" class="fixed-size">
+	</div>
+
+    <div id="local_videos">
+        <video id="local_video" style="clear: both; display: block; margin: auto;"></video>
+    </div>
+</body>
+</html>
