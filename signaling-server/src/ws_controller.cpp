@@ -127,7 +127,9 @@ void WsController::SetClientPingTimeout(const SimpleWeb::error_code& ec, SteadyT
 
 		for (const auto& conn_pingtimer : conn_pingtimer_map_) {
 			if (conn_pingtimer.second == pingtimer) {
-				CloseConnectionAndTimer(conn_pingtimer.first, true);
+				// Do not notify client,
+				// or maybe will cause client reconnection disconnected
+				CloseConnectionAndTimer(conn_pingtimer.first, false);
 			}
 		}
 	}
