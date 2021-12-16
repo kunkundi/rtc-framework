@@ -1155,7 +1155,9 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		// for Unified Plan)
 		webrtc::RtpTransceiverInit rtp_transceiver_init;
 		rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
-		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+		for (int i = 0; i < 20; ++i) {
+			rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+		}
 
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
 		rtc_conn->peer_conn_->CreateOffer(rtc_conn->create_sdp_observer_.get(), options);
@@ -1173,7 +1175,9 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		// create answer
 		webrtc::RtpTransceiverInit rtp_transceiver_init;
 		rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
-		rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+		for (int i = 0; i < 20; ++i) {
+			rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+		}
 
 		webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
 		rtc_conn->peer_conn_->CreateAnswer(rtc_conn->create_sdp_observer_.get(), options);
