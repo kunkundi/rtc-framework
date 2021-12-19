@@ -61,6 +61,7 @@
     "sessionid": 0,
     "roomid": "xxx",
     "room_type": 0
+    "force": 0
 }
 返回结果：
 {
