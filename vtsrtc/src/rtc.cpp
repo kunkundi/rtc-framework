@@ -180,10 +180,11 @@ ErrorCode RtcAgent::QueryRooms(Rooms& rooms) const {
 		});
 }
 
-ErrorCode RtcAgent::OpenRoom(const RoomId& roomid, enum RoomType room_type) const {
+ErrorCode RtcAgent::OpenRoom(const RoomId& roomid,
+	enum RoomType room_type, bool force) const {
 	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
-		[this, &roomid, room_type]() {
-			return rtc_conn_manager_->OpenRoom(roomid, room_type);
+		[this, &roomid, room_type, force]() {
+			return rtc_conn_manager_->OpenRoom(roomid, room_type, force);
 		});
 }
 

@@ -125,11 +125,9 @@ void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
 	auto sessionid = param_obj["sessionid"].get<SessionId>();
 	auto roomid = param_obj["roomid"].get<RoomId>();
 	auto room_type = static_cast<RoomType>(param_obj["room_type"].get<int>());
-
-	// check if roomid already existed
-	if (rooms.find(roomid) != rooms.cend()) {
-		this->WriteJson(response, HttpStatus::RoomAlreadyExisted);
-		return;
+	bool force = false;
+	if (param_obj.contains("force")) {
+		force = param_obj["force"].get<int>();
 	}
 
 	// check if sessionid already in room
@@ -139,6 +137,17 @@ void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
 		this->WriteJson(response, HttpStatus::SessionidAlreadyInRoom, data_obj);
 		return;
 	}
+
+	// check if roomid already existed
+	if (rooms.find(roomid) != rooms.cend()) {
+		if (!force) {
+			this->WriteJson(response, HttpStatus::RoomAlreadyExisted);
+			return;
+		}
+
+		rooms.erase(roomid);
+	}
+
 
 	Room new_room {
 		roomid,

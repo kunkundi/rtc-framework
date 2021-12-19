@@ -38,7 +38,9 @@ public:
 	// @retval OK, InternalError
 	ErrorCode QueryRooms(Rooms& rooms) const;
 	// @retval OK, InternalError, AgentNotLogined, RoomAlreadyExisted, AgentAlreadyInRoom
-	ErrorCode OpenRoom(const RoomId& roomid, enum RoomType room_type = RoomType::VideoBroadcasting) const;
+	ErrorCode OpenRoom(const RoomId& roomid,
+		enum RoomType room_type = RoomType::VideoBroadcasting,
+		bool force = false) const;
 	// @retval OK, InternalError, AgentNotLogined, RoomNotExisted, AgentAlreadyInRoom
 	ErrorCode JoinRoom(const RoomId& roomid) const;
 	// @retval OK, InternalError, AgentNotLogined

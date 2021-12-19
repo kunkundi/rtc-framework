@@ -78,7 +78,8 @@ public:
 	vts_rtc::SessionIds QueryRemoteAgents() const;
 	vts_rtc::ErrorCode QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const;
 	vts_rtc::ErrorCode QueryRooms(vts_rtc::Rooms& rooms) const;
-	vts_rtc::ErrorCode OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type);
+	vts_rtc::ErrorCode OpenRoom(const vts_rtc::RoomId& roomid,
+		enum vts_rtc::RoomType room_type, bool force);
 	vts_rtc::ErrorCode JoinRoom(const vts_rtc::RoomId& roomid);
 	vts_rtc::ErrorCode LeaveRoom();
 

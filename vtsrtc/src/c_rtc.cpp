@@ -233,11 +233,12 @@ void RtcDestoryRooms(RtcRooms rooms, size_t sz_rooms) {
 	delete[] rooms;
 }
 
-RtcErrorCode RtcOpenRoom(const RtcRoomId roomid, RtcRoomType room_type) {
+RtcErrorCode RtcOpenRoom(const RtcRoomId roomid, RtcRoomType room_type,
+	bool force) {
 	CHECK_RTCAGENT_INITED
 
 	auto roomcode = rtc_agent->OpenRoom(std::string(roomid),
-		static_cast<vts_rtc::RoomType>(room_type));
+		static_cast<vts_rtc::RoomType>(room_type), force);
 	return ConvertCode(roomcode);
 }
 

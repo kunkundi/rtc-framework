@@ -246,7 +246,7 @@ void RtcWidget::QueryRooms() {
 
 void RtcWidget::OpenRoom() {
 	QByteArray roomid = open_room_edit_->text().toLocal8Bit();
-	auto code = RtcOpenRoom(roomid.data(), RtcRoomType::VideoBroadcasting);
+	auto code = RtcOpenRoom(roomid.data(), RtcRoomType::VideoBroadcasting, false);
 	CHECK_ERRORCODE
 
 	if (!video_source_added_) {

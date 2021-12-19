@@ -261,7 +261,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::AgentAlreadyInRoom 打开失败，Rtc Agent已经在房间中，无法打开房间
 	 */
 	RTC_API RtcErrorCode RtcOpenRoom(const RtcRoomId roomid,
-		RtcRoomType room_type);
+		RtcRoomType room_type, bool force);
 
 	/**
 	 * @brief 加入房间

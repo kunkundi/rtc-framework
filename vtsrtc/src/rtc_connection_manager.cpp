@@ -512,7 +512,9 @@ vts_rtc::ErrorCode RtcConnectionManager::QueryRooms(vts_rtc::Rooms& rooms) const
 	}
 }
 
-vts_rtc::ErrorCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid, enum vts_rtc::RoomType room_type) {
+vts_rtc::ErrorCode RtcConnectionManager::OpenRoom(
+	const vts_rtc::RoomId& roomid,
+	enum vts_rtc::RoomType room_type, bool force) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
 	auto copy_sessionid = -1;
@@ -539,7 +541,8 @@ vts_rtc::ErrorCode RtcConnectionManager::OpenRoom(const vts_rtc::RoomId& roomid,
 		json room_obj = {
 			{ "sessionid", copy_sessionid },
 			{ "roomid", roomid },
-			{ "room_type", room_type }
+			{ "room_type", room_type },
+			{ "force", force ? 1 : 0}
 		};
 		auto response = http_client_->request("POST", "/room/open", room_obj.dump());
 		json result_obj = json::parse(response->content.string(), nullptr, false);
