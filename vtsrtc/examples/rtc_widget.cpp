@@ -15,6 +15,7 @@
 	}
 
 QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
+RtcAudioRender* RtcWidget::rtc_audiorender_ = nullptr;
 RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
 
 void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
@@ -28,8 +29,21 @@ void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
 	}
 }
 
+void RtcWidget::HandleAudioFrame(RtcAudioSourceId sourceid,
+	RtcMediaSourceType sourcetype,
+	size_t bits_per_sample, size_t sample_rate,
+	size_t number_of_channels, size_t number_of_frames,
+	const void* audio_data, size_t sz_audio_data) {
+	if (rtc_audiorender_) {
+		rtc_audiorender_->OnAudioFrame(sourceid, sourcetype,
+			bits_per_sample, sample_rate,
+			number_of_channels, number_of_frames,
+			audio_data, sz_audio_data);
+	}
+}
+
 void RtcWidget::HandleFrame(RtcVideoSourceId sourceid,
-	RtcVideoSourceType sourcetype,
+	RtcMediaSourceType sourcetype,
 	size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {
 	if (rtc_videorender_) {
@@ -43,12 +57,14 @@ void RtcWidget::HandleNetworkDisconnected() {
 }
 
 RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
-	const QString& yuv_folderpath, QWidget* parent)
-	: yuv_folderpath_(yuv_folderpath), QWidget(parent) {
+	const QString& pcmdata_filepath, const QString& yuv_folderpath,
+	QWidget* parent)
+	: pcmdata_filepath_(pcmdata_filepath), yuv_folderpath_(yuv_folderpath),
+	QWidget(parent) {
 	CreateUI();
 
 	auto code = RtcInitAgent(rtc_config_filepath.c_str(),
-		HandleMessage, HandleFrame, HandleNetworkDisconnected);
+		HandleMessage, HandleAudioFrame, HandleFrame, HandleNetworkDisconnected);
 	CHECK_ERRORCODE
 
 	code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
@@ -71,6 +87,24 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 
 RtcWidget::~RtcWidget() {
 	RtcDestoryAgent();
+
+	{
+		std::lock_guard<std::mutex> lg(stop_audiothread_mtx_);
+		stop_audiothread_ = true;
+	}
+
+	{
+		std::lock_guard<std::mutex> lg(stop_videothread_mtx_);
+		stop_videothread_ = true;
+	}
+
+	for (auto& pcmdata : pcmdatas_) {
+		delete[] pcmdata.buffer;
+	}
+
+	for (auto& yuvframe : yuv_frames_) {
+		delete[] yuvframe.buffer;
+	}
 }
 
 void RtcWidget::CreateUI() {
@@ -131,6 +165,7 @@ void RtcWidget::CreateUI() {
 	msg_layout->addWidget(send_msg_btn, 1, 3, 1, 1);
 	msg_groupbox->setLayout(msg_layout);
 
+	rtc_audiorender_ = new RtcAudioRender(this);
 	rtc_videorender_ = new RtcVideoRender();
 
 	main_layout->addWidget(videosource_groupbox);
@@ -152,6 +187,41 @@ void RtcWidget::CreateUI() {
 	connect(play_from_SRS_btn, SIGNAL(clicked()), this, SLOT(PlayFromSRS()));
 	connect(unplay_from_SRS_btn, SIGNAL(clicked()), this, SLOT(UnplayFromSRS()));
 	connect(send_msg_btn, SIGNAL(clicked()), this, SLOT(SendMessage()));
+}
+
+void RtcWidget::LoadPCMData() {
+	if (pcmdatas_.size() > 0) {
+		return;
+	}
+
+	size_t bits_per_sample = 16,
+		sample_rate = 8000,
+		number_of_channels = 1,
+		number_of_frames = 80, // send pcmdata per 10ms, 8000 * 0.01
+		sz_buffer = 160; // 16 * 1 * 80 / 8
+
+	FILE* fp = fopen(pcmdata_filepath_.toLocal8Bit(), "rb");
+	if (fp) {
+		size_t num_read = 0;
+		do {
+			RtcPCMData pcmdata {
+				bits_per_sample,
+				sample_rate,
+				number_of_channels,
+				number_of_frames,
+				new char[sz_buffer],
+				sz_buffer
+			};
+
+			num_read = fread(pcmdata.buffer, 1, sz_buffer, fp);
+			if (num_read == sz_buffer) {
+				pcmdatas_.emplace_back(pcmdata);
+			}
+		} while (num_read == sz_buffer);
+
+		fflush(fp);
+		fclose(fp);
+	}
 }
 
 void RtcWidget::LoadYUVData() {
@@ -182,21 +252,58 @@ void RtcWidget::LoadYUVData() {
 	}
 }
 
+void RtcWidget::SendAudioFrame() {
+	if (pcmdatas_.size() > 0) {
+		audiothread_ = QThread::create([this]() {
+			size_t idx = 0;
+			bool need_stop = false;
+			while (!need_stop) {
+				if (idx == pcmdatas_.size()) {
+					idx = 0;
+				}
+				RtcSendAudioFrame("external_audio", &pcmdatas_[idx++]);
+				QThread::msleep(10);
+
+				{
+					std::lock_guard<std::mutex> lg(stop_audiothread_mtx_);
+					need_stop = stop_audiothread_;
+				}
+			}
+			});
+
+		audiothread_->start();
+	}
+}
+
 void RtcWidget::SendFrame() {
 	if (yuv_frames_.size() > 0) {
-		auto send_thread = QThread::create([this]() {
+		videothread_ = QThread::create([this]() {
 			size_t idx = 0;
-			while (true) {
+			bool need_stop = false;
+			while (!need_stop) {
 				if (idx == yuv_frames_.size()) {
 					idx = 0;
 				}
 				RtcSendFrame("external_feed", &yuv_frames_[idx++]);
 				QThread::msleep(30);
+
+				{
+					std::lock_guard<std::mutex> lg(stop_videothread_mtx_);
+					need_stop = stop_videothread_;
+				}
 			}
 			});
 
-		send_thread->start();
+		videothread_->start();
 	}
+}
+
+void RtcWidget::AddAudioSource() {
+	auto code = RtcAddExternalAudioSource("external_audio", RtcPriorityType::High);
+	CHECK_ERRORCODE
+	
+	LoadPCMData();
+	SendAudioFrame();
 }
 
 void RtcWidget::AddVideoSource() {
@@ -218,14 +325,14 @@ void RtcWidget::AddVideoSource() {
 		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability, RtcPriorityType::High);
 		//CHECK_ERRORCODE
 
-		//code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
-		//CHECK_ERRORCODE
-
-		//if (!external_feed_inited_) {
-		//	LoadYUVData();
-		//	SendFrame();
-		//	external_feed_inited_ = true;
-		//}
+// 		code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
+// 		CHECK_ERRORCODE
+// 
+// 		if (!external_feed_inited_) {
+// 			LoadYUVData();
+// 			SendFrame();
+// 			external_feed_inited_ = true;
+// 		}
 	}
 }
 
@@ -253,6 +360,11 @@ void RtcWidget::OpenRoom() {
 		this->AddVideoSource();
 		video_source_added_ = true;
 	}
+
+	if (!audio_source_added_) {
+		this->AddAudioSource();
+		audio_source_added_ = true;
+	}
 }
 
 void RtcWidget::JoinRoom() {
@@ -275,6 +387,11 @@ void RtcWidget::PublishToSRS() {
 	if (!video_source_added_) {
 		this->AddVideoSource();
 		video_source_added_ = true;
+	}
+
+	if (!audio_source_added_) {
+		this->AddAudioSource();
+		audio_source_added_ = true;
 	}
 
 	QByteArray SRS_streamurl = SRS_streamurl_edit_->text().toLocal8Bit();

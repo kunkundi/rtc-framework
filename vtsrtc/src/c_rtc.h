@@ -25,11 +25,16 @@
 typedef unsigned int RtcSessionId;
 typedef RtcSessionId* RtcSessionIds;
 typedef const char* RtcDataChannelLabel;
+typedef const char* RtcAudioSourceId;
 typedef const char* RtcVideoSourceId;
-typedef unsigned int RtcVideoSourceType;
 typedef char* RtcRoomId;
 typedef char* RtcSRSStreamurl;
 typedef char* RtcSRSSessionId;
+
+typedef enum RtcMediaSourceType {
+	Rtc = 0,
+	SRS
+} RtcMediaSourceType;
 
 typedef enum RtcRoomType {
 	VideoBroadcasting = 0,  // one to many
@@ -88,6 +93,15 @@ typedef enum RtcPriorityType {
 	High,
 } RtcPriorityType;
 
+typedef struct RtcPCMData {
+	size_t bits_per_sample;
+	size_t sample_rate;
+	size_t number_of_channels;
+	size_t number_of_frames;
+	void* buffer;
+	size_t sz_buffer;
+} RtcPCMData;
+
 typedef struct RtcYUV420pFrame {
 	size_t width;
 	size_t height;
@@ -98,10 +112,16 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
+// RtcSessionId, RtcDataChannelLabel, message, message size (unit: Byte)
 typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel,
 	const char*, size_t);
-// RtcVideoSourceType表示视频帧来源，目前来源于RTC（值为0）或者SRS（值为1）
-typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcVideoSourceType,
+// RtcAudioSourceId, RtcMediaSourceType, bits_per_sample, sample_rate,
+// number_of_channels, number_of_frames, audio_data, audio_data_size
+typedef void(*RecvAudioFrameHandler)(RtcAudioSourceId, RtcMediaSourceType,
+	size_t, size_t, size_t, size_t, const void*, size_t);
+// RtcVideoSourceId, RtcMediaSourceType, width, height, dimension,
+// video_data, video_data_size
+typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, const unsigned char*, size_t);
 typedef void(*NetworkDisconnectedHandler)();
 
@@ -122,6 +142,7 @@ extern "C" {
 	 */
 	RTC_API RtcErrorCode RtcInitAgent(const char* config_filepath,
 		RecvMessageHandler recv_msg_handler,
+		RecvAudioFrameHandler recv_audioframe_handler,
 		RecvFrameHandler recv_frame_handler,
 		NetworkDisconnectedHandler network_disconnected_handler);
 
@@ -172,6 +193,22 @@ extern "C" {
 		RtcPriorityType priority,
 		bool ordered,
 		int max_retransmits);
+
+	/**
+	 * @brief 增加来自外部的音频源
+	 *
+	 * @param audio_sourceid 音频源的唯一ID
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 增加源成功
+	 *   @retval RtcErrorCode::AgentNotInited 增加源失败，因为Rtc Agent未成功初始化
+	 *   @retval RtcErrorCode::Failed 增加源失败，audio_sourceid重复
+	 * @attention 1. 函数参数必须与RtcSendAudioFrame函数和RecvAudioFrameHandler回调函数的audio_sourceid相一致
+	 *            2. 针对WEB平台，当采用Unified Plan形式的SDP，接收端的MediaStreamTrack的id域是唯一的GUID，
+	 *               并不具有业务含义，所以SDK约定一个track只属于一个stream，同时track和stream的label值相同，
+	 *               通过访问接收端的MediaStream的id域可以对AudioTrack进行业务区分
+	 */
+	RTC_API RtcErrorCode RtcAddExternalAudioSource(
+		RtcAudioSourceId audio_sourceid, RtcPriorityType priority);
 
 	/**
 	 * @brief 增加摄像头设备视频源
@@ -327,6 +364,18 @@ extern "C" {
 	 */
 	RTC_API RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label,
 		const char* msg, size_t msg_size);
+
+	/**
+	 * @brief 发送音频帧
+	 *
+	 * @param audio_sourceid 音频源ID，与RtcAddExternalAudioSource函数参数相一致
+	 * @param pcmdata PCM数据
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 发送成功
+	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
+	 */
+	RTC_API RtcErrorCode RtcSendAudioFrame(RtcAudioSourceId audio_sourceid,
+		const RtcPCMData* pcmdata);
 
 	/**
 	 * @brief 发送图像帧

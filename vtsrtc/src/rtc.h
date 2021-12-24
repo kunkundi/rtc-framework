@@ -9,10 +9,12 @@ class RtcAgent {
 public:
 	static std::shared_ptr<RtcAgent> Create(const std::string& rtc_config_filepath,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
+		const RecvAudioFrameHandler& recv_audioframe_handler = nullptr,
 		const RecvFrameHandler& recv_frame_handler = nullptr,
 		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
 	static std::shared_ptr<RtcAgent> Create(const RtcConfig& rtc_config,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
+		const RecvAudioFrameHandler& recv_audioframe_handler = nullptr,
 		const RecvFrameHandler& recv_frame_handler = nullptr,
 		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
 	~RtcAgent();
@@ -25,6 +27,10 @@ public:
 		PriorityType priority = PriorityType::Low,
 		bool ordered = true,
 		int max_retransmits = -1);
+
+	// add audio source
+	bool AddAudioSource(const AudioSourceId& audio_sourceid,
+		PriorityType priority = PriorityType::Low) const;
 
 	// add video source, from camera capturer OR from external feed
 	bool AddVideoSource(size_t device_index, const VideoDeviceCapability& device_capability,
@@ -62,12 +68,15 @@ public:
 
 	// send data
 	bool SendData(const std::string& channel_label, const std::string& msg) const;
+	// send audio frame(PCM format)
+	void SendAudioFrame(const AudioSourceId& audio_sourceid, const PCMData& pcmdata) const;
 	// send frame
 	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const;
 
 private:
 	explicit RtcAgent(const RtcConfig& rtc_config,
 		const RecvMessageHandler& recv_msg_handler,
+		const RecvAudioFrameHandler& recv_audioframe_handler,
 		const RecvFrameHandler& recv_frame_handler,
 		const NetworkDisconnectedHandler& network_disconnected_handler);
 	// Init RtcAgent, mainly for RtcConnectionManager initialization

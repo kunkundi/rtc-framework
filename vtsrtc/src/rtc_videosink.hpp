@@ -9,7 +9,8 @@ class RtcVideoSink : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
 	friend class RtcConnectionBase;
 
 public:
-	explicit RtcVideoSink(const std::string& trackid) : trackid_(trackid) {}
+	explicit RtcVideoSink(const std::string& trackid)
+		: trackid_(trackid) {}
 	~RtcVideoSink() = default;
 
 	void OnFrame(const webrtc::VideoFrame& frame) override {
@@ -35,5 +36,5 @@ private:
 	size_t width_ = 0, height_ = 0;
 	std::vector<unsigned char> buffer_;
 	std::function<void(const vts_rtc::VideoSourceId&, size_t, size_t, size_t,
-		const std::vector<unsigned char>&)> on_frame_;
+		const std::vector<unsigned char>&)> on_frame_ = nullptr;
 };

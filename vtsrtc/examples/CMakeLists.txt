@@ -15,6 +15,8 @@ find_package(Qt5OpenGL)
 find_package(Threads REQUIRED)
 
 add_executable(${target}
+	rtc_audiorender.h
+	rtc_audiorender.cpp
 	rtc_videorender.h
 	rtc_videorender.cpp
 	rtc_widget.h
@@ -39,16 +41,19 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG}/rtc.cfg")
 		file(COPY "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/8k16bit.pcm" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
 		file(COPY "${CMAKE_SOURCE_DIR}/test_data/yuvfiles" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG})
 	endif()
 
 	if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE}/rtc.cfg")
 		file(COPY "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/8k16bit.pcm" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
 		file(COPY "${CMAKE_SOURCE_DIR}/test_data/yuvfiles" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE})
 	endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	if(NOT EXISTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/rtc.cfg")
 		file(COPY "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+		file(COPY "${CMAKE_SOURCE_DIR}/test_data/8k16bit.pcm" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 		file(COPY "${CMAKE_SOURCE_DIR}/test_data/yuvfiles" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 	endif()
 endif()

@@ -26,6 +26,8 @@ add_library(${target} SHARED
 	nvh264_decoder_factory.cpp
 	rtc_device_manager.h
 	rtc_device_manager.cpp
+	rtc_audiosink.hpp
+	rtc_audiosource.hpp
 	rtc_videosource.hpp
 	rtc_videocapturer.hpp
 	rtc_videosink.hpp

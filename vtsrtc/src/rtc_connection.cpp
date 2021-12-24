@@ -139,27 +139,37 @@ void RtcConnectionBase::InitObserverCallbacks() {
 		rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&
 		streams) {
-			auto media_track = receiver->track();
-			if (!media_track) {
-				return;
-			}
+		auto media_track = receiver->track();
+		if (!media_track) {
+			return;
+		}
 
-			if (media_track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
-				auto video_trackid =
-					streams.size() > 0 ? streams[0]->id() : std::string("unknown");
-				auto video_track =
-					static_cast<webrtc::VideoTrackInterface*>(media_track.get());
-				auto rtc_videosink = std::make_unique<RtcVideoSink>(video_trackid);
-				rtc_videosink->on_frame_ = std::bind(
-					&RtcConnectionBase::HandleFrameReceived, this,
-					std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-					std::placeholders::_4, std::placeholders::_5);
-				video_track->AddOrUpdateSink(rtc_videosink.get(), rtc::VideoSinkWants());
-				rtc_pc_videosinks_.emplace_back(std::move(rtc_videosink));
-			}
-			else if (media_track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
-				// TO DO
-			}
+		if (media_track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
+			auto audio_trackid =
+				streams.size() > 0 ? streams[0]->id() : std::string("unknown");
+			auto audio_track =
+				static_cast<webrtc::AudioTrackInterface*>(media_track.get());
+			auto rtc_audiosink = std::make_unique<RtcAudioSink>(audio_trackid);
+			rtc_audiosink->on_audioframe_ = std::bind(
+				&RtcConnectionBase::HandleAudioFrameReceived, this,
+				std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+				std::placeholders::_4, std::placeholders::_5, std::placeholders::_6);
+			audio_track->AddSink(rtc_audiosink.get());
+			rtc_pc_audiosinks_.emplace_back(std::move(rtc_audiosink));
+		}
+		else if (media_track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+			auto video_trackid =
+				streams.size() > 0 ? streams[0]->id() : std::string("unknown");
+			auto video_track =
+				static_cast<webrtc::VideoTrackInterface*>(media_track.get());
+			auto rtc_videosink = std::make_unique<RtcVideoSink>(video_trackid);
+			rtc_videosink->on_frame_ = std::bind(
+				&RtcConnectionBase::HandleFrameReceived, this,
+				std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+				std::placeholders::_4, std::placeholders::_5);
+			video_track->AddOrUpdateSink(rtc_videosink.get(), rtc::VideoSinkWants());
+			rtc_pc_videosinks_.emplace_back(std::move(rtc_videosink));
+		}
 	};
 
 	peer_conn_observer_.on_removetrack_ = [](
@@ -255,11 +265,22 @@ void RtcConnection::HandleDataChannelMessageReceived(
 	}
 }
 
+void RtcConnection::HandleAudioFrameReceived(
+	const vts_rtc::AudioSourceId& sourceid, size_t bits_per_sample,
+	size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
+	const void* audio_data) const {
+	if (on_audioframe_received_) {
+		on_audioframe_received_(sourceid, vts_rtc::MediaSourceType::Rtc,
+			bits_per_sample, sample_rate, number_of_channels, number_of_frames,
+			audio_data);
+	}
+}
+
 void RtcConnection::HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 	size_t width, size_t height, size_t dimension,
 	const std::vector<unsigned char>& buffer) const {
 	if (on_frame_received_) {
-		on_frame_received_(sourceid, vts_rtc::VideoSourceType::Rtc,
+		on_frame_received_(sourceid, vts_rtc::MediaSourceType::Rtc,
 			width, height, dimension, buffer);
 	}
 }
@@ -303,12 +324,23 @@ void Rtc2SRSConnection::HandleDataChannelMessageReceived(
 	// TO DO
 }
 
+void Rtc2SRSConnection::HandleAudioFrameReceived(
+	const vts_rtc::AudioSourceId& sourceid, size_t bits_per_sample,
+	size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
+	const void* audio_data) const {
+	if (on_audioframe_received_) {
+		on_audioframe_received_(sourceid, vts_rtc::MediaSourceType::SRS,
+			bits_per_sample, sample_rate, number_of_channels, number_of_frames,
+			audio_data);
+	}
+}
+
 void Rtc2SRSConnection::HandleFrameReceived(
 	const vts_rtc::VideoSourceId& sourceid,
 	size_t width, size_t height, size_t dimension,
 	const std::vector<unsigned char>& buffer) const {
 	if (on_frame_received_) {
-		on_frame_received_(sourceid, vts_rtc::VideoSourceType::SRS,
+		on_frame_received_(sourceid, vts_rtc::MediaSourceType::SRS,
 			width, height, dimension, buffer);
 	}
 }

@@ -2,6 +2,7 @@
 
 #include "rtc_types.h"
 #include "rtc_connection.h"
+#include "rtc_audiosource.hpp"
 #include "rtc_device_manager.h"
 #include <nlohmann/json.hpp>
 #include <client_http.hpp>
@@ -66,14 +67,18 @@ public:
 	explicit RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 		std::shared_ptr<RtcDeviceManager> device_manager,
 		const vts_rtc::RecvMessageHandler& recv_msg_handler,
+		const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
 		const vts_rtc::RecvFrameHandler& recv_frame_handler,
 		const vts_rtc::NetworkDisconnectedHandler& network_disconnected_handler);
 	~RtcConnectionManager();
 	bool Init();
 
-	bool AddDataChannel(const std::string& label, vts_rtc::PriorityType priority,
-		bool ordered, int max_retransmits);
-	bool AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid, vts_rtc::PriorityType priority);
+	bool AddDataChannel(const std::string& label,
+		vts_rtc::PriorityType priority, bool ordered, int max_retransmits);
+	bool AddAudioSource(const vts_rtc::AudioSourceId& audio_sourceid,
+		vts_rtc::PriorityType priority);
+	bool AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid,
+		vts_rtc::PriorityType priority);
 
 	vts_rtc::SessionIds QueryRemoteAgents() const;
 	vts_rtc::ErrorCode QueryRoom(const vts_rtc::RoomId& roomid, vts_rtc::Room& room) const;
@@ -92,8 +97,12 @@ public:
 		const vts_rtc::SRSStreamurl& streamurl,
 		const vts_rtc::SRSSessionId& sessionid);
 
-	bool SendData(const std::string& channel_label, const std::string& msg) const;
-	void SendFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame);
+	bool SendData(const std::string& channel_label,
+		const std::string& msg) const;
+	void SendAudioFrame(const vts_rtc::AudioSourceId& audio_sourceid,
+		const vts_rtc::PCMData& pcmdata);
+	void SendFrame(const vts_rtc::VideoSourceId& video_sourceid,
+		const vts_rtc::YUV420pFrame& frame);
 
 private:
 	bool InitPeerConnectionFactory();
@@ -102,6 +111,8 @@ private:
 	void ReconnectWebsocket();
 	// @attention: must be called after CreateAnswer on ANSWER side or SetRemoteDescription on OFFER side
 	void SetRtpSendersPriority();
+	void AddAudioTrack2PeerConnection(
+		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn);
 	void AddVideoTrack2PeerConnection(
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn);
 	void InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp);
@@ -115,6 +126,7 @@ private:
 
 	const vts_rtc::RtcConfig rtc_config_;
 	vts_rtc::RecvMessageHandler recv_msg_handler_ = nullptr;
+	vts_rtc::RecvAudioFrameHandler recv_audioframe_handler_ = nullptr;
 	vts_rtc::RecvFrameHandler recv_frame_handler_ = nullptr;
 	vts_rtc::NetworkDisconnectedHandler network_disconnected_handler_ = nullptr;
 
@@ -135,8 +147,13 @@ private:
 	WsConnection ws_conn_ = nullptr;
 
 	std::shared_ptr<RtcDeviceManager> rtc_device_manager_ = nullptr;
-	std::map<vts_rtc::VideoSourceId, rtc::scoped_refptr<RtcExternalFeedTrackSource>> external_feed_tracksources_;
-	std::map<rtc::scoped_refptr<webrtc::RtpSenderInterface>, vts_rtc::PriorityType> rtpsender_priority_map_;
+	std::map<vts_rtc::VideoSourceId,
+		rtc::scoped_refptr<RtcExternalFeedTrackSource>>
+		external_feed_tracksources_;
+	std::map<vts_rtc::AudioSourceId, rtc::scoped_refptr<RtcAudioSource>>
+		external_audiosources_;
+	std::map<rtc::scoped_refptr<webrtc::RtpSenderInterface>,
+		vts_rtc::PriorityType> rtpsender_priority_map_;
 
 	std::map<std::string, webrtc::DataChannelInit> label_datachannelinit_map_;
 

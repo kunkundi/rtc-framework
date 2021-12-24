@@ -6,9 +6,11 @@ int main(int argc, char* argv[]) {
 
 	QString exe_path = QCoreApplication::applicationDirPath();
 	std::string rtc_config_filepath = std::string(exe_path.toLocal8Bit()) + "/rtc.cfg";
+	QString pcmdata_filepath = exe_path + "/8k16bit.pcm";
 	QString yuv_data_dir = exe_path + QString("/yuvfiles");
 
-	RtcWidget rtc_widget(rtc_config_filepath, yuv_data_dir);
+
+	RtcWidget rtc_widget(rtc_config_filepath, pcmdata_filepath, yuv_data_dir);
 	rtc_widget.show();
 
 	return app.exec();

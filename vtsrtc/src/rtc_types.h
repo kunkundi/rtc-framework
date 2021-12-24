@@ -18,16 +18,24 @@ using RoomId = std::string;
 using Rooms = std::map<RoomId, Room>;
 using SRSSessionId = std::string;
 using SRSStreamurl = std::string;
+using AudioSourceId = std::string;
 using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
-enum class VideoSourceType {
+enum class MediaSourceType {
 	Rtc = 0,
 	SRS
 };
+
+// SessionId, label, message
 using RecvMessageHandler = std::function<void(SessionId, const std::string&,
 	const std::string&)>;
+// AudioSourceId, MediaSourceType, bits_per_sample, sample_rate,
+// number_of_channels, number_of_frames, audio_data
+using RecvAudioFrameHandler = std::function<void(const AudioSourceId&,
+	enum MediaSourceType, size_t, size_t, size_t, size_t, const void*)>;
+// VideoSourceId, MediaSourceType, width, height, dimension, video_data
 using RecvFrameHandler = std::function<void(const VideoSourceId&,
-	enum VideoSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
+	enum MediaSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
 using NetworkDisconnectedHandler = std::function<void()>;
 
 struct RtcConfig {
@@ -95,6 +103,15 @@ enum class ErrorCode {
 	SRSStreamNotExisted,
 	SRSStreamAlreadyExisted,
 	AgentNotLogined,
+};
+
+struct PCMData {
+	size_t bits_per_sample;
+	size_t sample_rate;
+	size_t number_of_channels;
+	size_t number_of_frames;
+	void* buffer;
+	size_t sz_buffer;
 };
 
 struct YUV420pFrame {

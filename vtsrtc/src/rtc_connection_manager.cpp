@@ -29,12 +29,14 @@ vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
 RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	std::shared_ptr<RtcDeviceManager> device_manager,
 	const vts_rtc::RecvMessageHandler& recv_msg_handler,
+	const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
 	const vts_rtc::RecvFrameHandler& recv_frame_handler,
 	const vts_rtc::NetworkDisconnectedHandler& network_disconnected_handler)
 	: logic_thread_(rtc::Thread::Current()),
 	rtc_config_(rtc_config),
 	rtc_device_manager_(device_manager),
 	recv_msg_handler_(recv_msg_handler),
+	recv_audioframe_handler_(recv_audioframe_handler),
 	recv_frame_handler_(recv_frame_handler),
 	network_disconnected_handler_(network_disconnected_handler) {
 	http_client_ = std::make_shared<HttpClient>(rtc_config_.api_server_url);
@@ -427,15 +429,35 @@ bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::Pri
 	return true;
 }
 
-bool RtcConnectionManager::AddVideoSource(const vts_rtc::VideoSourceId& video_sourceid, vts_rtc::PriorityType priority) {
+bool RtcConnectionManager::AddAudioSource(
+	const vts_rtc::AudioSourceId& audio_sourceid,
+	vts_rtc::PriorityType priority) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
-	
-	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
+
+	if (external_audiosources_.find(audio_sourceid) !=
+		external_audiosources_.cend()) {
 		return false;
 	}
 
-	external_feed_tracksources_[video_sourceid] = 
-		new rtc::RefCountedObject<RtcExternalFeedTrackSource>(video_sourceid, std::make_unique<RtcVideoSource>(), priority);
+	external_audiosources_[audio_sourceid] =
+		new rtc::RefCountedObject<RtcAudioSource>(
+			audio_sourceid, cricket::AudioOptions());
+	return true;
+}
+
+bool RtcConnectionManager::AddVideoSource(
+	const vts_rtc::VideoSourceId& video_sourceid,
+	vts_rtc::PriorityType priority) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+	
+	if (external_feed_tracksources_.find(video_sourceid) !=
+		external_feed_tracksources_.cend()) {
+		return false;
+	}
+
+	external_feed_tracksources_[video_sourceid] =
+		new rtc::RefCountedObject<RtcExternalFeedTrackSource>(video_sourceid,
+			std::make_unique<RtcVideoSource>(), priority);
 	return true;
 }
 
@@ -710,6 +732,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 	);
 	peer_conn->AddTrack(audio_track, { "SRS_stream_audio" });
 
+	this->AddAudioTrack2PeerConnection(peer_conn);
 	this->AddVideoTrack2PeerConnection(peer_conn);
 
 	// create offer (declare the directional attribute by using RtpTransceiver
@@ -856,6 +879,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 
 	SRS_conn->peer_conn_ = peer_conn;
 
+	SRS_conn->on_audioframe_received_ = recv_audioframe_handler_;
 	SRS_conn->on_frame_received_ = recv_frame_handler_;
 
 	SRS_conn->on_iceconnect_failed =
@@ -973,10 +997,25 @@ bool RtcConnectionManager::SendData(const std::string& channel_label, const std:
 	return succeed;
 }
 
+void RtcConnectionManager::SendAudioFrame(
+	const vts_rtc::AudioSourceId& audio_sourceid,
+	const vts_rtc::PCMData& pcmdata) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	if (external_audiosources_.find(audio_sourceid) != external_audiosources_.cend()) {
+		vts_rtc::PCMData pcmdata_copy = pcmdata;
+		pcmdata_copy.buffer = new char[pcmdata.sz_buffer];
+		memcpy(pcmdata_copy.buffer, pcmdata.buffer, pcmdata.sz_buffer);
+
+		external_audiosources_[audio_sourceid]->OnData(pcmdata_copy);
+	}
+}
+
 void RtcConnectionManager::SendFrame(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 	
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
+		// @attention: copy frame data
 		auto I420buffer = webrtc::I420Buffer::Copy(frame.width, frame.height,
 			frame.buffer, frame.stride_Y,
 			frame.buffer + frame.stride_Y * frame.height, frame.stride_U,
@@ -1014,6 +1053,34 @@ void RtcConnectionManager::SetRtpSendersPriority() {
 		}
 		else {
 			LOG_WARN("Set priority of rtpsender (%s) failed, reason: encodings empty", rtpsender->id().c_str());
+		}
+	}
+}
+
+void RtcConnectionManager::AddAudioTrack2PeerConnection(
+	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn) {
+	// @attention
+	// 由于接收端的MediaStreamTrack的id域是唯一的GUID，并不具有业务含义，
+	// 所以此处约定一个track只属于一个stream，同时track和stream的label值相同，
+	// 通过访问接收端的MediaStream的id域作为VideoSourceId值
+
+	// Add external audio tracks
+	for (const auto& id_audiosource : external_audiosources_) {
+		auto audio_sourceid = id_audiosource.first;
+		auto audio_source = id_audiosource.second;
+		auto audio_track = peer_conn_factory_->CreateAudioTrack(
+			audio_sourceid, audio_source.get());
+
+		auto rtpsender_error = peer_conn->AddTrack(
+			audio_track, { audio_sourceid });
+		if (rtpsender_error.ok()) {
+			auto rtpsender = rtpsender_error.value();
+			if (rtpsender) {
+			}
+		}
+		else {
+			LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s",
+				audio_sourceid.c_str(), rtpsender_error.error().message());
 		}
 	}
 }
@@ -1125,6 +1192,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 
 	rtc_conn->on_dc_message_received_ = recv_msg_handler_;
 
+	rtc_conn->on_audioframe_received_ = recv_audioframe_handler_;
 	rtc_conn->on_frame_received_ = recv_frame_handler_;
 
 	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
@@ -1142,6 +1210,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		LOG_ERROR("Interact remote peer, create peer connection failed");
 		return;
 	}
+
+	this->AddAudioTrack2PeerConnection(rtc_conn->peer_conn_);
 	this->AddVideoTrack2PeerConnection(rtc_conn->peer_conn_);
 
 	if (offer_peer) {
@@ -1158,7 +1228,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		// for Unified Plan)
 		webrtc::RtpTransceiverInit rtp_transceiver_init;
 		rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
-		for (int i = 0; i < 20; ++i) {
+		for (int i = 0; i < 12; ++i) {
+			rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, rtp_transceiver_init);
 			rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
 		}
 
@@ -1178,7 +1249,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		// create answer
 		webrtc::RtpTransceiverInit rtp_transceiver_init;
 		rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
-		for (int i = 0; i < 20; ++i) {
+		for (int i = 0; i < 12; ++i) {
+			rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, rtp_transceiver_init);
 			rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
 		}
 

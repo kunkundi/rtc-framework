@@ -5,8 +5,9 @@
 
 VTS_RTC_NAMESPACE_BEGIN
 
-std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepath, 
+std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepath,
 	const RecvMessageHandler& recv_msg_handler,
+	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler,
 	const NetworkDisconnectedHandler& network_disconnected_handler) {
 	LogInst->init();
@@ -87,24 +88,28 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepat
 		rtc_config.reconnect_timeout = rtc_cfg_obj["reconnect_timeout"].get<long>();
 	}
 
-	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
-		rtc_config, recv_msg_handler, recv_frame_handler, network_disconnected_handler));
+	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config,
+		recv_msg_handler, recv_audioframe_handler, recv_frame_handler,
+		network_disconnected_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
 std::shared_ptr<RtcAgent> RtcAgent::Create(const RtcConfig& rtc_config, 
 	const RecvMessageHandler& recv_msg_handler,
+	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler,
 	const NetworkDisconnectedHandler& network_disconnected_handler) {
 	LogInst->init();
 
-	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
-		rtc_config, recv_msg_handler, recv_frame_handler, network_disconnected_handler));
+	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config,
+		recv_msg_handler, recv_audioframe_handler, recv_frame_handler,
+		network_disconnected_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
 RtcAgent::RtcAgent(const RtcConfig& rtc_config, 
 	const RecvMessageHandler& recv_msg_handler,
+	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler,
 	const NetworkDisconnectedHandler& network_disconnected_handler) {
 	logic_thread_ = rtc::Thread::Create();
@@ -112,10 +117,13 @@ RtcAgent::RtcAgent(const RtcConfig& rtc_config,
 	logic_thread_->Start();
 
 	logic_thread_->Invoke<void>(RTC_FROM_HERE,
-		[this, &rtc_config, &recv_msg_handler, &recv_frame_handler, &network_disconnected_handler]() {
+		[this, &rtc_config, &recv_msg_handler, &recv_audioframe_handler,
+		&recv_frame_handler, &network_disconnected_handler]() {
 			rtc_device_manager_ = std::make_shared<RtcDeviceManager>();
 			rtc_conn_manager_ = std::make_unique<RtcConnectionManager>(
-				rtc_config, rtc_device_manager_, recv_msg_handler, recv_frame_handler, network_disconnected_handler);
+				rtc_config, rtc_device_manager_, recv_msg_handler,
+				recv_audioframe_handler, recv_frame_handler,
+				network_disconnected_handler);
 		});
 }
 
@@ -148,6 +156,14 @@ bool RtcAgent::AddDataChannel(const std::string& label,
 	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
 		[this, &label, priority, ordered, max_retransmits]() {
 			return rtc_conn_manager_->AddDataChannel(label, priority, ordered, max_retransmits);
+		});
+}
+
+bool RtcAgent::AddAudioSource(const AudioSourceId& audio_sourceid,
+	PriorityType priority) const {
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
+		[this, &audio_sourceid, priority]() {
+			return rtc_conn_manager_->AddAudioSource(audio_sourceid, priority);
 		});
 }
 
@@ -243,6 +259,14 @@ bool RtcAgent::SendData(const std::string& channel_label, const std::string& msg
 	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
 		[this, &channel_label, &msg]() {
 			return rtc_conn_manager_->SendData(channel_label, msg);
+		});
+}
+
+void RtcAgent::SendAudioFrame(const AudioSourceId& audio_sourceid,
+	const PCMData& pcmdata) const {
+	return logic_thread_->Invoke<void>(RTC_FROM_HERE,
+		[this, &audio_sourceid, &pcmdata]() {
+			rtc_conn_manager_->SendAudioFrame(audio_sourceid, pcmdata);
 		});
 }
 

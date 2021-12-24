@@ -10,6 +10,7 @@
 
 #include "rtc_types.h"
 #include "observer.hpp"
+#include "rtc_audiosink.hpp"
 #include "rtc_videosink.hpp"
 
 class RtcConnectionBase {
@@ -35,6 +36,10 @@ protected:
 	virtual void HandleSdpCreateSucceed(const std::string& sdp) const = 0;
 	virtual void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const = 0;
+	virtual void HandleAudioFrameReceived(
+		const vts_rtc::AudioSourceId& sourceid, size_t bits_per_sample,
+		size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
+		const void* audio_data) const = 0;
 	virtual void HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 		size_t width, size_t height, size_t dimension,
 		const std::vector<unsigned char>& buffer) const = 0;
@@ -56,6 +61,7 @@ private:
 	std::map<std::string, rtc::scoped_refptr<webrtc::DataChannelInterface>>
 		label_datachannel_map_;
 	std::vector<std::unique_ptr<RtcVideoSink>> rtc_pc_videosinks_;
+	std::vector<std::unique_ptr<RtcAudioSink>> rtc_pc_audiosinks_;
 
 	PeerConnectionObserver peer_conn_observer_;
 	std::vector<std::shared_ptr<DataChannelObserver>> datachannel_observers_;
@@ -79,6 +85,9 @@ protected:
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
 	void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const override;
+	void HandleAudioFrameReceived(const vts_rtc::AudioSourceId& sourceid,
+		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels,
+		size_t number_of_frames, const void* audio_data) const override;
 	void HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 		size_t width, size_t height, size_t dimension,
 		const std::vector<unsigned char>& buffer) const override;
@@ -95,6 +104,7 @@ private:
 	std::function<void(vts_rtc::SessionId, const std::string&)>
 		on_sdp_create_succeed_ = nullptr;
 	vts_rtc::RecvMessageHandler on_dc_message_received_ = nullptr;
+	vts_rtc::RecvAudioFrameHandler on_audioframe_received_ = nullptr;
 	vts_rtc::RecvFrameHandler on_frame_received_ = nullptr;
 };
 
@@ -115,6 +125,9 @@ protected:
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
 	void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const override;
+	void HandleAudioFrameReceived(const vts_rtc::AudioSourceId& sourceid,
+		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels,
+		size_t number_of_frames, const void* audio_data) const override;
 	void HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 		size_t width, size_t height, size_t dimension,
 		const std::vector<unsigned char>& buffer) const override;
@@ -126,6 +139,7 @@ private:
 	std::function<void(const vts_rtc::SRSSessionId&)>
 		on_iceconnect_failed = nullptr;
 	std::function<void(const std::string&)> on_sdp_create_succeed_ = nullptr;
+	vts_rtc::RecvAudioFrameHandler on_audioframe_received_ = nullptr;
 	vts_rtc::RecvFrameHandler on_frame_received_ = nullptr;
 	// @attention: DataChannelMessageReceived is not supported for now
 };

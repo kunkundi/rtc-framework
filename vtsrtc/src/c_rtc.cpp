@@ -23,6 +23,7 @@ RtcErrorCode ConvertCode(vts_rtc::ErrorCode roomcode) {
 
 RtcErrorCode RtcInitAgent(const char* config_filepath,
 	RecvMessageHandler recv_msg_handler,
+	RecvAudioFrameHandler recv_audioframe_handler,
 	RecvFrameHandler recv_frame_handler,
 	NetworkDisconnectedHandler network_disconnected_handler) {
 	RtcDestoryAgent();
@@ -35,17 +36,38 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		};
 	}
 
+	vts_rtc::RecvAudioFrameHandler audioframe_handler = nullptr;
+	if (recv_audioframe_handler) {
+		audioframe_handler = [recv_audioframe_handler](
+			const vts_rtc::AudioSourceId& audio_sourceid,
+			vts_rtc::MediaSourceType audio_sourcetype,
+			size_t bits_per_sample,
+			size_t sample_rate,
+			size_t number_of_channels,
+			size_t number_of_frames,
+			const void* audio_data) {
+			size_t audio_data_size = bits_per_sample * number_of_channels *
+				number_of_frames / 8;
+			recv_audioframe_handler(audio_sourceid.c_str(),
+				static_cast<RtcMediaSourceType>(audio_sourcetype),
+				bits_per_sample, sample_rate, number_of_channels,
+				number_of_frames, audio_data, audio_data_size);
+		};
+	}
+
 	vts_rtc::RecvFrameHandler frame_handler = nullptr;
 	if (recv_frame_handler) {
 		frame_handler = [recv_frame_handler](
 			const vts_rtc::VideoSourceId& video_sourceid,
-			const vts_rtc::VideoSourceType video_sourcetype,
-			size_t width, size_t height, size_t dimension,
+			vts_rtc::MediaSourceType video_sourcetype,
+			size_t width,
+			size_t height,
+			size_t dimension,
 			const std::vector<unsigned char>& framebuffer) {
-				recv_frame_handler(video_sourceid.c_str(),
-					static_cast<RtcVideoSourceType>(video_sourcetype),
-					width, height, dimension, framebuffer.data(),
-					framebuffer.size());
+			recv_frame_handler(video_sourceid.c_str(),
+				static_cast<RtcMediaSourceType>(video_sourcetype),
+				width, height, dimension, framebuffer.data(),
+				framebuffer.size());
 		};
 	}
 
@@ -57,7 +79,8 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 	}
 
 	rtc_agent = vts_rtc::RtcAgent::Create(
-		std::string(config_filepath), msg_handler, frame_handler, net_disconnected_handler);
+		std::string(config_filepath), msg_handler, audioframe_handler,
+		frame_handler, net_disconnected_handler);
 
 	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
@@ -138,6 +161,15 @@ RtcErrorCode RtcAddDataChannel(RtcDataChannelLabel label,
 	return rtc_agent->AddDataChannel(std::string(label),
 		static_cast<vts_rtc::PriorityType>(priority),
 		ordered, max_retransmits) ? RtcErrorCode::OK : RtcErrorCode::Failed;
+}
+
+RtcErrorCode RtcAddExternalAudioSource(RtcAudioSourceId audio_sourceid,
+	RtcPriorityType priority) {
+	CHECK_RTCAGENT_INITED
+
+	return rtc_agent->AddAudioSource(std::string(audio_sourceid),
+		static_cast<vts_rtc::PriorityType>(priority)) ?
+		RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
 RtcErrorCode RtcAddDeviceVideoSource(size_t device_index,
@@ -293,6 +325,23 @@ RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg, siz
 
 	return rtc_agent->SendData(std::string(channel_label), std::string(msg, msg_size)) ?
 		RtcErrorCode::OK : RtcErrorCode::Failed;
+}
+
+RtcErrorCode RtcSendAudioFrame(RtcAudioSourceId audio_sourceid,
+	const RtcPCMData* in_pcmdata) {
+	CHECK_RTCAGENT_INITED
+
+	vts_rtc::PCMData pcmdata {
+		in_pcmdata->bits_per_sample,
+		in_pcmdata->sample_rate,
+		in_pcmdata->number_of_channels,
+		in_pcmdata->number_of_frames,
+		in_pcmdata->buffer,
+		in_pcmdata->sz_buffer
+	};
+
+	rtc_agent->SendAudioFrame(std::string(audio_sourceid), pcmdata);
+	return RtcErrorCode::OK;
 }
 
 RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame* in_video_frame) {
