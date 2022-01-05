@@ -7,16 +7,26 @@ VTS_RTC_NAMESPACE_BEGIN
 
 class RtcAgent {
 public:
-	static std::shared_ptr<RtcAgent> Create(const std::string& rtc_config_filepath,
+	static std::shared_ptr<RtcAgent> Create(
+		const std::string& rtc_config_filepath,
+		const RoomHandler& room_handler = nullptr,
+		const UserHandler& user_handler = nullptr,
+		const P2PStateHandler& P2P_state_handler = nullptr,
+		const DataChannelStateHandler& datachannel_state_handler = nullptr,
+		const ServerConnectionStateHandler& serverconnection_state_handler = nullptr,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
 		const RecvAudioFrameHandler& recv_audioframe_handler = nullptr,
-		const RecvFrameHandler& recv_frame_handler = nullptr,
-		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
-	static std::shared_ptr<RtcAgent> Create(const RtcConfig& rtc_config,
+		const RecvFrameHandler& recv_frame_handler = nullptr);
+	static std::shared_ptr<RtcAgent> Create(
+		const RtcConfig& rtc_config,
+		const RoomHandler& room_handler = nullptr,
+		const UserHandler& user_handler = nullptr,
+		const P2PStateHandler& P2P_state_handler = nullptr,
+		const DataChannelStateHandler& datachannel_state_handler = nullptr,
+		const ServerConnectionStateHandler& serverconnection_state_handler = nullptr,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
 		const RecvAudioFrameHandler& recv_audioframe_handler = nullptr,
-		const RecvFrameHandler& recv_frame_handler = nullptr,
-		const NetworkDisconnectedHandler& network_disconnected_handler = nullptr);
+		const RecvFrameHandler& recv_frame_handler = nullptr);
 	~RtcAgent();
 
 	// video devices releated
@@ -67,18 +77,24 @@ public:
 		const vts_rtc::SRSSessionId& sessionid) const;
 
 	// send data
-	bool SendData(const std::string& channel_label, const std::string& msg) const;
+	bool SendData(SessionId sessionid, const std::string& channel_label,
+		const std::string& msg) const;
 	// send audio frame(PCM format)
 	void SendAudioFrame(const AudioSourceId& audio_sourceid, const PCMData& pcmdata) const;
 	// send frame
 	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const;
 
 private:
-	explicit RtcAgent(const RtcConfig& rtc_config,
+	explicit RtcAgent(
+		const RtcConfig& rtc_config,
+		const RoomHandler& room_handler,
+		const UserHandler& user_handler,
+		const P2PStateHandler& P2P_state_handler,
+		const DataChannelStateHandler& datachannel_state_handler,
+		const ServerConnectionStateHandler& serverconnection_state_handler,
 		const RecvMessageHandler& recv_msg_handler,
 		const RecvAudioFrameHandler& recv_audioframe_handler,
-		const RecvFrameHandler& recv_frame_handler,
-		const NetworkDisconnectedHandler& network_disconnected_handler);
+		const RecvFrameHandler& recv_frame_handler);
 	// Init RtcAgent, mainly for RtcConnectionManager initialization
 	bool Init();
 

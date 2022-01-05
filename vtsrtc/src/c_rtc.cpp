@@ -12,6 +12,9 @@ std::map<RtcErrorCode, const char*> rtcerrorcode_map = {
 	{ RtcErrorCode::RoomNotExisted, "Room not existed" },
 	{ RtcErrorCode::RoomAlreadyExisted, "Room already existed" },
 	{ RtcErrorCode::AgentAlreadyInRoom, "Agent already in room" },
+	{ RtcErrorCode::SRSAuthFailed, "SRS authorization failed" },
+	{ RtcErrorCode::SRSStreamNotExisted, "SRS stream not exisetd" },
+	{ RtcErrorCode::SRSStreamAlreadyExisted, "SRS stream already existed" },
 	{ RtcErrorCode::AgentNotLogined, "Agent not logined" },
 	{ RtcErrorCode::AgentNotInited, "Agent not initialized" },
 	{ RtcErrorCode::Failed, "Failed" },
@@ -22,11 +25,48 @@ RtcErrorCode ConvertCode(vts_rtc::ErrorCode roomcode) {
 }
 
 RtcErrorCode RtcInitAgent(const char* config_filepath,
+	RoomHandler room_handler,
+	P2PStateHandler P2P_state_handler,
+	DataChannelStateHandler datachannel_state_handler,
+	ServerConnectionStateHandler serverconnection_state_handler,
 	RecvMessageHandler recv_msg_handler,
 	RecvAudioFrameHandler recv_audioframe_handler,
-	RecvFrameHandler recv_frame_handler,
-	NetworkDisconnectedHandler network_disconnected_handler) {
+	RecvFrameHandler recv_frame_handler) {
 	RtcDestoryAgent();
+
+	vts_rtc::RoomHandler inner_room_handler = nullptr;
+	if (room_handler) {
+		inner_room_handler = [room_handler](
+			vts_rtc::RoomOperation room_operation, const vts_rtc::RoomId& roomid) {
+			room_handler(static_cast<RtcRoomOperation>(room_operation),
+				const_cast<char*>(roomid.c_str()));
+		};
+	}
+
+	vts_rtc::P2PStateHandler inner_P2P_state_handler = nullptr;
+	if (P2P_state_handler) {
+		inner_P2P_state_handler = [P2P_state_handler](
+			vts_rtc::SessionId sessionid, vts_rtc::P2PState p2p_state) {
+			P2P_state_handler(sessionid, static_cast<RtcP2PState>(p2p_state));
+		};
+	}
+
+	vts_rtc::DataChannelStateHandler inner_datachannel_state_handler = nullptr;
+	if (datachannel_state_handler) {
+		inner_datachannel_state_handler = [datachannel_state_handler](
+			vts_rtc::SessionId sessionid, const std::string& label, vts_rtc::DataChannelState state) {
+				datachannel_state_handler(sessionid, label.c_str(),
+					static_cast<RtcDataChannelState>(state));
+		};
+	}
+
+	vts_rtc::ServerConnectionStateHandler inner_serverconnection_state_handler = nullptr;
+	if (serverconnection_state_handler) {
+		inner_serverconnection_state_handler = [serverconnection_state_handler](
+			vts_rtc::ServerConnectionState state) {
+			serverconnection_state_handler(static_cast<RtcServerConnectionState>(state));
+		};
+	}
 
 	vts_rtc::RecvMessageHandler msg_handler = nullptr;
 	if (recv_msg_handler) {
@@ -71,16 +111,16 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		};
 	}
 
-	vts_rtc::NetworkDisconnectedHandler net_disconnected_handler = nullptr;
-	if (network_disconnected_handler) {
-		net_disconnected_handler = [network_disconnected_handler]() {
-			network_disconnected_handler();
-		};
-	}
-
 	rtc_agent = vts_rtc::RtcAgent::Create(
-		std::string(config_filepath), msg_handler, audioframe_handler,
-		frame_handler, net_disconnected_handler);
+		std::string(config_filepath),
+		inner_room_handler,
+		nullptr,
+		inner_P2P_state_handler,
+		inner_datachannel_state_handler,
+		inner_serverconnection_state_handler,
+		msg_handler,
+		audioframe_handler,
+		frame_handler);
 
 	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
@@ -320,10 +360,11 @@ RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl,
 	return ConvertCode(SRScode);
 }
 
-RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label, const char* msg, size_t msg_size) {
+RtcErrorCode RtcSendData(RtcSessionId remote_sessionid,
+	RtcDataChannelLabel channel_label, const char* msg, size_t msg_size) {
 	CHECK_RTCAGENT_INITED
 
-	return rtc_agent->SendData(std::string(channel_label), std::string(msg, msg_size)) ?
+	return rtc_agent->SendData(remote_sessionid, std::string(channel_label), std::string(msg, msg_size)) ?
 		RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 

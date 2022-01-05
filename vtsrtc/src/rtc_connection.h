@@ -15,8 +15,10 @@
 
 class RtcConnectionBase {
 	friend class RtcConnectionManager;
+
+protected:
 	using PeerConnState = webrtc::PeerConnectionInterface::PeerConnectionState;
-	using DataChannelState = webrtc::DataChannelInterface::DataState;
+	using RtcDataChannelState = webrtc::DataChannelInterface::DataState;
 
 public:
 	RtcConnectionBase();
@@ -24,16 +26,19 @@ public:
 
 	PeerConnState GetPeerConnectionState() const;
 	bool DataChannelExisted(const std::string& label) const;
-	DataChannelState GetDataChannelState(const std::string& label) const;
+	RtcDataChannelState GetDataChannelState(const std::string& label) const;
 	bool AddDataChannel(const std::string& label,
 		const webrtc::DataChannelInit& datachannelinit);
 	bool SendData(const std::string& channel_label, const std::string& msg);
 
 protected:
+	virtual void HandleP2PStateChanged(PeerConnState state) const = 0;
 	virtual void HandleIceConnectFailed() const = 0;
 	virtual void HandleIceCandidateReceived(const std::string& candidate,
 		const std::string& sdp_mid, int sdp_mline_index) const = 0;
 	virtual void HandleSdpCreateSucceed(const std::string& sdp) const = 0;
+	virtual void HandleDataChannelStateChanged(
+		const std::string& label, RtcDataChannelState state) const = 0;
 	virtual void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const = 0;
 	virtual void HandleAudioFrameReceived(
@@ -79,10 +84,13 @@ public:
 	virtual ~RtcConnection();
 
 protected:
+	void HandleP2PStateChanged(PeerConnState state) const override;
 	void HandleIceConnectFailed() const override;
 	void HandleIceCandidateReceived(const std::string& candidate,
 		const std::string& sdp_mid, int sdp_mline_index) const override;
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
+	void HandleDataChannelStateChanged(
+		const std::string& label, RtcDataChannelState state) const override;
 	void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const override;
 	void HandleAudioFrameReceived(const vts_rtc::AudioSourceId& sourceid,
@@ -97,12 +105,14 @@ private:
 	const vts_rtc::SessionId local_sessionid_;
 	const vts_rtc::SessionId remote_sessionid_;
 
+	vts_rtc::P2PStateHandler on_P2P_state_changed_ = nullptr;
 	std::function<void(vts_rtc::SessionId)> on_iceconnect_failed = nullptr;
 	// "candidate", "sdpMid", "sdpMLineIndex" for std::tuple
 	std::function<void(vts_rtc::SessionId, const std::tuple<
 		std::string, std::string, int>&)> on_ice_candidate_received_ = nullptr;
 	std::function<void(vts_rtc::SessionId, const std::string&)>
 		on_sdp_create_succeed_ = nullptr;
+	vts_rtc::DataChannelStateHandler on_dc_state_changed_ = nullptr;
 	vts_rtc::RecvMessageHandler on_dc_message_received_ = nullptr;
 	vts_rtc::RecvAudioFrameHandler on_audioframe_received_ = nullptr;
 	vts_rtc::RecvFrameHandler on_frame_received_ = nullptr;
@@ -119,10 +129,13 @@ public:
 	void SetSRSSessionid(const vts_rtc::SRSSessionId& SRS_sessionid);
 
 protected:
+	void HandleP2PStateChanged(PeerConnState state) const override;
 	void HandleIceConnectFailed() const override;
 	void HandleIceCandidateReceived(const std::string& candidate,
 		const std::string& sdp_mid, int sdp_mline_index) const override;
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
+	void HandleDataChannelStateChanged(
+		const std::string& label, RtcDataChannelState state) const override;
 	void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const override;
 	void HandleAudioFrameReceived(const vts_rtc::AudioSourceId& sourceid,

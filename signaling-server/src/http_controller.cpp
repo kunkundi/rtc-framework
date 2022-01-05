@@ -155,7 +155,8 @@ void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
 		{ sessionid },
 		room_type == RoomType::VideoBroadcasting ? sessionid : -1
 	};
-	rooms[roomid] = new_room;
+	
+	ws_ctrl_->OpenRoom(new_room);
 	this->WriteJson(response, HttpStatus::OK);
 }
 

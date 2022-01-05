@@ -5,11 +5,16 @@
 
 VTS_RTC_NAMESPACE_BEGIN
 
-std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepath,
+std::shared_ptr<RtcAgent> RtcAgent::Create(
+	const std::string& rtc_config_filepath,
+	const RoomHandler& room_handler,
+	const UserHandler& user_handler,
+	const P2PStateHandler& P2P_state_handler,
+	const DataChannelStateHandler& datachannel_state_handler,
+	const ServerConnectionStateHandler& serverconnection_state_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
-	const RecvFrameHandler& recv_frame_handler,
-	const NetworkDisconnectedHandler& network_disconnected_handler) {
+	const RecvFrameHandler& recv_frame_handler) {
 	LogInst->init();
 
 	// check if content of rtc_config_filepath is valid json format
@@ -88,42 +93,81 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(const std::string& rtc_config_filepat
 		rtc_config.reconnect_timeout = rtc_cfg_obj["reconnect_timeout"].get<long>();
 	}
 
-	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config,
-		recv_msg_handler, recv_audioframe_handler, recv_frame_handler,
-		network_disconnected_handler));
+	auto rtc_agent = std::shared_ptr<RtcAgent>(
+		new RtcAgent(
+			rtc_config,
+			room_handler,
+			user_handler,
+			P2P_state_handler,
+			datachannel_state_handler,
+			serverconnection_state_handler,
+			recv_msg_handler,
+			recv_audioframe_handler,
+			recv_frame_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
-std::shared_ptr<RtcAgent> RtcAgent::Create(const RtcConfig& rtc_config, 
+std::shared_ptr<RtcAgent> RtcAgent::Create(
+	const RtcConfig& rtc_config,
+	const RoomHandler& room_handler,
+	const UserHandler& user_handler,
+	const P2PStateHandler& P2P_state_handler,
+	const DataChannelStateHandler& datachannel_state_handler,
+	const ServerConnectionStateHandler& serverconnection_state_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
-	const RecvFrameHandler& recv_frame_handler,
-	const NetworkDisconnectedHandler& network_disconnected_handler) {
+	const RecvFrameHandler& recv_frame_handler) {
 	LogInst->init();
 
-	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(rtc_config,
-		recv_msg_handler, recv_audioframe_handler, recv_frame_handler,
-		network_disconnected_handler));
+	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
+		rtc_config,
+		room_handler,
+		user_handler,
+		P2P_state_handler,
+		datachannel_state_handler,
+		serverconnection_state_handler,
+		recv_msg_handler,
+		recv_audioframe_handler,
+		recv_frame_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
-RtcAgent::RtcAgent(const RtcConfig& rtc_config, 
+RtcAgent::RtcAgent(
+	const RtcConfig& rtc_config,
+	const RoomHandler& room_handler,
+	const UserHandler& user_handler,
+	const P2PStateHandler& P2P_state_handler,
+	const DataChannelStateHandler& datachannel_state_handler,
+	const ServerConnectionStateHandler& serverconnection_state_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
-	const RecvFrameHandler& recv_frame_handler,
-	const NetworkDisconnectedHandler& network_disconnected_handler) {
+	const RecvFrameHandler& recv_frame_handler) {
 	logic_thread_ = rtc::Thread::Create();
 	logic_thread_->SetName("logic-thread", nullptr);
 	logic_thread_->Start();
 
 	logic_thread_->Invoke<void>(RTC_FROM_HERE,
-		[this, &rtc_config, &recv_msg_handler, &recv_audioframe_handler,
-		&recv_frame_handler, &network_disconnected_handler]() {
+		[this,
+		&rtc_config,
+		&room_handler,
+		&user_handler,
+		&P2P_state_handler,
+		&datachannel_state_handler,
+		&serverconnection_state_handler,
+		&recv_msg_handler,
+		&recv_audioframe_handler,
+		&recv_frame_handler]() {
 			rtc_device_manager_ = std::make_shared<RtcDeviceManager>();
 			rtc_conn_manager_ = std::make_unique<RtcConnectionManager>(
-				rtc_config, rtc_device_manager_, recv_msg_handler,
-				recv_audioframe_handler, recv_frame_handler,
-				network_disconnected_handler);
+				rtc_config,
+				rtc_device_manager_,
+				room_handler,
+				user_handler,
+				P2P_state_handler,
+				datachannel_state_handler,
+				serverconnection_state_handler,
+				recv_msg_handler,
+				recv_audioframe_handler, recv_frame_handler);
 		});
 }
 
@@ -255,10 +299,11 @@ ErrorCode RtcAgent::UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl,
 		});
 }
 
-bool RtcAgent::SendData(const std::string& channel_label, const std::string& msg) const {
+bool RtcAgent::SendData(SessionId sessionid, const std::string& channel_label,
+	const std::string& msg) const {
 	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
-		[this, &channel_label, &msg]() {
-			return rtc_conn_manager_->SendData(channel_label, msg);
+		[this, sessionid, &channel_label, &msg]() {
+			return rtc_conn_manager_->SendData(sessionid, channel_label, msg);
 		});
 }
 

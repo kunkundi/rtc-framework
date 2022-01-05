@@ -106,8 +106,8 @@ public:
 		};
 		LOG_INFO("[WEBRTC] On standardized iceconnection change, new state: %s", state_map[new_state]);
 
-		if (on_iceconnect_failed && new_state == P2PIceConnectionState::kIceConnectionFailed) {
-			on_iceconnect_failed();
+		if (on_iceconnect_failed_ && new_state == P2PIceConnectionState::kIceConnectionFailed) {
+			on_iceconnect_failed_();
 		}
 	}
 
@@ -141,10 +141,15 @@ public:
 			{ P2PPeerConnectionState::kClosed, "Closed" }
 		};
 		LOG_INFO("[WEBRTC] On connection change, new state: %s", state_map[new_state]);
+
+		if (on_P2PState_changed_) {
+			on_P2PState_changed_(new_state);
+		}
 	}
 
 private:
-	std::function<void()> on_iceconnect_failed = nullptr;
+	std::function<void(P2PPeerConnectionState)> on_P2PState_changed_ = nullptr;
+	std::function<void()> on_iceconnect_failed_ = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>, 
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&)> on_addtrack_ = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>)> on_removetrack_ = nullptr;

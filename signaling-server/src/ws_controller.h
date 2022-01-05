@@ -78,6 +78,7 @@ private:
 
 	void SetClientPingTimeout(const SimpleWeb::error_code& ec, SteadyTimer pingtimer);
 	bool IsSessionidExisted(SessionId sessionid, RoomId& roomid) const;
+	void OpenRoom(Room newroom);
 	void LeaveRoom(SessionId sessionid);
 	void CloseConnectionAndTimer(WsConnection conn, bool notify_client);
 	

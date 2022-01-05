@@ -147,6 +147,20 @@ bool WsController::IsSessionidExisted(SessionId sessionid, RoomId& roomid) const
 	return false;
 }
 
+void WsController::OpenRoom(Room newroom) {
+	rooms_[newroom.roomid] = newroom;
+
+	// notify rtc agent
+	for (const auto& sessionid_conn : sessionid_conn_map_) {
+		json roominfo_obj = {
+			{ "command", "take_roominfo" },
+			{ "type", "new" },
+			{ "roomid", newroom.roomid }
+		};
+		sessionid_conn.second->send(roominfo_obj.dump());
+	}
+}
+
 void WsController::LeaveRoom(SessionId sessionid) {
 	RoomId existed_roomid;
 	while (this->IsSessionidExisted(sessionid, existed_roomid)) {
@@ -174,6 +188,16 @@ void WsController::LeaveRoom(SessionId sessionid) {
 			existed_room.broadcaster_sessionid == sessionid) ||
 			m_sessionids.size() - cnt == 0) {
 			rooms_.erase(existed_roomid);
+
+			// notify rtc agent
+			for (const auto& sessionid_conn : sessionid_conn_map_) {
+				json roominfo_obj = {
+					{ "command", "take_roominfo" },
+					{ "type", "delete" },
+					{ "roomid", existed_roomid }
+				};
+				sessionid_conn.second->send(roominfo_obj.dump());
+			}
 		}
 		else {
 			m_sessionids.erase(std::remove(

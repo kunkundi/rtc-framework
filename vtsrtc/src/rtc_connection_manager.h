@@ -66,10 +66,14 @@ class RtcConnectionManager {
 public:
 	explicit RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 		std::shared_ptr<RtcDeviceManager> device_manager,
+		const vts_rtc::RoomHandler& room_handler,
+		const vts_rtc::UserHandler& user_handler,
+		const vts_rtc::P2PStateHandler& P2P_state_handler,
+		const vts_rtc::DataChannelStateHandler& datachannel_state_handler,
+		const vts_rtc::ServerConnectionStateHandler& serverconnection_state_handler,
 		const vts_rtc::RecvMessageHandler& recv_msg_handler,
 		const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
-		const vts_rtc::RecvFrameHandler& recv_frame_handler,
-		const vts_rtc::NetworkDisconnectedHandler& network_disconnected_handler);
+		const vts_rtc::RecvFrameHandler& recv_frame_handler);
 	~RtcConnectionManager();
 	bool Init();
 
@@ -97,8 +101,8 @@ public:
 		const vts_rtc::SRSStreamurl& streamurl,
 		const vts_rtc::SRSSessionId& sessionid);
 
-	bool SendData(const std::string& channel_label,
-		const std::string& msg) const;
+	bool SendData(vts_rtc::SessionId sessionid,
+		const std::string& channel_label, const std::string& msg) const;
 	void SendAudioFrame(const vts_rtc::AudioSourceId& audio_sourceid,
 		const vts_rtc::PCMData& pcmdata);
 	void SendFrame(const vts_rtc::VideoSourceId& video_sourceid,
@@ -125,6 +129,12 @@ private:
 	rtc::Thread* logic_thread_ = nullptr;
 
 	const vts_rtc::RtcConfig rtc_config_;
+
+	vts_rtc::RoomHandler room_handler_ = nullptr;
+	vts_rtc::UserHandler user_handler_ = nullptr;
+	vts_rtc::P2PStateHandler P2P_state_handler_ = nullptr;
+	vts_rtc::DataChannelStateHandler datachannel_state_handler_ = nullptr;
+	vts_rtc::ServerConnectionStateHandler serverconnection_state_handler_ = nullptr;
 	vts_rtc::RecvMessageHandler recv_msg_handler_ = nullptr;
 	vts_rtc::RecvAudioFrameHandler recv_audioframe_handler_ = nullptr;
 	vts_rtc::RecvFrameHandler recv_frame_handler_ = nullptr;

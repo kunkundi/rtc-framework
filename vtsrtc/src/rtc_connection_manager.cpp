@@ -28,17 +28,25 @@ vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
 
 RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	std::shared_ptr<RtcDeviceManager> device_manager,
+	const vts_rtc::RoomHandler& room_handler,
+	const vts_rtc::UserHandler& user_handler,
+	const vts_rtc::P2PStateHandler& P2P_state_handler,
+	const vts_rtc::DataChannelStateHandler& datachannel_state_handler,
+	const vts_rtc::ServerConnectionStateHandler& serverconnection_state_handler,
 	const vts_rtc::RecvMessageHandler& recv_msg_handler,
 	const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
-	const vts_rtc::RecvFrameHandler& recv_frame_handler,
-	const vts_rtc::NetworkDisconnectedHandler& network_disconnected_handler)
+	const vts_rtc::RecvFrameHandler& recv_frame_handler)
 	: logic_thread_(rtc::Thread::Current()),
 	rtc_config_(rtc_config),
 	rtc_device_manager_(device_manager),
+	room_handler_(room_handler),
+	user_handler_(user_handler),
+	P2P_state_handler_(P2P_state_handler),
+	datachannel_state_handler_(datachannel_state_handler),
+	serverconnection_state_handler_(serverconnection_state_handler),
 	recv_msg_handler_(recv_msg_handler),
 	recv_audioframe_handler_(recv_audioframe_handler),
-	recv_frame_handler_(recv_frame_handler),
-	network_disconnected_handler_(network_disconnected_handler) {
+	recv_frame_handler_(recv_frame_handler) {
 	http_client_ = std::make_shared<HttpClient>(rtc_config_.api_server_url);
 	if (!rtc_config_.SRS_api_server_url.empty()) {
 		SRS_http_client_ = std::make_unique<HttpClient>(
@@ -95,6 +103,12 @@ bool RtcConnectionManager::Init() {
 			[this]() {
 				InitWebsocket();
 			});
+
+		// notify connecting to signaling server
+		if (serverconnection_state_handler_) {
+			serverconnection_state_handler_(
+				vts_rtc::ServerConnectionState::Connecting);
+		}
 
 		return true;
 	}
@@ -195,6 +209,15 @@ void RtcConnectionManager::InitWebsocket() {
 			ping_timer_->expires_after(std::chrono::milliseconds(rtc_config_.ping_timeout));
 		}
 		ping_timer_->async_wait(std::bind(&RtcConnectionManager::SetPingTimeout, this, std::placeholders::_1));
+	
+		// notify connected to signaling server
+		if (serverconnection_state_handler_) {
+			logic_thread_->PostTask(RTC_FROM_HERE,
+				[this]() {
+					serverconnection_state_handler_(
+						vts_rtc::ServerConnectionState::Connected);
+				});
+		}
 	};
 
 	ws_client_->on_message = [this](WsConnection conn, std::shared_ptr<WsClient::InMessage> in_message) {
@@ -232,7 +255,34 @@ void RtcConnectionManager::InitWebsocket() {
 						auto sessionid = msg_json["sessionid"].get<vts_rtc::SessionId>();
 						std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 						current_sessionid_ = std::make_shared<vts_rtc::SessionId>(sessionid);
+
+						// notify connected to signaling server
+						if (serverconnection_state_handler_) {
+							logic_thread_->PostTask(RTC_FROM_HERE,
+								[this]() {
+									serverconnection_state_handler_(
+										vts_rtc::ServerConnectionState::Logined);
+								});
+						}
 					}
+				}
+			}
+		}
+		else if (command == "take_roominfo") {
+			if (msg_json.contains("type") && msg_json.contains("roomid")) {
+				auto type = msg_json["type"].get<std::string>();
+				auto roomid = msg_json["roomid"].get<std::string>();
+
+				if (room_handler_) {
+					logic_thread_->PostTask(RTC_FROM_HERE,
+						[this, type, roomid]() {
+							if (type == "new") {
+								room_handler_(vts_rtc::RoomOperation::New, roomid);
+							}
+							else if (type == "delete") {
+								room_handler_(vts_rtc::RoomOperation::Delete, roomid);
+							}
+						});
 				}
 			}
 		}
@@ -369,6 +419,16 @@ void RtcConnectionManager::ReconnectWebsocket() {
 
 				if (network_disconnected_handler_) {
 					network_disconnected_handler_();
+				}
+
+				if (serverconnection_state_handler_) {
+					// notify disconnected to signaling server
+					serverconnection_state_handler_(
+						vts_rtc::ServerConnectionState::Disconnected);
+
+					// notify reconnecting to signaling server
+					serverconnection_state_handler_(
+						vts_rtc::ServerConnectionState::Reconnecting);
 				}
 			});
 
@@ -986,15 +1046,16 @@ vts_rtc::ErrorCode RtcConnectionManager::UnplayFromSRS(
 	return vts_rtc::ErrorCode::OK;
 }
 
-bool RtcConnectionManager::SendData(const std::string& channel_label, const std::string& msg) const {
+bool RtcConnectionManager::SendData(vts_rtc::SessionId sessionid,
+	const std::string& channel_label, const std::string& msg) const {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 	
-	bool succeed = false;
-	for (const auto& sessionid_rtcconn : remotesessionid_rtcconn_map_) {
-		succeed |= sessionid_rtcconn.second->SendData(channel_label, msg);
+	if (remotesessionid_rtcconn_map_.find(sessionid) ==
+		remotesessionid_rtcconn_map_.cend()) {
+		return false;
 	}
 
-	return succeed;
+	return remotesessionid_rtcconn_map_.at(sessionid)->SendData(channel_label, msg);
 }
 
 void RtcConnectionManager::SendAudioFrame(
@@ -1144,6 +1205,8 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
 	}
 
+	rtc_conn->on_P2P_state_changed_ = P2P_state_handler_;
+
 	rtc_conn->on_iceconnect_failed = [this](vts_rtc::SessionId remote_sessionid) {
 		LOG_INFO("Reconnect remote peer failed, remote sessionid: %u", remote_sessionid);
 
@@ -1190,6 +1253,7 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		}
 	};
 
+	rtc_conn->on_dc_state_changed_ = datachannel_state_handler_;
 	rtc_conn->on_dc_message_received_ = recv_msg_handler_;
 
 	rtc_conn->on_audioframe_received_ = recv_audioframe_handler_;

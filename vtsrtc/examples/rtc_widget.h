@@ -19,6 +19,12 @@ public:
 	~RtcWidget();
 
 private:
+	static void HandleRoom(RtcRoomOperation room_operation, RtcRoomId roomid);
+	static void HandleP2PState(RtcSessionId sessionid, RtcP2PState state);
+	static void HandleDataChannelState(RtcSessionId sessionid,
+		RtcDataChannelLabel label, RtcDataChannelState state);
+	static void HandleServerConnectionState(RtcServerConnectionState state);
+
 	static void HandleMessage(RtcSessionId remote_sessionid,
 		const char* channel_label, const char* msg, size_t msg_size);
 	static void HandleAudioFrame(RtcAudioSourceId sourceid,
@@ -30,7 +36,6 @@ private:
 		RtcMediaSourceType sourcetype,
 		size_t width, size_t height, size_t dimension,
 		const unsigned char* buffer, size_t sz_buffer);
-	static void HandleNetworkDisconnected();
 	void CreateUI();
 	void LoadPCMData();
 	void LoadYUVData();

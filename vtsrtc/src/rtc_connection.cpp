@@ -51,12 +51,12 @@ bool RtcConnectionBase::DataChannelExisted(const std::string& label) const {
 	return true;
 }
 
-RtcConnectionBase::DataChannelState RtcConnectionBase::GetDataChannelState(
+RtcConnectionBase::RtcDataChannelState RtcConnectionBase::GetDataChannelState(
 	const std::string& label) const {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
 	if (!DataChannelExisted(label)) {
-		return DataChannelState::kClosed;
+		return RtcDataChannelState::kClosed;
 	}
 
 	return label_datachannel_map_.at(label)->state();
@@ -89,7 +89,7 @@ bool RtcConnectionBase::SendData(const std::string& channel_label,
 	}
 
 	auto datachannel = label_datachannel_map_[channel_label];
-	if (datachannel->state() != DataChannelState::kOpen) {
+	if (datachannel->state() != RtcDataChannelState::kOpen) {
 		LOG_ERROR("Send data failed, data channel (%s) not opened",
 			channel_label.c_str());
 		return false;
@@ -110,10 +110,20 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 	datachannel_observers_.emplace_back(observer);
 	datachannel->RegisterObserver(observer.get());
 
-	observer->on_statechange = [datachannel]() {
+	observer->on_statechange = [this, datachannel]() {
 		LOG_INFO("[WEBRTC] Data channel (%s) on state change, new state: %s",
 			datachannel->label().c_str(),
 			webrtc::DataChannelInterface::DataStateString(datachannel->state()));
+
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, datachannel]() {
+				if (!datachannel) {
+					return;
+				}
+
+				HandleDataChannelStateChanged(datachannel->label(),
+					datachannel->state());
+			});
 	};
 
 	observer->on_message_ = [this, datachannel](const webrtc::DataBuffer& buffer) {
@@ -132,7 +142,14 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 void RtcConnectionBase::InitObserverCallbacks() {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
-	peer_conn_observer_.on_iceconnect_failed =
+	peer_conn_observer_.on_P2PState_changed_ = [this](PeerConnState state) {
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, state]() {
+				HandleP2PStateChanged(state);
+			});
+	};
+
+	peer_conn_observer_.on_iceconnect_failed_ =
 		std::bind(&RtcConnectionBase::HandleIceConnectFailed, this);
 
 	peer_conn_observer_.on_addtrack_ = [this](
@@ -238,6 +255,13 @@ RtcConnection::RtcConnection(
 RtcConnection::~RtcConnection() {
 }
 
+void RtcConnection::HandleP2PStateChanged(PeerConnState state) const {
+	if (on_P2P_state_changed_) {
+		on_P2P_state_changed_(remote_sessionid_,
+			static_cast<vts_rtc::P2PState>(state));
+	}
+}
+
 void RtcConnection::HandleIceConnectFailed() const {
 	if (on_iceconnect_failed) {
 		on_iceconnect_failed(remote_sessionid_);
@@ -255,6 +279,14 @@ void RtcConnection::HandleIceCandidateReceived(const std::string& candidate,
 void RtcConnection::HandleSdpCreateSucceed(const std::string& sdp) const {
 	if (on_sdp_create_succeed_) {
 		on_sdp_create_succeed_(remote_sessionid_, sdp);
+	}
+}
+
+void RtcConnection::HandleDataChannelStateChanged(
+	const std::string& label, RtcDataChannelState state) const {
+	if (on_dc_state_changed_) {
+		on_dc_state_changed_(remote_sessionid_, label,
+			static_cast<vts_rtc::DataChannelState>(state));
 	}
 }
 
@@ -302,6 +334,10 @@ void Rtc2SRSConnection::SetSRSSessionid(
 	SRS_sessionid_ = SRS_sessionid;
 }
 
+void Rtc2SRSConnection::HandleP2PStateChanged(PeerConnState state) const {
+	// TO DO
+}
+
 void Rtc2SRSConnection::HandleIceConnectFailed() const {
 	if (on_iceconnect_failed) {
 		on_iceconnect_failed(SRS_streamurl_);
@@ -317,6 +353,11 @@ void Rtc2SRSConnection::HandleSdpCreateSucceed(const std::string& sdp) const {
 	if (on_sdp_create_succeed_) {
 		on_sdp_create_succeed_(sdp);
 	}
+}
+
+void Rtc2SRSConnection::HandleDataChannelStateChanged(
+	const std::string& label, RtcDataChannelState state) const {
+	// TO DO
 }
 
 void Rtc2SRSConnection::HandleDataChannelMessageReceived(

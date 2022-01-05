@@ -195,3 +195,22 @@
     "type": "pong"
 }
 ```
+
+#### WebSocket房间通知
+1. 新建房间
+```
+{
+    "command": "take_roominfo",
+    "type": "new",
+    "roomid": "zhejianglab"
+}
+```
+
+2. 删除房间
+```
+{
+    "command": "take_roominfo",
+    "type": "delete",
+    "roomid": "zhejianglab"
+}
+```

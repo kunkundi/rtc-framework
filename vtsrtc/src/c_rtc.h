@@ -36,6 +36,35 @@ typedef enum RtcMediaSourceType {
 	SRS
 } RtcMediaSourceType;
 
+typedef enum RtcRoomOperation {
+	RoomNew,
+	RoomDelete
+} RtcRoomOperation;
+
+typedef enum RtcP2PState {
+	P2PNew,
+	P2PConnecting,
+	P2PConnected,
+	P2PDisconnected,
+	P2PFailed,
+	P2PClosed
+} RtcP2PState;
+
+typedef enum RtcDataChannelState {
+	DataChannelConnecting,
+	DataChannelOpen,
+	DataChannelClosing,
+	DataChannelClosed
+} RtcDataChannelState;
+
+typedef enum RtcServerConnectionState {
+	ServerConnecting,
+	ServerConnected,
+	ServerLogined,
+	ServerDisconnected,
+	ServerReconnecting
+} RtcServerConnectionState;
+
 typedef enum RtcRoomType {
 	VideoBroadcasting = 0,  // one to many
 	VideoConference         // many to many, not implemented yet
@@ -112,6 +141,16 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
+// room related callback
+typedef void(*RoomHandler)(RtcRoomOperation, RtcRoomId);
+// P2P related callback
+typedef void(*P2PStateHandler)(RtcSessionId, RtcP2PState);
+// Data Channel related callback
+typedef void(*DataChannelStateHandler)(RtcSessionId,
+	RtcDataChannelLabel, RtcDataChannelState);
+// signaling server related callback
+typedef void(*ServerConnectionStateHandler)(RtcServerConnectionState);
+
 // RtcSessionId, RtcDataChannelLabel, message, message size (unit: Byte)
 typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel,
 	const char*, size_t);
@@ -123,7 +162,6 @@ typedef void(*RecvAudioFrameHandler)(RtcAudioSourceId, RtcMediaSourceType,
 // video_data, video_data_size
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, const unsigned char*, size_t);
-typedef void(*NetworkDisconnectedHandler)();
 
 #ifdef  __cplusplus
 extern "C" {
@@ -141,10 +179,13 @@ extern "C" {
 	 * @attention 调用其他函数前，必须首先调用该函数
 	 */
 	RTC_API RtcErrorCode RtcInitAgent(const char* config_filepath,
+		RoomHandler room_handler,
+		P2PStateHandler P2P_state_handler,
+		DataChannelStateHandler datachannel_state_handler,
+		ServerConnectionStateHandler serverconnection_state_handler,
 		RecvMessageHandler recv_msg_handler,
 		RecvAudioFrameHandler recv_audioframe_handler,
-		RecvFrameHandler recv_frame_handler,
-		NetworkDisconnectedHandler network_disconnected_handler);
+		RecvFrameHandler recv_frame_handler);
 
 	/**
 	 * @brief 释放Rtc Agent资源
@@ -362,8 +403,8 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 发送失败
 	 * @attention 发送消息到远端Rtc Agent，至少一个发送成功便认为执行成功
 	 */
-	RTC_API RtcErrorCode RtcSendData(RtcDataChannelLabel channel_label,
-		const char* msg, size_t msg_size);
+	RTC_API RtcErrorCode RtcSendData(RtcSessionId remote_sessionid,
+		RtcDataChannelLabel channel_label, const char* msg, size_t msg_size);
 
 	/**
 	 * @brief 发送音频帧

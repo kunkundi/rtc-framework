@@ -18,6 +18,25 @@ QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
 RtcAudioRender* RtcWidget::rtc_audiorender_ = nullptr;
 RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
 
+void RtcWidget::HandleRoom(RtcRoomOperation room_operation, RtcRoomId roomid) {
+	qDebug() << "HandleRoom, room operation: " << room_operation << ", roomid: " << roomid;
+}
+
+void RtcWidget::HandleP2PState(RtcSessionId sessionid, RtcP2PState state) {
+	qDebug() << "HandleP2PState, sessionid: " << sessionid << ", state: " << state;
+}
+
+void RtcWidget::HandleDataChannelState(RtcSessionId sessionid,
+	RtcDataChannelLabel label, RtcDataChannelState state) {
+	qDebug() << "HandleDataChannelState, sessionid: " << sessionid <<
+		", label: " << label << ", state: " << state;
+}
+
+void RtcWidget::HandleServerConnectionState(RtcServerConnectionState state) {
+	qDebug() << "HandleServerConnectionState, state: " << state;
+}
+
+
 void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
 	const char* channel_label, const char* msg, size_t msg_size) {
 	if (recv_msg_listwgt_) {
@@ -52,10 +71,6 @@ void RtcWidget::HandleFrame(RtcVideoSourceId sourceid,
 	}
 }
 
-void RtcWidget::HandleNetworkDisconnected() {
-	qDebug() << "Network is disconnected!";
-}
-
 RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 	const QString& pcmdata_filepath, const QString& yuv_folderpath,
 	QWidget* parent)
@@ -64,10 +79,8 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 	CreateUI();
 
 	auto code = RtcInitAgent(rtc_config_filepath.c_str(),
-		HandleMessage, HandleAudioFrame, HandleFrame, HandleNetworkDisconnected);
-	CHECK_ERRORCODE
-
-	code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
+		HandleRoom, HandleP2PState, HandleDataChannelState, HandleServerConnectionState,
+		HandleMessage, HandleAudioFrame, HandleFrame);
 	CHECK_ERRORCODE
 
 	videosources_combobox_->clear();
@@ -368,13 +381,16 @@ void RtcWidget::OpenRoom() {
 }
 
 void RtcWidget::JoinRoom() {
+	auto code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
+	CHECK_ERRORCODE
+
 	if (rooms_combobox_->currentIndex() == -1) {
 		QMessageBox::warning(nullptr, tr("Warning"), tr("No room is selected"));
 		return;
 	}
 
 	QByteArray roomid = rooms_combobox_->currentText().toLocal8Bit();
-	auto code = RtcJoinRoom(roomid.data());
+	code = RtcJoinRoom(roomid.data());
 	CHECK_ERRORCODE
 }
 
@@ -420,6 +436,6 @@ void RtcWidget::SendMessage() {
 	}
 
 	QByteArray msg = send_msg_edit_->text().toLocal8Bit();
-	auto code = RtcSendData("datachannel", msg.data(), msg.size());
+	auto code = RtcSendData(0, "datachannel", msg.data(), msg.size());
 	CHECK_ERRORCODE
 }
