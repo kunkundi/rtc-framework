@@ -89,10 +89,6 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		rtc_config.pong_timeout = rtc_cfg_obj["pong_timeout"].get<long>();
 	}
 
-	if (rtc_cfg_obj.contains("reconnect_timeout")) {
-		rtc_config.reconnect_timeout = rtc_cfg_obj["reconnect_timeout"].get<long>();
-	}
-
 	auto rtc_agent = std::shared_ptr<RtcAgent>(
 		new RtcAgent(
 			rtc_config,

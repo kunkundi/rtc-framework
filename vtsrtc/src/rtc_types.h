@@ -104,8 +104,7 @@ struct RtcConfig {
 	bool use_NVDEC = false;
 
 	long ping_timeout = 2000;
-	long pong_timeout = 4000;
-	long reconnect_timeout = 2000;  // unit: milliseconds
+	long pong_timeout = 4000;  // unit: milliseconds
 };
 
 struct VideoDeviceCapability {
