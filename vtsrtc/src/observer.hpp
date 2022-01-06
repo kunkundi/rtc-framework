@@ -13,6 +13,15 @@ class PeerConnectionObserver : public webrtc::PeerConnectionObserver {
 	using P2PIceConnectionState = webrtc::PeerConnectionInterface::IceConnectionState;
 
 public:
+	void ResetCallbacks() {
+		on_P2PState_changed_ = nullptr;
+		on_iceconnect_failed_ = nullptr;
+		on_addtrack_ = nullptr;
+		on_removetrack_ = nullptr;
+		on_datachannel_ = nullptr;
+		on_ice_candidate_ = nullptr;
+	}
+
 	// Triggered when the SignalingState changed.
 	void OnSignalingChange(P2PSignalingState new_state) override {
 		std::map<P2PSignalingState, const char*> state_map = {
@@ -161,6 +170,11 @@ class DataChannelObserver : public webrtc::DataChannelObserver {
 	friend class RtcConnectionBase;
 
 public:
+	void ResetCallbacks() {
+		on_statechange = nullptr;
+		on_message_ = nullptr;
+	}
+
 	// The data channel state have changed.
 	void OnStateChange() override {
 		if (on_statechange) { on_statechange(); }
@@ -188,6 +202,10 @@ class CreateSessionDescriptionObserver : public webrtc::CreateSessionDescription
 	friend class RtcConnectionBase;
 
 public:
+	void ResetCallbacks() {
+		on_success_ = nullptr;
+	}
+
 	// Successfully created a session description.
 	void OnSuccess(webrtc::SessionDescriptionInterface* desc) override {
 		LOG_INFO("[WEBRTC] Create SDP on success, sessionid: %s, session version: %s", desc->session_id().c_str(), desc->session_version().c_str());
@@ -207,6 +225,8 @@ private:
 // Set SessionDescription events.
 class SetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserver {
 public:
+	void ResetCallbacks() {}
+
 	// Successfully set a session description.
 	void OnSuccess() override {
 		LOG_INFO("[WEBRTC] Set SDP on success");
@@ -220,6 +240,8 @@ public:
 
 class SetRemoteDescriptionObserver : public webrtc::SetRemoteDescriptionObserverInterface {
 public:
+	void ResetCallbacks() {}
+
 	void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override {
 		LOG_INFO("[WEBRTC] Set remote SDP on complete, error message: %s", error.message());
 	}

@@ -307,6 +307,14 @@ bool RtcAgent::SendData(SessionId sessionid, const std::string& channel_label,
 		});
 }
 
+bool RtcAgent::BroadcastData(const std::string& channel_label,
+	const std::string& msg) const {
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
+		[this, &channel_label, &msg]() {
+			return rtc_conn_manager_->BroadcastData(channel_label, msg);
+		});
+}
+
 void RtcAgent::SendAudioFrame(const AudioSourceId& audio_sourceid,
 	const PCMData& pcmdata) const {
 	return logic_thread_->Invoke<void>(RTC_FROM_HERE,

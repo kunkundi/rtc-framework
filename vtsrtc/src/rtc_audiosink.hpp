@@ -12,6 +12,10 @@ public:
 		: trackid_(trackid) {}
 	~RtcAudioSink() = default;
 
+	void ResetCallbacks() {
+		on_audioframe_ = nullptr;
+	}
+
 	// In this method, |absolute_capture_timestamp_ms|, when available, is
 	// supposed to deliver the timestamp when this audio frame was originally
 	// captured. This timestamp MUST be based on the same clock as

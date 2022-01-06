@@ -83,6 +83,9 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 		HandleMessage, HandleAudioFrame, HandleFrame);
 	CHECK_ERRORCODE
 
+	code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
+	CHECK_ERRORCODE
+
 	videosources_combobox_->clear();
 	RtcVideoDevices video_devices = nullptr;
 	size_t sz_video_devices = 0;
@@ -381,16 +384,13 @@ void RtcWidget::OpenRoom() {
 }
 
 void RtcWidget::JoinRoom() {
-	auto code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);
-	CHECK_ERRORCODE
-
 	if (rooms_combobox_->currentIndex() == -1) {
 		QMessageBox::warning(nullptr, tr("Warning"), tr("No room is selected"));
 		return;
 	}
 
 	QByteArray roomid = rooms_combobox_->currentText().toLocal8Bit();
-	code = RtcJoinRoom(roomid.data());
+	auto code = RtcJoinRoom(roomid.data());
 	CHECK_ERRORCODE
 }
 
@@ -436,6 +436,6 @@ void RtcWidget::SendMessage() {
 	}
 
 	QByteArray msg = send_msg_edit_->text().toLocal8Bit();
-	auto code = RtcSendData(0, "datachannel", msg.data(), msg.size());
+	auto code = RtcBroadcastData("datachannel", msg.data(), msg.size());
 	CHECK_ERRORCODE
 }

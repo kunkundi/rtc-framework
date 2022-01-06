@@ -59,6 +59,11 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 RtcConnectionManager::~RtcConnectionManager() {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
+	// reset callbacks
+	room_handler_ = nullptr;
+	user_handler_ = nullptr;
+	serverconnection_state_handler_ = nullptr;
+
 	this->LeaveRoom();
 
 	if (worker_thread_) {
@@ -81,7 +86,6 @@ RtcConnectionManager::~RtcConnectionManager() {
 			[this]() {
 				ping_timer_ = nullptr;
 				pong_timer_ = nullptr;
-				reconnect_timer_ = nullptr;
 				ws_client_ = nullptr;
 			});
 	}
@@ -195,11 +199,6 @@ void RtcConnectionManager::InitWebsocket() {
 			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 			ws_conn_ = conn;
 		}
-
-		if (reconnect_timer_) {
-			reconnect_timer_->cancel();
-		}
-		lock_reconnect_ = false;
 
 		if (!ping_timer_) {
 			ping_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
@@ -417,10 +416,6 @@ void RtcConnectionManager::ReconnectWebsocket() {
 				// remove p2p connections when WebSocket disconnected
 				remotesessionid_rtcconn_map_.clear();
 
-				if (network_disconnected_handler_) {
-					network_disconnected_handler_();
-				}
-
 				if (serverconnection_state_handler_) {
 					// notify disconnected to signaling server
 					serverconnection_state_handler_(
@@ -435,10 +430,6 @@ void RtcConnectionManager::ReconnectWebsocket() {
 		network_disconnected_notified_ = true;
 	}
 
-	if (lock_reconnect_) {
-		return;
-	}
-
 	if (ping_timer_) {
 		ping_timer_->cancel();
 	}
@@ -449,23 +440,6 @@ void RtcConnectionManager::ReconnectWebsocket() {
 	// stop first
 	ws_client_->stop();
 	ws_client_->start([]() { LOG_INFO("Websocket client is reconnecting..."); });
-
-	//InitWebsocket();
-	lock_reconnect_ = true;
-	
-	if (!reconnect_timer_) {
-		reconnect_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-			ws_io_context_->get_executor(), std::chrono::milliseconds(rtc_config_.reconnect_timeout));
-	}
-	else {
-		reconnect_timer_->expires_after(std::chrono::milliseconds(rtc_config_.reconnect_timeout));
-	}
-	reconnect_timer_->async_wait([this](const SimpleWeb::error_code& ec) {
-		if (!ec) {
-			lock_reconnect_ = false;
-			ReconnectWebsocket();
-		}
-		});
 }
 
 bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::PriorityType priority,
@@ -1056,6 +1030,18 @@ bool RtcConnectionManager::SendData(vts_rtc::SessionId sessionid,
 	}
 
 	return remotesessionid_rtcconn_map_.at(sessionid)->SendData(channel_label, msg);
+}
+
+bool RtcConnectionManager::BroadcastData(const std::string& channel_label,
+	const std::string& msg) const {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	bool succeed = false;
+	for (const auto& sessionid_rtcconn : remotesessionid_rtcconn_map_) {
+		succeed |= sessionid_rtcconn.second->SendData(channel_label, msg);
+	}
+
+	return succeed;
 }
 
 void RtcConnectionManager::SendAudioFrame(

@@ -79,6 +79,9 @@ public:
 	// send data
 	bool SendData(SessionId sessionid, const std::string& channel_label,
 		const std::string& msg) const;
+	// broadcast data to all P2P connections
+	bool BroadcastData(const std::string& channel_label,
+		const std::string& msg) const;
 	// send audio frame(PCM format)
 	void SendAudioFrame(const AudioSourceId& audio_sourceid, const PCMData& pcmdata) const;
 	// send frame

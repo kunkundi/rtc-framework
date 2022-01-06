@@ -103,6 +103,8 @@ public:
 
 	bool SendData(vts_rtc::SessionId sessionid,
 		const std::string& channel_label, const std::string& msg) const;
+	bool BroadcastData(const std::string& channel_label,
+		const std::string& msg) const;
 	void SendAudioFrame(const vts_rtc::AudioSourceId& audio_sourceid,
 		const vts_rtc::PCMData& pcmdata);
 	void SendFrame(const vts_rtc::VideoSourceId& video_sourceid,
@@ -138,15 +140,13 @@ private:
 	vts_rtc::RecvMessageHandler recv_msg_handler_ = nullptr;
 	vts_rtc::RecvAudioFrameHandler recv_audioframe_handler_ = nullptr;
 	vts_rtc::RecvFrameHandler recv_frame_handler_ = nullptr;
-	vts_rtc::NetworkDisconnectedHandler network_disconnected_handler_ = nullptr;
 
 	std::shared_ptr<HttpClient> http_client_ = nullptr;
 	std::unique_ptr<HttpClient> SRS_http_client_ = nullptr;
 	// @attention: io_context run, stop, get_executor method is thread-safe
 	std::shared_ptr<SimpleWeb::io_context> ws_io_context_ = nullptr;
 	bool network_disconnected_notified_ = false;
-	bool lock_reconnect_ = false;
-	SteadyTimer ping_timer_ = nullptr, pong_timer_ = nullptr, reconnect_timer_ = nullptr;
+	SteadyTimer ping_timer_ = nullptr, pong_timer_ = nullptr;
 	// @attention: WsClient start() and stop() method is thread-safe
 	std::shared_ptr<WsClient> ws_client_ = nullptr;
 	std::unique_ptr<rtc::Thread> ws_client_thread_ = nullptr;

@@ -368,6 +368,14 @@ RtcErrorCode RtcSendData(RtcSessionId remote_sessionid,
 		RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
+RtcErrorCode RtcBroadcastData(RtcDataChannelLabel channel_label,
+	const char* msg, size_t msg_size) {
+	CHECK_RTCAGENT_INITED
+
+	return rtc_agent->BroadcastData(std::string(channel_label), std::string(msg, msg_size)) ?
+		RtcErrorCode::OK : RtcErrorCode::Failed;
+}
+
 RtcErrorCode RtcSendAudioFrame(RtcAudioSourceId audio_sourceid,
 	const RtcPCMData* in_pcmdata) {
 	CHECK_RTCAGENT_INITED

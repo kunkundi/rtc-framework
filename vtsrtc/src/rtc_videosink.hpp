@@ -13,6 +13,10 @@ public:
 		: trackid_(trackid) {}
 	~RtcVideoSink() = default;
 
+	void ResetCallbacks() {
+		on_frame_ = nullptr;
+	}
+
 	void OnFrame(const webrtc::VideoFrame& frame) override {
 		if (!on_frame_) { return; }
 

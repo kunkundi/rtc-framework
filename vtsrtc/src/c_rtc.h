@@ -395,16 +395,32 @@ extern "C" {
 	/**
 	 * @brief 发送消息到远端Rtc Agent
 	 *
+	 * @param remote_sessionid 远端Rtc Agent的sessionid
 	 * @param channel_label 数据通道的Label
 	 * @param msg 消息内容
+	 * @param msg_size 消息大小
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 发送成功
+	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
+	 *   @retval RtcErrorCode::Failed 发送失败
+	 */
+	RTC_API RtcErrorCode RtcSendData(RtcSessionId remote_sessionid,
+		RtcDataChannelLabel channel_label, const char* msg, size_t msg_size);
+
+	/**
+	 * @brief 广播消息到所有与本端连接的远端Rtc Agent
+	 *
+	 * @param channel_label 数据通道的Label
+	 * @param msg 消息内容
+	 * @param msg_size 消息大小
 	 * @return 函数是否执行成功
 	 *   @retval RtcErrorCode::OK 发送成功
 	 *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
 	 *   @retval RtcErrorCode::Failed 发送失败
 	 * @attention 发送消息到远端Rtc Agent，至少一个发送成功便认为执行成功
 	 */
-	RTC_API RtcErrorCode RtcSendData(RtcSessionId remote_sessionid,
-		RtcDataChannelLabel channel_label, const char* msg, size_t msg_size);
+	RTC_API RtcErrorCode RtcBroadcastData(RtcDataChannelLabel channel_label,
+		const char* msg, size_t msg_size);
 
 	/**
 	 * @brief 发送音频帧

@@ -11,19 +11,29 @@ RtcConnectionBase::RtcConnectionBase() :
 RtcConnectionBase::~RtcConnectionBase() {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
+	// reset all observers callbacks
+	set_remote_sdp_observer_->ResetCallbacks();
+	set_sdp_observer_->ResetCallbacks();
+	create_sdp_observer_->ResetCallbacks();
+	for (const auto& observer : datachannel_observers_) {
+		observer->ResetCallbacks();
+	}
+	peer_conn_observer_.ResetCallbacks();
+
+	// reset videosinks and audiosinks callbacks
+	for (const auto& videosink : rtc_pc_videosinks_) {
+		videosink->ResetCallbacks();
+	}
+	for (const auto& audiosink : rtc_pc_audiosinks_) {
+		audiosink->ResetCallbacks();
+	}
+
 	for (const auto& label_datachannel : label_datachannel_map_) {
 		auto datachannel = label_datachannel.second;
 		if (datachannel) {
 			datachannel->UnregisterObserver();
 			datachannel->Close();
 		}
-	}
-
-	// TO DO
-	// @attention: temporary code, otherwise crash, but not best solution
-	for (auto iter = rtc_pc_videosinks_.begin();
-		iter != rtc_pc_videosinks_.end(); ++iter) {
-		(*iter)->on_frame_ = nullptr;
 	}
 
 	if (peer_conn_) {
