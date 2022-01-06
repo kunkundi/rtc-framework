@@ -159,9 +159,6 @@ void RtcConnectionBase::InitObserverCallbacks() {
 			});
 	};
 
-	peer_conn_observer_.on_iceconnect_failed_ =
-		std::bind(&RtcConnectionBase::HandleIceConnectFailed, this);
-
 	peer_conn_observer_.on_addtrack_ = [this](
 		rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&
@@ -219,6 +216,10 @@ void RtcConnectionBase::InitObserverCallbacks() {
 
 				label_datachannel_map_[label] = datachannel;
 
+				// @attention: it means the datachannel is already open
+				HandleDataChannelStateChanged(datachannel->label(),
+							datachannel->state());
+
 				InitDataChannelObserverCallbacks(datachannel);
 			});
 	};
@@ -269,12 +270,6 @@ void RtcConnection::HandleP2PStateChanged(PeerConnState state) const {
 	if (on_P2P_state_changed_) {
 		on_P2P_state_changed_(remote_sessionid_,
 			static_cast<vts_rtc::P2PState>(state));
-	}
-}
-
-void RtcConnection::HandleIceConnectFailed() const {
-	if (on_iceconnect_failed) {
-		on_iceconnect_failed(remote_sessionid_);
 	}
 }
 
@@ -345,12 +340,9 @@ void Rtc2SRSConnection::SetSRSSessionid(
 }
 
 void Rtc2SRSConnection::HandleP2PStateChanged(PeerConnState state) const {
-	// TO DO
-}
-
-void Rtc2SRSConnection::HandleIceConnectFailed() const {
-	if (on_iceconnect_failed) {
-		on_iceconnect_failed(SRS_streamurl_);
+	if (on_P2P_state_changed_) {
+		on_P2P_state_changed_(SRS_streamurl_,
+			static_cast<vts_rtc::P2PState>(state));
 	}
 }
 

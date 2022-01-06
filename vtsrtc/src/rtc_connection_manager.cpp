@@ -776,24 +776,26 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 
 	SRS_conn->peer_conn_ = peer_conn;
 
-	SRS_conn->on_iceconnect_failed =
-		[this](const vts_rtc::SRSStreamurl& SRS_streamurl) {
-		LOG_INFO("Reconnect SRS remote peer failed, remote streamurl: %s",
-			SRS_streamurl.c_str());
+	SRS_conn->on_P2P_state_changed_ = [this](
+		const vts_rtc::SRSStreamurl& SRS_streamurl, vts_rtc::P2PState state) {
+		if (state == vts_rtc::P2PState::Failed) {
+			LOG_INFO("Reconnect SRS remote peer failed, remote streamurl: %s",
+				SRS_streamurl.c_str());
 
-		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, SRS_streamurl]() {
-				// @attention: must run in logic thread, otherwise cannot re-create
-				// PeerConnection
-				auto iter = std::find_if(SRS_publish_conns_.begin(), SRS_publish_conns_.end(),
-					[&SRS_streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
-						return conn->SRS_streamurl_ == SRS_streamurl;
-					});
-				if (iter != SRS_publish_conns_.end()) {
-					*iter = nullptr;
-					SRS_publish_conns_.erase(iter);
-				}
-			});
+			logic_thread_->PostTask(RTC_FROM_HERE,
+				[this, SRS_streamurl]() {
+					// @attention: must run in logic thread, otherwise cannot re-create
+					// PeerConnection
+					auto iter = std::find_if(SRS_publish_conns_.begin(), SRS_publish_conns_.end(),
+						[&SRS_streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
+							return conn->SRS_streamurl_ == SRS_streamurl;
+						});
+					if (iter != SRS_publish_conns_.end()) {
+						*iter = nullptr;
+						SRS_publish_conns_.erase(iter);
+					}
+				});
+		}
 	};
 
 	std::weak_ptr<Rtc2SRSConnection> weak_SRS_conn(SRS_conn);
@@ -916,24 +918,26 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 	SRS_conn->on_audioframe_received_ = recv_audioframe_handler_;
 	SRS_conn->on_frame_received_ = recv_frame_handler_;
 
-	SRS_conn->on_iceconnect_failed =
-		[this](const vts_rtc::SRSStreamurl& SRS_streamurl) {
-		LOG_INFO("Reconnect SRS remote peer failed, remote streamurl: %s",
-			SRS_streamurl.c_str());
+	SRS_conn->on_P2P_state_changed_ = [this](
+		const vts_rtc::SRSStreamurl& SRS_streamurl, vts_rtc::P2PState state) {
+			if (state == vts_rtc::P2PState::Failed) {
+				LOG_INFO("Reconnect SRS remote peer failed, remote streamurl: %s",
+					SRS_streamurl.c_str());
 
-		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, SRS_streamurl]() {
-				// @attention: must run in logic thread, otherwise cannot re-create
-				// PeerConnection
-				auto iter = std::find_if(SRS_play_conns_.begin(), SRS_play_conns_.end(),
-					[&SRS_streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
-						return conn->SRS_streamurl_ == SRS_streamurl;
+				logic_thread_->PostTask(RTC_FROM_HERE,
+					[this, SRS_streamurl]() {
+						// @attention: must run in logic thread, otherwise cannot re-create
+						// PeerConnection
+						auto iter = std::find_if(SRS_play_conns_.begin(), SRS_play_conns_.end(),
+							[&SRS_streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
+								return conn->SRS_streamurl_ == SRS_streamurl;
+							});
+						if (iter != SRS_play_conns_.end()) {
+							*iter = nullptr;
+							SRS_play_conns_.erase(iter);
+						}
 					});
-				if (iter != SRS_play_conns_.end()) {
-					*iter = nullptr;
-					SRS_play_conns_.erase(iter);
-				}
-			});
+			}
 	};
 
 	std::weak_ptr<Rtc2SRSConnection> weak_SRS_conn(SRS_conn);
@@ -1191,18 +1195,21 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
 	}
 
-	rtc_conn->on_P2P_state_changed_ = P2P_state_handler_;
+	rtc_conn->on_P2P_state_changed_ = [this](
+		vts_rtc::SessionId remote_sessionid, vts_rtc::P2PState state) {
+			if (P2P_state_handler_) {
+				P2P_state_handler_(remote_sessionid, state);
+			}
 
-	rtc_conn->on_iceconnect_failed = [this](vts_rtc::SessionId remote_sessionid) {
-		LOG_INFO("Reconnect remote peer failed, remote sessionid: %u", remote_sessionid);
-
-		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, remote_sessionid]() {
-				// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
-				if (remotesessionid_rtcconn_map_.find(remote_sessionid) != remotesessionid_rtcconn_map_.cend()) {
-					remotesessionid_rtcconn_map_.erase(remote_sessionid);
-				}
-			});
+			if (state == vts_rtc::P2PState::Failed) {
+				logic_thread_->PostTask(RTC_FROM_HERE,
+					[this, remote_sessionid]() {
+						// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
+						if (remotesessionid_rtcconn_map_.find(remote_sessionid) != remotesessionid_rtcconn_map_.cend()) {
+							remotesessionid_rtcconn_map_.erase(remote_sessionid);
+						}
+					});
+			}
 	};
 
 	rtc_conn->on_sdp_create_succeed_ = [this, offer_peer](vts_rtc::SessionId remote_sessionid, const std::string& sdp) {

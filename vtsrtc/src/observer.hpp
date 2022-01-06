@@ -15,7 +15,6 @@ class PeerConnectionObserver : public webrtc::PeerConnectionObserver {
 public:
 	void ResetCallbacks() {
 		on_P2PState_changed_ = nullptr;
-		on_iceconnect_failed_ = nullptr;
 		on_addtrack_ = nullptr;
 		on_removetrack_ = nullptr;
 		on_datachannel_ = nullptr;
@@ -114,10 +113,6 @@ public:
 			{ P2PIceConnectionState::kIceConnectionMax, "IceConnectionMax" },
 		};
 		LOG_INFO("[WEBRTC] On standardized iceconnection change, new state: %s", state_map[new_state]);
-
-		if (on_iceconnect_failed_ && new_state == P2PIceConnectionState::kIceConnectionFailed) {
-			on_iceconnect_failed_();
-		}
 	}
 
 	// A new ICE candidate has been gathered.
@@ -158,7 +153,6 @@ public:
 
 private:
 	std::function<void(P2PPeerConnectionState)> on_P2PState_changed_ = nullptr;
-	std::function<void()> on_iceconnect_failed_ = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>, 
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&)> on_addtrack_ = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>)> on_removetrack_ = nullptr;

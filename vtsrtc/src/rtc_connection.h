@@ -33,7 +33,6 @@ public:
 
 protected:
 	virtual void HandleP2PStateChanged(PeerConnState state) const = 0;
-	virtual void HandleIceConnectFailed() const = 0;
 	virtual void HandleIceCandidateReceived(const std::string& candidate,
 		const std::string& sdp_mid, int sdp_mline_index) const = 0;
 	virtual void HandleSdpCreateSucceed(const std::string& sdp) const = 0;
@@ -85,7 +84,6 @@ public:
 
 protected:
 	void HandleP2PStateChanged(PeerConnState state) const override;
-	void HandleIceConnectFailed() const override;
 	void HandleIceCandidateReceived(const std::string& candidate,
 		const std::string& sdp_mid, int sdp_mline_index) const override;
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
@@ -106,7 +104,6 @@ private:
 	const vts_rtc::SessionId remote_sessionid_;
 
 	vts_rtc::P2PStateHandler on_P2P_state_changed_ = nullptr;
-	std::function<void(vts_rtc::SessionId)> on_iceconnect_failed = nullptr;
 	// "candidate", "sdpMid", "sdpMLineIndex" for std::tuple
 	std::function<void(vts_rtc::SessionId, const std::tuple<
 		std::string, std::string, int>&)> on_ice_candidate_received_ = nullptr;
@@ -130,7 +127,6 @@ public:
 
 protected:
 	void HandleP2PStateChanged(PeerConnState state) const override;
-	void HandleIceConnectFailed() const override;
 	void HandleIceCandidateReceived(const std::string& candidate,
 		const std::string& sdp_mid, int sdp_mline_index) const override;
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
@@ -149,8 +145,8 @@ private:
 	vts_rtc::SRSSessionId SRS_sessionid_ = std::string("");
 	vts_rtc::SRSStreamurl SRS_streamurl_;
 
-	std::function<void(const vts_rtc::SRSSessionId&)>
-		on_iceconnect_failed = nullptr;
+	std::function<void(const vts_rtc::SRSStreamurl&, vts_rtc::P2PState)>
+		on_P2P_state_changed_ = nullptr;
 	std::function<void(const std::string&)> on_sdp_create_succeed_ = nullptr;
 	vts_rtc::RecvAudioFrameHandler on_audioframe_received_ = nullptr;
 	vts_rtc::RecvFrameHandler on_frame_received_ = nullptr;
