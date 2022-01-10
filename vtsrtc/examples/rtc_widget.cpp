@@ -19,21 +19,21 @@ RtcAudioRender* RtcWidget::rtc_audiorender_ = nullptr;
 RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
 
 void RtcWidget::HandleRoom(RtcRoomOperation room_operation, RtcRoomId roomid) {
-	qDebug() << "HandleRoom, room operation: " << room_operation << ", roomid: " << roomid;
+	qDebug() << "-----> HandleRoom, room operation: " << room_operation << ", roomid: " << roomid;
 }
 
 void RtcWidget::HandleP2PState(RtcSessionId sessionid, RtcP2PState state) {
-	qDebug() << "HandleP2PState, sessionid: " << sessionid << ", state: " << state;
+	qDebug() << "-----> HandleP2PState, sessionid: " << sessionid << ", state: " << state;
 }
 
 void RtcWidget::HandleDataChannelState(RtcSessionId sessionid,
 	RtcDataChannelLabel label, RtcDataChannelState state) {
-	qDebug() << "HandleDataChannelState, sessionid: " << sessionid <<
+	qDebug() << "-----> HandleDataChannelState, sessionid: " << sessionid <<
 		", label: " << label << ", state: " << state;
 }
 
 void RtcWidget::HandleServerConnectionState(RtcServerConnectionState state) {
-	qDebug() << "HandleServerConnectionState, state: " << state;
+	qDebug() << "-----> HandleServerConnectionState, state: " << state;
 }
 
 

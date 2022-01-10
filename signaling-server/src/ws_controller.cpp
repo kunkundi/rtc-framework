@@ -107,9 +107,11 @@ void WsController::OnError(WsConnection conn, const SimpleWeb::error_code& ec) {
 
 	// 10053: A established connection was aborted by the software in your host machine
 	// 10054: Connection closed by peer
-	if (ec.value() == 10053 || ec.value() == 10054) {
-		this->CloseConnectionAndTimer(conn, false);
-	}
+// 	if (ec.value() == 10053 || ec.value() == 10054) {
+// 		this->CloseConnectionAndTimer(conn, false);
+// 	}
+
+	this->CloseConnectionAndTimer(conn, false);
 }
 
 void WsController::OnClose(WsConnection conn, int status, const std::string& reason) {
@@ -161,7 +163,7 @@ void WsController::OpenRoom(Room newroom) {
 	}
 }
 
-void WsController::LeaveRoom(SessionId sessionid) {
+void WsController::LeaveRoom(SessionId sessionid) { 
 	RoomId existed_roomid;
 	while (this->IsSessionidExisted(sessionid, existed_roomid)) {
 		if (rooms_.find(existed_roomid) == rooms_.cend()) {

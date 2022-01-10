@@ -141,16 +141,15 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
-// room related callback
+// RtcRoomOperation, roomid
 typedef void(*RoomHandler)(RtcRoomOperation, RtcRoomId);
-// P2P related callback
+// remote sessionId, RtcP2PState
 typedef void(*P2PStateHandler)(RtcSessionId, RtcP2PState);
-// Data Channel related callback
+// remote sessionId, label, state
 typedef void(*DataChannelStateHandler)(RtcSessionId,
 	RtcDataChannelLabel, RtcDataChannelState);
-// signaling server related callback
+// RtcServerConnectionState
 typedef void(*ServerConnectionStateHandler)(RtcServerConnectionState);
-
 // RtcSessionId, RtcDataChannelLabel, message, message size (unit: Byte)
 typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel,
 	const char*, size_t);
@@ -171,8 +170,13 @@ extern "C" {
 	 * @brief 初始化Rtc Agent
 	 *
 	 * @param config_filepath Rtc配置文件
+	 * @param room_handler 房间事件通知的回调函数
+	 * @param P2P_state_handler P2P连接状态变化的回调函数
+	 * @param datachannel_state_handler DataChannel连接状态变化的回调函数
+	 * @param serverconnection_state_handler 与信令服务器连接状态变化的回调函数
 	 * @param recv_msg_handler 收到远端消息的回调函数
 	 * @param recv_frame_handler 收到远端图像帧的回调函数
+	 * @param recv_audioframe_handler 收到远端音频帧的回调函数
 	 * @return 函数是否执行成功
 	 *   @retval RtcErrorCode::OK 初始化成功
 	 *   @retval RtcErrorCode::Failed 初始化失败

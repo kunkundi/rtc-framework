@@ -55,27 +55,20 @@ enum class ServerConnectionState {
 	Reconnecting
 };
 
-// room related callback
-using RoomHandler =
-	std::function<void(enum RoomOperation, const RoomId&)>;
-
+// RoomOperation, RoomId
+using RoomHandler = std::function<void(enum RoomOperation, const RoomId&)>;
 // user related callback
 // TO DO
 using UserHandler = std::function<void()>;
-
-// P2P related callback
+// remote sessionId, P2PState
 using P2PStateHandler = std::function<void(SessionId, enum P2PState)>;
-
-// Data Channel related callback
 // remote sessionid, label, state
 using DataChannelStateHandler =
 	std::function<void(SessionId, const std::string&, enum DataChannelState)>;
-
-// signaling server related callback
+// ServerConnectionState
 using ServerConnectionStateHandler =
 	std::function<void(enum ServerConnectionState)>;
-
-// SessionId, label, message
+// remote sessionid, label, message
 using RecvMessageHandler = std::function<void(SessionId, const std::string&,
 	const std::string&)>;
 // AudioSourceId, MediaSourceType, bits_per_sample, sample_rate,
@@ -85,7 +78,6 @@ using RecvAudioFrameHandler = std::function<void(const AudioSourceId&,
 // VideoSourceId, MediaSourceType, width, height, dimension, video_data
 using RecvFrameHandler = std::function<void(const VideoSourceId&,
 	enum MediaSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
-using NetworkDisconnectedHandler = std::function<void()>;
 
 
 struct RtcConfig {
