@@ -57,6 +57,8 @@ public:
 	ErrorCode OpenRoom(const RoomId& roomid,
 		enum RoomType room_type = RoomType::VideoBroadcasting,
 		bool force = false) const;
+	// @retval OK, InternalError, AgentNotLogined, RoomNotExisted
+	ErrorCode CloseRoom(const RoomId& roomid) const;
 	// @retval OK, InternalError, AgentNotLogined, RoomNotExisted, AgentAlreadyInRoom
 	ErrorCode JoinRoom(const RoomId& roomid) const;
 	// @retval OK, InternalError, AgentNotLogined

@@ -89,6 +89,7 @@ public:
 	vts_rtc::ErrorCode QueryRooms(vts_rtc::Rooms& rooms) const;
 	vts_rtc::ErrorCode OpenRoom(const vts_rtc::RoomId& roomid,
 		enum vts_rtc::RoomType room_type, bool force);
+	vts_rtc::ErrorCode CloseRoom(const vts_rtc::RoomId& roomid);
 	vts_rtc::ErrorCode JoinRoom(const vts_rtc::RoomId& roomid);
 	vts_rtc::ErrorCode LeaveRoom();
 

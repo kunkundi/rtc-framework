@@ -145,8 +145,10 @@ void RtcWidget::CreateUI() {
 	QPushButton* query_rooms_btn = new QPushButton(tr("Query Rooms"));
 	QPushButton* join_room_btn = new QPushButton(tr("Join Room"));
 	QPushButton* leave_room_btn = new QPushButton(tr("Leave Room"));
-	room_layout->addWidget(open_room_edit_, 0, 0, 1, 4);
-	room_layout->addWidget(open_room_btn, 0, 4, 1, 1);
+	QPushButton* close_room_btn = new QPushButton(tr("Close Room"));
+	room_layout->addWidget(open_room_edit_, 0, 0, 1, 3);
+	room_layout->addWidget(open_room_btn, 0, 3, 1, 1);
+	room_layout->addWidget(close_room_btn, 0, 4, 1, 1);
 	room_layout->addWidget(rooms_combobox_, 1, 0, 1, 2);
 	room_layout->addWidget(query_rooms_btn, 1, 2, 1, 1);
 	room_layout->addWidget(join_room_btn, 1, 3, 1, 1);
@@ -196,6 +198,7 @@ void RtcWidget::CreateUI() {
 	// bind events
 	connect(query_rooms_btn, SIGNAL(clicked()), this, SLOT(QueryRooms()));
 	connect(open_room_btn, SIGNAL(clicked()), this, SLOT(OpenRoom()));
+	connect(close_room_btn, SIGNAL(clicked()), this, SLOT(CloseRoom()));
 	connect(join_room_btn, SIGNAL(clicked()), this, SLOT(JoinRoom()));
 	connect(leave_room_btn, SIGNAL(clicked()), this, SLOT(LeaveRoom()));
 	connect(publish_to_SRS_btn, SIGNAL(clicked()), this, SLOT(PublishToSRS()));
@@ -381,6 +384,12 @@ void RtcWidget::OpenRoom() {
 		this->AddAudioSource();
 		audio_source_added_ = true;
 	}
+}
+
+void RtcWidget::CloseRoom() {
+	QByteArray roomid = open_room_edit_->text().toLocal8Bit();
+	auto code = RtcCloseRoom(roomid.data());
+	CHECK_ERRORCODE
 }
 
 void RtcWidget::JoinRoom() {

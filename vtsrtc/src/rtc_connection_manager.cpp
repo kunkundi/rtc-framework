@@ -621,6 +621,51 @@ vts_rtc::ErrorCode RtcConnectionManager::OpenRoom(
 	}
 }
 
+vts_rtc::ErrorCode RtcConnectionManager::CloseRoom(const vts_rtc::RoomId& roomid) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
+	auto copy_sessionid = -1;
+	{
+		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+		if (current_sessionid_) {
+			copy_sessionid = *current_sessionid_;
+		}
+	}
+
+	if (copy_sessionid == -1) {
+		LOG_ERROR("Http client cannot close room, agent not logined");
+		return vts_rtc::ErrorCode::AgentNotLogined;
+	}
+
+	try {
+		LOG_INFO("Http client close room by sessionid: %d, roomid: %s",
+			copy_sessionid, roomid.c_str());
+
+		json room_obj = {
+			{ "sessionid", copy_sessionid },
+			{ "roomid", roomid }
+		};
+		auto response = http_client_->request("POST", "/room/close", room_obj.dump());
+		json result_obj = json::parse(response->content.string(), nullptr, false);
+		if (result_obj.is_discarded()) {
+			LOG_ERROR("Http client close room, parse content failed, not valid json");
+			return vts_rtc::ErrorCode::InternalError;
+		}
+
+		auto status = result_obj[HttpStatus::status_field].get<int>();
+		auto status_code = static_cast<HttpStatus::Code>(status);
+		auto message = result_obj[HttpStatus::message_field].get<std::string>();
+		LOG_INFO("Http client close room, error code: %d, error message: %s",
+			status, message.c_str());
+
+		return ConvertHttpCode(status_code);
+	}
+	catch (const SimpleWeb::system_error& e) {
+		LOG_ERROR("Http client close room occurs error: %s", e.what());
+		return vts_rtc::ErrorCode::InternalError;
+	}
+}
+
 vts_rtc::ErrorCode RtcConnectionManager::JoinRoom(const vts_rtc::RoomId& roomid) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 

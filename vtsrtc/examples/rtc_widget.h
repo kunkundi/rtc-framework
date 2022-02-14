@@ -47,6 +47,7 @@ private:
 private slots:
 	void QueryRooms();
 	void OpenRoom();
+	void CloseRoom();
 	void JoinRoom();
 	void LeaveRoom();
 	void PublishToSRS();

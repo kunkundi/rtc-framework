@@ -314,6 +314,13 @@ RtcErrorCode RtcOpenRoom(const RtcRoomId roomid, RtcRoomType room_type,
 	return ConvertCode(roomcode);
 }
 
+RtcErrorCode RtcCloseRoom(const RtcRoomId roomid) {
+	CHECK_RTCAGENT_INITED
+
+	auto roomcode = rtc_agent->CloseRoom(std::string(roomid));
+	return ConvertCode(roomcode);
+}
+
 RtcErrorCode RtcJoinRoom(const RtcRoomId roomid) {
 	CHECK_RTCAGENT_INITED
 

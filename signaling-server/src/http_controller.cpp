@@ -16,6 +16,7 @@ HttpController::HttpController(std::shared_ptr<HttpServer> http_server, std::sha
 	http_server->resource["/room/open"]["POST"] = std::bind(&HttpController::OpenRoom, this, _1, _2);
 	http_server->resource["/room/join"]["POST"] = std::bind(&HttpController::JoinRoom, this, _1, _2);
 	http_server->resource["/room/leave"]["POST"] = std::bind(&HttpController::LeaveRoom, this, _1, _2);
+	http_server->resource["/room/close"]["POST"] = std::bind(&HttpController::CloseRoom, this, _1, _2);
 }
 
 void HttpController::QueryDefaultResource(HttpResponse response, HttpRequest request) {
@@ -157,6 +158,33 @@ void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
 	};
 	
 	ws_ctrl_->OpenRoom(new_room);
+	this->WriteJson(response, HttpStatus::OK);
+}
+
+void HttpController::CloseRoom(HttpResponse response, HttpRequest request) {
+	LOG_REQUEST_INFO("close room");
+
+	json param_obj = json::parse(request->content.string(), nullptr, false);
+	if (param_obj.is_discarded()) {
+		this->WriteJson(response, HttpStatus::BodyParameterJsonInvalid);
+		return;
+	}
+
+	if (!param_obj.contains("roomid")) {
+		this->WriteJson(response, HttpStatus::ParameterIncorrect);
+		return;
+	}
+
+	auto& rooms = ws_ctrl_->rooms_;
+	auto roomid = param_obj["roomid"].get<RoomId>();
+
+	// check if roomid not existed
+	if (rooms.find(roomid) == rooms.cend()) {
+		this->WriteJson(response, HttpStatus::RoomNotExisted);
+		return;
+	}
+
+	ws_ctrl_->CloseRoom(roomid);
 	this->WriteJson(response, HttpStatus::OK);
 }
 

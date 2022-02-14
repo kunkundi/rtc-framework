@@ -244,6 +244,13 @@ ErrorCode RtcAgent::OpenRoom(const RoomId& roomid,
 		});
 }
 
+ErrorCode RtcAgent::CloseRoom(const RoomId& roomid) const {
+	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
+		[this, &roomid]() {
+			return rtc_conn_manager_->CloseRoom(roomid);
+		});
+}
+
 ErrorCode RtcAgent::JoinRoom(const RoomId& roomid) const {
 	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
 		[this, &roomid]() {

@@ -163,6 +163,10 @@ void WsController::OpenRoom(Room newroom) {
 	}
 }
 
+void WsController::CloseRoom(RoomId& roomid) {
+	rooms_.erase(roomid);
+}
+
 void WsController::LeaveRoom(SessionId sessionid) { 
 	RoomId existed_roomid;
 	while (this->IsSessionidExisted(sessionid, existed_roomid)) {

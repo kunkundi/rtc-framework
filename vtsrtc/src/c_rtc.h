@@ -346,6 +346,19 @@ extern "C" {
 		RtcRoomType room_type, bool force);
 
 	/**
+	 * @brief 关闭房间
+	 *
+	 * @param roomid 房间ID
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 关闭成功
+	 *   @retval RtcErrorCode::AgentNotInited 关闭失败，因为Rtc Agent未成功初始化
+	 *   @retval RtcErrorCode::InternalError 关闭失败，服务器的问题
+	 *   @retval RtcErrorCode::AgentNotLogined 关闭失败，Rtc Agent未成功登录
+	 *   @retval RtcErrorCode::RoomNotExisted 关闭失败，房间ID不存在
+	 */
+	RTC_API RtcErrorCode RtcCloseRoom(const RtcRoomId roomid);
+
+	/**
 	 * @brief 加入房间
 	 *
 	 * @param roomid 房间ID

@@ -37,9 +37,9 @@ private:
 	void QueryRoom(HttpResponse response, HttpRequest request);
 	void QueryRooms(HttpResponse response, HttpRequest request);
 	void OpenRoom(HttpResponse response, HttpRequest request);
+	void CloseRoom(HttpResponse response, HttpRequest request);
 	void JoinRoom(HttpResponse response, HttpRequest request);
 	void LeaveRoom(HttpResponse response, HttpRequest request);
-
 
 private:
 	std::shared_ptr<WsController> ws_ctrl_;
