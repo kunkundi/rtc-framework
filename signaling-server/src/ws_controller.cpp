@@ -165,6 +165,16 @@ void WsController::OpenRoom(Room newroom) {
 
 void WsController::CloseRoom(RoomId& roomid) {
 	rooms_.erase(roomid);
+
+	// notify rtc agent
+	for (const auto& sessionid_conn : sessionid_conn_map_) {
+		json roominfo_obj = {
+			{ "command", "take_roominfo" },
+			{ "type", "delete" },
+			{ "roomid", roomid }
+		};
+		sessionid_conn.second->send(roominfo_obj.dump());
+	}
 }
 
 void WsController::LeaveRoom(SessionId sessionid) { 

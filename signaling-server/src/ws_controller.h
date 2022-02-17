@@ -80,7 +80,7 @@ private:
 	bool IsSessionidExisted(SessionId sessionid, RoomId& roomid) const;
 	void OpenRoom(Room newroom);
 	void LeaveRoom(SessionId sessionid);
-	void CloseRoom(RoomId& oldroom);
+	void CloseRoom(RoomId& roomid);
 	void CloseConnectionAndTimer(WsConnection conn, bool notify_client);
 	
 private:

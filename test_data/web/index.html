@@ -375,6 +375,26 @@
                 error: function (data) { alert("open room failed: ", data); }
             });
         };
+		
+		// 关闭房间
+        function CloseRoom() {
+            $.ajax({
+                type: "POST",
+                url: signaling_server_httpurl + "/room/close",
+				data: JSON.stringify({
+                    "roomid": $("#open_room_input").val()
+                }),
+				contentType: "application/json",
+                success: function (data) {
+                    var result_obj = JSON.parse(data);
+                    if(result_obj["status"] == 0) {
+						console.log("Close room succeed");
+                    }
+                    else { alert("close room failed, reason: " + result_obj["message"]); }
+                },
+                error: function (data) { alert("close room failed: ", data); }
+            });
+        };
 
         // 请求房间
         function QueryRooms() {
@@ -684,6 +704,7 @@
         <input id="open_room_input" value="zhejianglab" />
         <button onclick="OpenRoom()">Open Room</button>
         <select id="rooms_select"></select>
+		<button onclick="CloseRoom()">Close Room</button>
         <button onclick="QueryRooms()">Query Rooms</button>
         <button onclick="JoinRoom()">Join Room</button>
         <button onclick="LeaveRoom()">Leave Room</button>

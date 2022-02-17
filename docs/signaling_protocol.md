@@ -125,6 +125,30 @@ WebSocket服务端给所有连接的客户端发送：
 }
 ```
 
+6. 关闭房间
+```
+接口地址：.../room/close
+请求方式：POST
+请求参数：
+{
+    "roomid": "xxx",
+}
+返回结果：
+{
+    "status": 0,
+    "message": "OK"
+}
+```
+
+```
+WebSocket服务端给所有连接的客户端发送：
+{
+    "command": "take_roominfo",
+    "type": "delete",
+    "roomid": "xxx"
+}
+```
+
 #### >>> P2P管理
 1. RtcAgent通过WebSocket连接到信令服务器，将生成SessionId，服务端将登录成功信息返回给RtcAgent
 ```

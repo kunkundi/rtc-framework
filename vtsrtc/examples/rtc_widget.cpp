@@ -388,8 +388,16 @@ void RtcWidget::OpenRoom() {
 
 void RtcWidget::CloseRoom() {
 	QByteArray roomid = open_room_edit_->text().toLocal8Bit();
-	auto code = RtcCloseRoom(roomid.data());
-	CHECK_ERRORCODE
+	QMessageBox messageBox(QMessageBox::Warning,
+		"Warining", "Are you sure you want to delete the room " + roomid + "?",
+		QMessageBox::Yes | QMessageBox::No, NULL); ;
+	int result = messageBox.exec();
+
+	if (result == QMessageBox::Yes) {
+		auto code = RtcCloseRoom(roomid.data());
+		CHECK_ERRORCODE;
+		
+	}
 }
 
 void RtcWidget::JoinRoom() {
