@@ -378,22 +378,25 @@
 		
 		// 关闭房间
         function CloseRoom() {
-            $.ajax({
-                type: "POST",
-                url: signaling_server_httpurl + "/room/close",
-				data: JSON.stringify({
-                    "roomid": $("#open_room_input").val()
-                }),
-				contentType: "application/json",
-                success: function (data) {
-                    var result_obj = JSON.parse(data);
-                    if(result_obj["status"] == 0) {
-						console.log("Close room succeed");
-                    }
-                    else { alert("close room failed, reason: " + result_obj["message"]); }
-                },
-                error: function (data) { alert("close room failed: ", data); }
-            });
+			var msg = "Are you sure to close the room "+ $("#open_room_input").val()
+			if (confirm(msg) == true){
+				$.ajax({
+					type: "POST",
+					url: signaling_server_httpurl + "/room/close",
+					data: JSON.stringify({
+						"roomid": $("#open_room_input").val()
+					}),
+					contentType: "application/json",
+					success: function (data) {
+						var result_obj = JSON.parse(data);
+						if(result_obj["status"] == 0) {
+							console.log("Close room succeed");
+						}
+						else { alert("close room failed, reason: " + result_obj["message"]); }
+					},
+					error: function (data) { alert("close room failed: ", data); }
+				});
+			}
         };
 
         // 请求房间
