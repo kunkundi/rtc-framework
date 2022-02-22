@@ -266,8 +266,8 @@ TO DO
     2. 本端不会收到P2P状态和DataChannel状态通知
     3. 远端会收到P2P状态和DataChannel状态通知
 
-##### 以车云通信为例，事件通知使用
-1. 云端（打开房间端）
+##### 以车云通信/远程驾驶为例，事件通知使用
+1. 云端/远程驾驶（打开房间端）
     1. 注册ServerConnectionStateHandler回调函数，当状态为ServerLogined时，依次调用RtcLeaveRoom和RtcOpenRoom方法
     2. 注册DataChannelStateHandler回调函数，当状态为DataChannelOpen时，调用RtcSendData方法发送逻辑数据
 
