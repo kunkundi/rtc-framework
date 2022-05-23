@@ -13,7 +13,7 @@ export CC=/usr/bin/clang
 export CXX=/usr/bin/clang++
 
 cmake -G "$CMAKE_GENERATOR" \
-    -DUSE_DEFAULT_JETSON_ENCODER=ON \
+    -DUSE_DEFAULT_JETSON_ENCODER=OFF \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_FLAGS=-stdlib=libstdc++ \
     -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libstdc++ \

@@ -2,9 +2,13 @@
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-win")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  if(USE_DEFAULT_JETSON_ENCODER)
-    message(STATUS "Use default jetson encoder")
-    set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-jetson-default")
+  if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    if(USE_DEFAULT_JETSON_ENCODER)
+      message(STATUS "Use default jetson encoder")
+      set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-jetson-default")
+    else()
+      set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-jetson")
+    endif()
   else()
     set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-linux")
   endif()
@@ -29,12 +33,6 @@ set(WEBRTC_OBJC_INCLUDE_DIR
 set(WEBRTC_LIBRARY_DIR
   ${WEBRTC_DIR}/lib
 )
-# For ARM64
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT USE_DEFAULT_JETSON_ENCODER)
-  set(WEBRTC_LIBRARY_DIR
-    ${WEBRTC_DIR}/libaarch64
-  )
-endif()
 
 if(NOT USE_DEFAULT_JETSON_ENCODER)
   find_library(WEBRTC_LIBRARY_DEBUG
