@@ -2,7 +2,12 @@
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-win")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-linux")
+  if(USE_DEFAULT_JETSON_ENCODER)
+    message(STATUS "Use default jetson encoder")
+    set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-jetson-default")
+  else()
+    set(WEBRTC_DIR "${CMAKE_SOURCE_DIR}/third_party/webrtc/webrtc-linux")
+  endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "Configuring for macOS")
 endif()
@@ -25,31 +30,50 @@ set(WEBRTC_LIBRARY_DIR
   ${WEBRTC_DIR}/lib
 )
 # For ARM64
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT USE_DEFAULT_JETSON_ENCODER)
   set(WEBRTC_LIBRARY_DIR
     ${WEBRTC_DIR}/libaarch64
   )
 endif()
 
-find_library(WEBRTC_LIBRARY_DEBUG
-  NAMES webrtcd
-  PATHS ${WEBRTC_LIBRARY_DIR}
-)
+if(NOT USE_DEFAULT_JETSON_ENCODER)
+  find_library(WEBRTC_LIBRARY_DEBUG
+    NAMES webrtcd
+    PATHS ${WEBRTC_LIBRARY_DIR}
+  )
+endif()
 
 find_library(WEBRTC_LIBRARY_RELEASE
   NAMES webrtc
   PATHS ${WEBRTC_LIBRARY_DIR}
 )
 
+if(USE_DEFAULT_JETSON_ENCODER)
 set(WEBRTC_LIBRARY
-  debug ${WEBRTC_LIBRARY_DEBUG} 
-  optimized ${WEBRTC_LIBRARY_RELEASE}
+optimized ${WEBRTC_LIBRARY_RELEASE}
 )
-message(${WEBRTC_LIBRARY_DEBUG} )
+else()
+set(WEBRTC_LIBRARY
+debug ${WEBRTC_LIBRARY_DEBUG}
+optimized ${WEBRTC_LIBRARY_RELEASE}
+)
+endif()
+
+if(NOT USE_DEFAULT_JETSON_ENCODER)
+  message(${WEBRTC_LIBRARY_DEBUG} )
+endif()
 message(${WEBRTC_LIBRARY_RELEASE})
 message(${WEBRTC_LIBRARY})
 
 include(FindPackageHandleStandardArgs)
+if(USE_DEFAULT_JETSON_ENCODER)
+find_package_handle_standard_args(WebRTC 
+  DEFAULT_MSG 
+  WEBRTC_LIBRARY
+  WEBRTC_LIBRARY_RELEASE 
+  WEBRTC_INCLUDE_DIR
+)
+else()
 find_package_handle_standard_args(WebRTC 
   DEFAULT_MSG 
   WEBRTC_LIBRARY
@@ -57,3 +81,4 @@ find_package_handle_standard_args(WebRTC
   WEBRTC_LIBRARY_RELEASE 
   WEBRTC_INCLUDE_DIR
 )
+endif()

@@ -132,7 +132,7 @@ JetsonH264EncoderImpl::JetsonH264EncoderImpl(const cricket::VideoCodec& codec) {
 		if(!stream_file_->is_open()) LOG_ERROR("Create outfile failed");
 	}
 	
-	SetV4L2LogLevel(1);
+	SetV4L2LogLevel(0);
 }
 
 JetsonH264EncoderImpl::~JetsonH264EncoderImpl() {

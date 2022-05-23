@@ -6,6 +6,9 @@
 #include "http_status_code.hpp"
 #include "rtc_encoder_factory.h"
 #include "rtc_decoder_factory.h"
+#ifdef USE_DEFAULT_JETSON_ENCODER
+#include <modules/video_coding/codecs/nvidia/NvVideoEncoderFactory.h>
+#endif
 
 vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
 	switch (http_code)
@@ -150,8 +153,13 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 	std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory = nullptr;
 	std::unique_ptr<webrtc::VideoDecoderFactory> video_decoder_factory = nullptr;
 	if (rtc_config_.use_NVENC) {
-		LOG_INFO("Use Nvidia H264 video encoder.");
+#ifdef USE_DEFAULT_JETSON_ENCODER
+		LOG_INFO("Use jetson default H264 video encoder.");
+		video_encoder_factory = webrtc::CreateNvVideoEncoderFactory();
+#else
+		LOG_INFO("Use hardware H264 video encoder.");
 		video_encoder_factory = std::make_unique<webrtc::RtcEncoderFactory>();
+#endif
 	}
 	else {
 		LOG_INFO("Use builtin video encoder.");

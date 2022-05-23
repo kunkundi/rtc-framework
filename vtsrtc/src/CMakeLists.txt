@@ -1,6 +1,10 @@
 project(vtsrtc VERSION 0.5.0)
 set(target vtsrtc)
 
+if(USE_DEFAULT_JETSON_ENCODER)
+    add_definitions(-DUSE_DEFAULT_JETSON_ENCODER)
+endif(USE_DEFAULT_JETSON_ENCODER)
+
 list(APPEND CMAKE_MODULE_PATH
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/cmake"
 )
@@ -148,6 +152,7 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		${WEBRTC_LIBRARY}
 		v4l2
 		nvbuf_utils
+		X11
 		-L"/usr/lib/aarch64-linux-gnu/tegra/"
 	)
 else()
