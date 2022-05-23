@@ -125,8 +125,16 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 			datachannel->label().c_str(),
 			webrtc::DataChannelInterface::DataStateString(datachannel->state()));
 
+		std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
 		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, datachannel]() {
+			[this, weak_self, datachannel]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] Data channel state changed, "
+						"but rtc connection has been destroyed.");
+					return;
+				}
+
 				if (!datachannel) {
 					return;
 				}
@@ -137,8 +145,16 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 	};
 
 	observer->on_message_ = [this, datachannel](const webrtc::DataBuffer& buffer) {
+		std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
 		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, datachannel, buffer]() {
+			[this, weak_self, datachannel, buffer]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] Data channel message received, "
+						"but rtc connection has been destroyed.");
+					return;
+				}
+
 				if (!datachannel) {
 					return;
 				}
@@ -203,8 +219,16 @@ void RtcConnectionBase::InitObserverCallbacks() {
 
 	peer_conn_observer_.on_datachannel_ =
 		[this](rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) {
+		std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
 		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, datachannel]() {
+			[this, weak_self, datachannel]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] Data channel state changed, "
+						"but rtc connection has been destroyed.");
+					return;
+				}
+
 				if (!datachannel) {
 					return;
 				}

@@ -2,7 +2,9 @@
 
 #include "c_rtc.h"
 #include "rtc_audiorender.h"
+#if !defined  __aarch64__
 #include "rtc_videorender.h"
+#endif
 #include <QWidget>
 #include <QLineEdit>
 #include <QComboBox>
@@ -72,6 +74,8 @@ private:
 	QLineEdit* SRS_streamurl_edit_;
 	static QListWidget* recv_msg_listwgt_;
 	QLineEdit* send_msg_edit_;
+#if !defined  __aarch64__
 	static RtcVideoRender* rtc_videorender_;
+#endif
 	static RtcAudioRender* rtc_audiorender_;
 };

@@ -13,7 +13,7 @@
 #include "rtc_audiosink.hpp"
 #include "rtc_videosink.hpp"
 
-class RtcConnectionBase {
+class RtcConnectionBase : public std::enable_shared_from_this<RtcConnectionBase> {
 	friend class RtcConnectionManager;
 
 protected:

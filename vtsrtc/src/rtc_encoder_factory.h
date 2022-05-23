@@ -7,7 +7,7 @@
 
 namespace webrtc {
 
-class NvH264EncoderFactory : public VideoEncoderFactory {
+class RtcEncoderFactory : public VideoEncoderFactory {
 public:
 	// Returns a list of supported video formats in order of preference, to use
 	// for signaling etc.

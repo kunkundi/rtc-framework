@@ -31,7 +31,8 @@ public:
 				.set_video_frame_buffer(scaled_buffer)
 				.set_rotation(webrtc::kVideoRotation_0)
 				.set_timestamp_us(frame.timestamp_us())
-				.set_id(frame.id());
+				.set_id(frame.id())
+				.set_timestamp_rtp(frame.timestamp());
 			if (frame.has_update_rect()) {
 				auto new_rect = frame.update_rect().ScaleWithFrame(frame.width(), frame.height(),
 					0, 0, frame.width(), frame.height(), out_width, out_height);

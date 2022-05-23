@@ -11,20 +11,31 @@ list(APPEND CMAKE_PREFIX_PATH ${QTDIR})
 find_package(Qt5Core)
 find_package(Qt5Widgets)
 find_package(Qt5Gui)
-find_package(Qt5OpenGL)
+find_package(Qt5OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
-add_executable(${target}
-	rtc_audiorender.h
-	rtc_audiorender.cpp
-	rtc_videorender.h
-	rtc_videorender.cpp
-	rtc_widget.h
-	rtc_widget.cpp
-	main.cpp
-)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+	add_executable(${target}
+		rtc_audiorender.h
+		rtc_audiorender.cpp
+		rtc_widget.h
+		rtc_widget.cpp
+		main.cpp
+	)
+else()
+	add_executable(${target}
+		rtc_audiorender.h
+		rtc_audiorender.cpp
+		rtc_videorender.h
+		rtc_videorender.cpp
+		rtc_widget.h
+		rtc_widget.cpp
+		main.cpp
+	)
+endif()
 
 target_link_libraries(${target}
+	${OPENGL_LIBRARIES}
 	vtsrtc
 	Qt5::Core
 	Qt5::Widgets

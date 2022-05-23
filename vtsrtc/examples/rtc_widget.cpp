@@ -8,6 +8,10 @@
 #include <QMessageBox>
 #include <QThread>
 #include <QDebug>
+#if defined  __aarch64__
+#include <iostream>
+#include <thread>
+#endif
 
 #define CHECK_ERRORCODE if (code != RtcErrorCode::OK) {  \
 		QMessageBox::warning(nullptr, tr("Warning"), tr(RtcErrorMessage(code))); \
@@ -16,7 +20,9 @@
 
 QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
 RtcAudioRender* RtcWidget::rtc_audiorender_ = nullptr;
+#if !defined  __aarch64__
 RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
+#endif
 
 void RtcWidget::HandleRoom(RtcRoomOperation room_operation, RtcRoomId roomid) {
 	qDebug() << "-----> HandleRoom, room operation: " << room_operation << ", roomid: " << roomid;
@@ -65,10 +71,12 @@ void RtcWidget::HandleFrame(RtcVideoSourceId sourceid,
 	RtcMediaSourceType sourcetype,
 	size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {
+#if !defined  __aarch64__
 	if (rtc_videorender_) {
 		rtc_videorender_->OnFrame(sourceid, sourcetype,
-			width, height, dimension, buffer, sz_buffer);
+		width, height, dimension, buffer, sz_buffer);
 	}
+#endif
 }
 
 RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
@@ -184,13 +192,17 @@ void RtcWidget::CreateUI() {
 	msg_groupbox->setLayout(msg_layout);
 
 	rtc_audiorender_ = new RtcAudioRender(this);
+#if !defined  __aarch64__
 	rtc_videorender_ = new RtcVideoRender();
+#endif
 
 	main_layout->addWidget(videosource_groupbox);
 	main_layout->addWidget(room_groupbox);
 	main_layout->addWidget(SRS_groupbox);
 	main_layout->addWidget(msg_groupbox);
+#if !defined  __aarch64__
 	main_layout->addWidget(rtc_videorender_, 0, Qt::AlignCenter);
+#endif
 
 	this->setLayout(main_layout);
 	this->setMinimumSize(800, 600);
@@ -273,9 +285,13 @@ void RtcWidget::LoadYUVData() {
 
 void RtcWidget::SendAudioFrame() {
 	if (pcmdatas_.size() > 0) {
+#if defined  __aarch64__
+		std::thread audioThread([this]() {
+#else
 		audiothread_ = QThread::create([this]() {
-			size_t idx = 0;
-			bool need_stop = false;
+#endif
+		 	size_t idx = 0;
+		 	bool need_stop = false;
 			while (!need_stop) {
 				if (idx == pcmdatas_.size()) {
 					idx = 0;
@@ -289,14 +305,21 @@ void RtcWidget::SendAudioFrame() {
 				}
 			}
 			});
-
+#if defined  __aarch64__
+		audioThread.join();
+#else
 		audiothread_->start();
+#endif
 	}
 }
 
 void RtcWidget::SendFrame() {
 	if (yuv_frames_.size() > 0) {
+#if defined  __aarch64__
+		std::thread videoThread([this]() {
+#else
 		videothread_ = QThread::create([this]() {
+#endif
 			size_t idx = 0;
 			bool need_stop = false;
 			while (!need_stop) {
@@ -312,8 +335,11 @@ void RtcWidget::SendFrame() {
 				}
 			}
 			});
-
+#if defined  __aarch64__
+		videoThread.join();
+#else
 		videothread_->start();
+#endif
 	}
 }
 

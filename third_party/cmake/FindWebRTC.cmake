@@ -24,6 +24,12 @@ set(WEBRTC_OBJC_INCLUDE_DIR
 set(WEBRTC_LIBRARY_DIR
   ${WEBRTC_DIR}/lib
 )
+# For ARM64
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+  set(WEBRTC_LIBRARY_DIR
+    ${WEBRTC_DIR}/libaarch64
+  )
+endif()
 
 find_library(WEBRTC_LIBRARY_DEBUG
   NAMES webrtcd

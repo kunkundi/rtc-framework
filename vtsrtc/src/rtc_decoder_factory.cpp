@@ -3,11 +3,11 @@
 
 #include "log_manager.h"
 #include "nvh264_decoder_impl.h"
-#include "nvh264_decoder_factory.h"
+#include "rtc_decoder_factory.h"
 
 namespace webrtc {
 
-std::vector<SdpVideoFormat> NvH264DecoderFactory::GetSupportedFormats() const {
+std::vector<SdpVideoFormat> RtcDecoderFactory::GetSupportedFormats() const {
 	// return webrtc::SupportedH264Codecs();
 
 	return {
@@ -18,7 +18,7 @@ std::vector<SdpVideoFormat> NvH264DecoderFactory::GetSupportedFormats() const {
 	};
 }
 
-std::unique_ptr<VideoDecoder> NvH264DecoderFactory::CreateVideoDecoder(
+std::unique_ptr<VideoDecoder> RtcDecoderFactory::CreateVideoDecoder(
 	const SdpVideoFormat& format) {
 	if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
 		return std::make_unique<NvH264DecoderImpl>(cricket::VideoCodec(format));

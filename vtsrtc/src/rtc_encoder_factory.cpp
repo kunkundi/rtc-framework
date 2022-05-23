@@ -2,12 +2,17 @@
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
 #include "log_manager.h"
+#include "rtc_encoder_factory.h"
+
+#if defined  __aarch64__
+#include "jetsonh264_encoder_impl.h"
+#else
 #include "nvh264_encoder_impl.h"
-#include "nvh264_encoder_factory.h"
+#endif
 
 namespace webrtc {
 
-std::vector<SdpVideoFormat> NvH264EncoderFactory::GetSupportedFormats()
+std::vector<SdpVideoFormat> RtcEncoderFactory::GetSupportedFormats()
 	const {
 	// return webrtc::SupportedH264Codecs();
 
@@ -19,7 +24,7 @@ std::vector<SdpVideoFormat> NvH264EncoderFactory::GetSupportedFormats()
 	};
 }
 
-VideoEncoderFactory::CodecInfo NvH264EncoderFactory::QueryVideoEncoder(
+VideoEncoderFactory::CodecInfo RtcEncoderFactory::QueryVideoEncoder(
 	const SdpVideoFormat& format) const {
 	CodecInfo info;
 	info.has_internal_source = false;
@@ -28,10 +33,14 @@ VideoEncoderFactory::CodecInfo NvH264EncoderFactory::QueryVideoEncoder(
 	return info;
 }
 
-std::unique_ptr<VideoEncoder> NvH264EncoderFactory::CreateVideoEncoder(
+std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
 	const SdpVideoFormat& format) {
 	if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
+#if defined  __aarch64__
+		return std::make_unique<JetsonH264EncoderImpl>(cricket::VideoCodec(format));
+#else
 		return std::make_unique<NvH264EncoderImpl>(cricket::VideoCodec(format));
+#endif
 	}
 
 	LOG_ERROR("[WEBRTC] Trying to created encoder of unsupported format %s",

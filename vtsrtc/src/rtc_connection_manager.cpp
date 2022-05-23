@@ -1,9 +1,11 @@
+#if !defined  __aarch64__
 #include <cuda.h>
+#endif
 
 #include "rtc_connection_manager.h"
 #include "http_status_code.hpp"
-#include "nvh264_encoder_factory.h"
-#include "nvh264_decoder_factory.h"
+#include "rtc_encoder_factory.h"
+#include "rtc_decoder_factory.h"
 
 vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
 	switch (http_code)
@@ -149,7 +151,7 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 	std::unique_ptr<webrtc::VideoDecoderFactory> video_decoder_factory = nullptr;
 	if (rtc_config_.use_NVENC) {
 		LOG_INFO("Use Nvidia H264 video encoder.");
-		video_encoder_factory = std::make_unique<webrtc::NvH264EncoderFactory>();
+		video_encoder_factory = std::make_unique<webrtc::RtcEncoderFactory>();
 	}
 	else {
 		LOG_INFO("Use builtin video encoder.");
@@ -158,7 +160,11 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 
 	if (rtc_config_.use_NVDEC) {
 		LOG_INFO("Use Nvidia H264 video decoder.");
-		video_decoder_factory = std::make_unique<webrtc::NvH264DecoderFactory>();
+#if defined  __aarch64__
+		video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
+#else
+		video_decoder_factory = std::make_unique<webrtc::RtcDecoderFactory>();
+#endif
 	}
 	else {
 		LOG_INFO("Use builtin video decoder.");
@@ -1195,6 +1201,8 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 			auto tracklabel = track_source->GetLabel();
 			auto video_track = peer_conn_factory_->CreateVideoTrack(
 				tracklabel, track_source.get());
+				// 帧率优先
+			video_track->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
 			auto rtpsender_error = peer_conn->AddTrack(
 				video_track, { tracklabel });
 			if (rtpsender_error.ok()) {

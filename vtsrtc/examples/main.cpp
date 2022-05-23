@@ -1,7 +1,14 @@
 #include "rtc_widget.h"
 #include <QApplication>
+#if defined  __aarch64__
+#include <QWidget>
+#endif
 
 int main(int argc, char* argv[]) {
+#if defined  __aarch64__
+	QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts, true);
+#endif
+
 	QApplication app(argc, argv);
 
 	QString exe_path = QCoreApplication::applicationDirPath();

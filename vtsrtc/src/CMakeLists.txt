@@ -5,25 +5,26 @@ list(APPEND CMAKE_MODULE_PATH
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/cmake"
 )
 
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+	message(STATUS "Build for Aarch64")
+endif()
+
 find_package(Vtslog)
-find_package(CUDAToolkit REQUIRED)
-find_package(Nvcodec REQUIRED)
 find_package(Boost REQUIRED)
 find_package(WebRTC REQUIRED)
 
-add_library(${target} SHARED
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+	message(STATUS "Use hardware accelerated decode on Aarch64")
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "win64")
+	find_package(CUDAToolkit REQUIRED)
+	find_package(Nvcodec REQUIRED)
+endif()
+
+list(APPEND SOURCE_CODE
 	log_manager.h
 	log_manager.cpp
 	http_status_code.hpp
 	rtc_types.h
-	nvh264_encoder_impl.h
-	nvh264_encoder_impl.cpp
-	nvh264_encoder_factory.h
-	nvh264_encoder_factory.cpp
-	nvh264_decoder_impl.h
-	nvh264_decoder_impl.cpp
-	nvh264_decoder_factory.h
-	nvh264_decoder_factory.cpp
 	rtc_device_manager.h
 	rtc_device_manager.cpp
 	rtc_audiosink.hpp
@@ -40,10 +41,46 @@ add_library(${target} SHARED
 	rtc.cpp
 	c_rtc.h
 	c_rtc.cpp
-	${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoder.cpp
-	${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp
-	${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvDecoder/NvDecoder.cpp
+	rtc_encoder_factory.h
+	rtc_encoder_factory.cpp
 )
+
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+	list(APPEND SOURCE_CODE
+		jetsonh264_encoder_impl.h
+		jetsonh264_encoder_impl.cpp
+		/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h
+		/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp
+		/usr/src/jetson_multimedia_api/include/NvV4l2Element.h
+		/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp
+		/usr/src/jetson_multimedia_api/include/NvV4l2ElementPlane.h
+		/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp
+		/usr/src/jetson_multimedia_api/include/NvElementProfiler.h
+		/usr/src/jetson_multimedia_api/samples/common/classes/NvElementProfiler.cpp
+		/usr/src/jetson_multimedia_api/include/NvBuffer.h
+		/usr/src/jetson_multimedia_api/samples/common/classes/NvBuffer.cpp
+		/usr/src/jetson_multimedia_api/include/NvElement.h
+		/usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp
+		/usr/src/jetson_multimedia_api/include/NvLogging.h
+		/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp
+		/usr/src/jetson_multimedia_api/include/libv4l2.h
+		/usr/src/jetson_multimedia_api/include/nvbuf_utils.h
+	)
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "win64")
+	list(APPEND SOURCE_CODE
+		rtc_decoder_factory.h
+		rtc_decoder_factory.cpp
+		nvh264_encoder_impl.h
+		nvh264_encoder_impl.cpp
+		nvh264_decoder_impl.h
+		nvh264_decoder_impl.cpp
+		${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoder.cpp
+		${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp
+		${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvDecoder/NvDecoder.cpp
+	)
+endif()
+
+add_library(${target} SHARED ${SOURCE_CODE})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	target_compile_definitions(${target}
@@ -80,26 +117,51 @@ endif()
 
 target_compile_definitions(${target} PRIVATE BOOST_ALL_NO_LIB)
 
-target_include_directories(${target}
-PUBLIC
-	"$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>"
-PRIVATE
-	${VTSLOG_INCLUDE_DIR}
-	${CUDAToolkit_INCLUDE_DIRS}
-	${NVCODEC_INCLUDE_DIR}
-	${WEBRTC_INCLUDE_DIR}
-)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+	target_include_directories(${target}
+	PUBLIC
+		"$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>"
+	PRIVATE
+		${VTSLOG_INCLUDE_DIR}
+		${WEBRTC_INCLUDE_DIR}
+		"/usr/src/jetson_multimedia_api/include"
+	)
+else()
+	target_include_directories(${target}
+	PUBLIC
+		"$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>"
+	PRIVATE
+		${VTSLOG_INCLUDE_DIR}
+		${CUDAToolkit_INCLUDE_DIRS}
+		${NVCODEC_INCLUDE_DIR}
+		${WEBRTC_INCLUDE_DIR}
+	)
+endif()
 
-target_link_libraries(${target}
-PRIVATE
-	${VTSLOG_LIBRARY}
-	CUDA::cuda_driver
-	${NVCODEC_LIBRARY}
-	simple-web-server
-	simple-websocket-server
-	nlohmann_json::nlohmann_json
-	${WEBRTC_LIBRARY}
-)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+	target_link_libraries(${target}
+	PRIVATE
+		${VTSLOG_LIBRARY}
+		simple-web-server
+		simple-websocket-server
+		nlohmann_json::nlohmann_json
+		${WEBRTC_LIBRARY}
+		v4l2
+		nvbuf_utils
+		-L"/usr/lib/aarch64-linux-gnu/tegra/"
+	)
+else()
+	target_link_libraries(${target}
+	PRIVATE
+		${VTSLOG_LIBRARY}
+		CUDA::cuda_driver
+		${NVCODEC_LIBRARY}
+		simple-web-server
+		simple-websocket-server
+		nlohmann_json::nlohmann_json
+		${WEBRTC_LIBRARY}
+	)
+endif()
 
 set_target_properties(${target}
 PROPERTIES
@@ -126,11 +188,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 		DESTINATION "${target}/bin/$<CONFIG>"
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	install(FILES 
+	if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+		install(FILES 
+			"${VTSLOG_LIBRARY}"
+			DESTINATION "${target}/lib/$<CONFIG>"
+		)
+	elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+		install(FILES 
 		"${VTSLOG_LIBRARY}"
 		"${NVCODEC_LIBRARY}"
 		DESTINATION "${target}/lib/$<CONFIG>"
-	)
+		)
+	endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "TODO install for macOS")
 endif()

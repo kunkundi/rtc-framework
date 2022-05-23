@@ -20,6 +20,12 @@ rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
 * QT（运行p2p_qt DEMO需要）
 * Boost（signaling-server和vtsrtc网络通信需要）
 * 在share目录 \\\10.11.16.35\share\个人\朱建\rtc-solutions 下，准备了QT和Boost
+* Ubuntu（aarch64验证过，x86_64没有验证过，估计也可以）下安装QT
+```
+sudo apt-get install build-essential
+sudo apt-get install qtcreator
+sudo apt-get install qt5-default
+```
 
 #### 拷贝代码与更新子模块
 ```
