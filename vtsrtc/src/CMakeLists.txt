@@ -19,7 +19,8 @@ find_package(WebRTC REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	message(STATUS "Use hardware accelerated decode on Aarch64")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "win64")
+else()
+	message(STATUS "Use Nvcodec")
 	find_package(CUDAToolkit REQUIRED)
 	find_package(Nvcodec REQUIRED)
 endif()
@@ -70,7 +71,7 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		/usr/src/jetson_multimedia_api/include/libv4l2.h
 		/usr/src/jetson_multimedia_api/include/nvbuf_utils.h
 	)
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "win64")
+else()
 	list(APPEND SOURCE_CODE
 		rtc_decoder_factory.h
 		rtc_decoder_factory.cpp
