@@ -62,6 +62,8 @@ using RoomHandler = std::function<void(enum RoomOperation, const RoomId&)>;
 using UserHandler = std::function<void()>;
 // remote sessionId, P2PState
 using P2PStateHandler = std::function<void(SessionId, enum P2PState)>;
+// srs url, P2PState
+using SRSStateHandler = std::function<void(SRSStreamurl, enum P2PState)>;
 // remote sessionid, label, state
 using DataChannelStateHandler =
 	std::function<void(SessionId, const std::string&, enum DataChannelState)>;

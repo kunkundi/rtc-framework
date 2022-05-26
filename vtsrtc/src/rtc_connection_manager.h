@@ -69,6 +69,7 @@ public:
 		const vts_rtc::RoomHandler& room_handler,
 		const vts_rtc::UserHandler& user_handler,
 		const vts_rtc::P2PStateHandler& P2P_state_handler,
+		const vts_rtc::SRSStateHandler& SRS_state_handler,
 		const vts_rtc::DataChannelStateHandler& datachannel_state_handler,
 		const vts_rtc::ServerConnectionStateHandler& serverconnection_state_handler,
 		const vts_rtc::RecvMessageHandler& recv_msg_handler,
@@ -94,13 +95,9 @@ public:
 	vts_rtc::ErrorCode LeaveRoom();
 
 	vts_rtc::ErrorCode PublishToSRS(const vts_rtc::SRSStreamurl& streamurl);
-	vts_rtc::ErrorCode UnpublishRtc2SRS(
-		const vts_rtc::SRSStreamurl& streamurl,
-		const vts_rtc::SRSSessionId& sessionid);
+	vts_rtc::ErrorCode UnpublishRtc2SRS(const vts_rtc::SRSStreamurl& streamurl);
 	vts_rtc::ErrorCode PlayFromSRS(const vts_rtc::SRSStreamurl& streamurl);
-	vts_rtc::ErrorCode UnplayFromSRS(
-		const vts_rtc::SRSStreamurl& streamurl,
-		const vts_rtc::SRSSessionId& sessionid);
+	vts_rtc::ErrorCode UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl);
 
 	bool SendData(vts_rtc::SessionId sessionid,
 		const std::string& channel_label, const std::string& msg) const;
@@ -136,6 +133,7 @@ private:
 	vts_rtc::RoomHandler room_handler_ = nullptr;
 	vts_rtc::UserHandler user_handler_ = nullptr;
 	vts_rtc::P2PStateHandler P2P_state_handler_ = nullptr;
+	vts_rtc::SRSStateHandler SRS_state_handler_ = nullptr;
 	vts_rtc::DataChannelStateHandler datachannel_state_handler_ = nullptr;
 	vts_rtc::ServerConnectionStateHandler serverconnection_state_handler_ = nullptr;
 	vts_rtc::RecvMessageHandler recv_msg_handler_ = nullptr;

@@ -32,6 +32,10 @@ void RtcWidget::HandleP2PState(RtcSessionId sessionid, RtcP2PState state) {
 	qDebug() << "-----> HandleP2PState, sessionid: " << sessionid << ", state: " << state;
 }
 
+void RtcWidget::HandleSRSState(RtcSRSStreamurl streamurl, RtcP2PState state) {
+	qDebug() << "-----> HandleSRSState, streamurl: " << streamurl << ", state: " << state;
+}
+
 void RtcWidget::HandleDataChannelState(RtcSessionId sessionid,
 	RtcDataChannelLabel label, RtcDataChannelState state) {
 	qDebug() << "-----> HandleDataChannelState, sessionid: " << sessionid <<
@@ -87,7 +91,7 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 	CreateUI();
 
 	auto code = RtcInitAgent(rtc_config_filepath.c_str(),
-		HandleRoom, HandleP2PState, HandleDataChannelState, HandleServerConnectionState,
+		HandleRoom, HandleP2PState, HandleSRSState, HandleDataChannelState, HandleServerConnectionState,
 		HandleMessage, HandleAudioFrame, HandleFrame);
 	CHECK_ERRORCODE
 
@@ -459,7 +463,9 @@ void RtcWidget::PublishToSRS() {
 }
 
 void RtcWidget::UnpublishToSRS() {
-	qDebug() << "Unpublish to SRS";
+	QByteArray SRS_streamurl = SRS_streamurl_edit_->text().toLocal8Bit();
+	auto code = RtcUnpublishToSRS(SRS_streamurl.data());
+	CHECK_ERRORCODE
 }
 
 void RtcWidget::PlayFromSRS() {

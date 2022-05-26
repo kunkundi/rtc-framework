@@ -12,6 +12,7 @@ public:
 		const RoomHandler& room_handler = nullptr,
 		const UserHandler& user_handler = nullptr,
 		const P2PStateHandler& P2P_state_handler = nullptr,
+		const SRSStateHandler& SRS_state_handler = nullptr,
 		const DataChannelStateHandler& datachannel_state_handler = nullptr,
 		const ServerConnectionStateHandler& serverconnection_state_handler = nullptr,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
@@ -22,6 +23,7 @@ public:
 		const RoomHandler& room_handler = nullptr,
 		const UserHandler& user_handler = nullptr,
 		const P2PStateHandler& P2P_state_handler = nullptr,
+		const SRSStateHandler& SRS_state_handler = nullptr,
 		const DataChannelStateHandler& datachannel_state_handler = nullptr,
 		const ServerConnectionStateHandler& serverconnection_state_handler = nullptr,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
@@ -70,13 +72,11 @@ public:
 	// @retval OK, InternalError
 	ErrorCode PublishToSRS(const SRSStreamurl& streamurl) const;
 	// @retval OK
-	ErrorCode UnpublishToSRS(const vts_rtc::SRSStreamurl& streamurl,
-		const vts_rtc::SRSSessionId& sessionid) const;
+	ErrorCode UnpublishToSRS(const vts_rtc::SRSStreamurl& streamurl) const;
 	// @retval OK, InternalError
 	ErrorCode PlayFromSRS(const SRSStreamurl& streamurl) const;
 	// @retval OK
-	ErrorCode UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl,
-		const vts_rtc::SRSSessionId& sessionid) const;
+	ErrorCode UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl) const;
 
 	// send data
 	bool SendData(SessionId sessionid, const std::string& channel_label,
@@ -95,6 +95,7 @@ private:
 		const RoomHandler& room_handler,
 		const UserHandler& user_handler,
 		const P2PStateHandler& P2P_state_handler,
+		const SRSStateHandler& SRS_state_handler,
 		const DataChannelStateHandler& datachannel_state_handler,
 		const ServerConnectionStateHandler& serverconnection_state_handler,
 		const RecvMessageHandler& recv_msg_handler,

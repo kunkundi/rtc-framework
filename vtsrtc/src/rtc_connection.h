@@ -124,6 +124,7 @@ public:
 	virtual ~Rtc2SRSConnection();
 
 	void SetSRSSessionid(const vts_rtc::SRSSessionId& SRS_sessionid);
+	vts_rtc::SRSSessionId GetSRSSessionid() { return SRS_sessionid_; };
 
 protected:
 	void HandleP2PStateChanged(PeerConnState state) const override;
@@ -143,7 +144,7 @@ protected:
 
 private:
 	vts_rtc::SRSSessionId SRS_sessionid_ = std::string("");
-	vts_rtc::SRSStreamurl SRS_streamurl_;
+	vts_rtc::SRSStreamurl SRS_streamurl_ = std::string("");;
 
 	std::function<void(const vts_rtc::SRSStreamurl&, vts_rtc::P2PState)>
 		on_P2P_state_changed_ = nullptr;

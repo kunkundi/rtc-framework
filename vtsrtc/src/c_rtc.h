@@ -145,6 +145,8 @@ typedef struct RtcYUV420pFrame {
 typedef void(*RoomHandler)(RtcRoomOperation, RtcRoomId);
 // remote sessionId, RtcP2PState
 typedef void(*P2PStateHandler)(RtcSessionId, RtcP2PState);
+// srs streamurl, RtcP2PState
+typedef void(*SRSStateHandler)(RtcSRSStreamurl, RtcP2PState);
 // remote sessionId, label, state
 typedef void(*DataChannelStateHandler)(RtcSessionId,
 	RtcDataChannelLabel, RtcDataChannelState);
@@ -185,6 +187,7 @@ extern "C" {
 	RTC_API RtcErrorCode RtcInitAgent(const char* config_filepath,
 		RoomHandler room_handler,
 		P2PStateHandler P2P_state_handler,
+		SRSStateHandler SRS_state_handler,
 		DataChannelStateHandler datachannel_state_handler,
 		ServerConnectionStateHandler serverconnection_state_handler,
 		RecvMessageHandler recv_msg_handler,
@@ -393,8 +396,7 @@ extern "C" {
 	RTC_API RtcErrorCode RtcPublishToSRS(const RtcSRSStreamurl SRS_streamurl);
 
 	// Not supported
-	RTC_API RtcErrorCode RtcUnpublishToSRS(const RtcSRSStreamurl SRS_streamurl,
-		const RtcSRSSessionId SRS_sessionid);
+	RTC_API RtcErrorCode RtcUnpublishToSRS(const RtcSRSStreamurl SRS_streamurl);
 
 	/**
 	 * @brief 从SRS拉取RTC流
@@ -406,8 +408,7 @@ extern "C" {
 	RTC_API RtcErrorCode RtcPlayFromSRS(const RtcSRSStreamurl SRS_streamurl);
 
 	// Not supported
-	RTC_API RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl,
-		const RtcSRSSessionId SRS_sessionid);
+	RTC_API RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl);
 
 	/**
 	 * @brief 发送消息到远端Rtc Agent

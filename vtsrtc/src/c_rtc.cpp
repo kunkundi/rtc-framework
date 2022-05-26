@@ -27,6 +27,7 @@ RtcErrorCode ConvertCode(vts_rtc::ErrorCode roomcode) {
 RtcErrorCode RtcInitAgent(const char* config_filepath,
 	RoomHandler room_handler,
 	P2PStateHandler P2P_state_handler,
+	SRSStateHandler SRS_state_handler,
 	DataChannelStateHandler datachannel_state_handler,
 	ServerConnectionStateHandler serverconnection_state_handler,
 	RecvMessageHandler recv_msg_handler,
@@ -48,6 +49,15 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		inner_P2P_state_handler = [P2P_state_handler](
 			vts_rtc::SessionId sessionid, vts_rtc::P2PState p2p_state) {
 			P2P_state_handler(sessionid, static_cast<RtcP2PState>(p2p_state));
+		};
+	}
+
+	vts_rtc::SRSStateHandler inner_SRS_state_handler = nullptr;
+	if (SRS_state_handler) {
+		inner_SRS_state_handler = [SRS_state_handler](
+			vts_rtc::SRSStreamurl streamurl, vts_rtc::P2PState p2p_state) {
+				SRS_state_handler((RtcSRSStreamurl)(streamurl.c_str()),
+					static_cast<RtcP2PState>(p2p_state));
 		};
 	}
 
@@ -116,6 +126,7 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		inner_room_handler,
 		nullptr,
 		inner_P2P_state_handler,
+		inner_SRS_state_handler,
 		inner_datachannel_state_handler,
 		inner_serverconnection_state_handler,
 		msg_handler,
@@ -342,12 +353,10 @@ RtcErrorCode RtcPublishToSRS(const RtcSRSStreamurl SRS_streamurl) {
 	return ConvertCode(SRScode);
 }
 
-RtcErrorCode RtcUnpublishToSRS(const RtcSRSStreamurl SRS_streamurl,
-	const RtcSRSSessionId SRS_sessionid) {
+RtcErrorCode RtcUnpublishToSRS(const RtcSRSStreamurl SRS_streamurl) {
 	CHECK_RTCAGENT_INITED
 
-	auto SRScode = rtc_agent->UnpublishToSRS(std::string(SRS_streamurl),
-		std::string(SRS_sessionid));
+	auto SRScode = rtc_agent->UnpublishToSRS(std::string(SRS_streamurl));
 	return ConvertCode(SRScode);
 }
 
@@ -358,12 +367,10 @@ RtcErrorCode RtcPlayFromSRS(const RtcSRSStreamurl SRS_streamurl) {
 	return ConvertCode(SRScode);
 }
 
-RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl,
-	const RtcSRSSessionId SRS_sessionid) {
+RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl) {
 	CHECK_RTCAGENT_INITED
 
-	auto SRScode = rtc_agent->UnplayFromSRS(std::string(SRS_streamurl),
-		std::string(SRS_sessionid));
+	auto SRScode = rtc_agent->UnplayFromSRS(std::string(SRS_streamurl));
 	return ConvertCode(SRScode);
 }
 

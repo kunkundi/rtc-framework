@@ -10,6 +10,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const RoomHandler& room_handler,
 	const UserHandler& user_handler,
 	const P2PStateHandler& P2P_state_handler,
+	const SRSStateHandler& SRS_state_handler,
 	const DataChannelStateHandler& datachannel_state_handler,
 	const ServerConnectionStateHandler& serverconnection_state_handler,
 	const RecvMessageHandler& recv_msg_handler,
@@ -95,6 +96,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 			room_handler,
 			user_handler,
 			P2P_state_handler,
+			SRS_state_handler,
 			datachannel_state_handler,
 			serverconnection_state_handler,
 			recv_msg_handler,
@@ -108,6 +110,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const RoomHandler& room_handler,
 	const UserHandler& user_handler,
 	const P2PStateHandler& P2P_state_handler,
+	const SRSStateHandler& SRS_state_handler,
 	const DataChannelStateHandler& datachannel_state_handler,
 	const ServerConnectionStateHandler& serverconnection_state_handler,
 	const RecvMessageHandler& recv_msg_handler,
@@ -120,6 +123,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		room_handler,
 		user_handler,
 		P2P_state_handler,
+		SRS_state_handler,
 		datachannel_state_handler,
 		serverconnection_state_handler,
 		recv_msg_handler,
@@ -133,6 +137,7 @@ RtcAgent::RtcAgent(
 	const RoomHandler& room_handler,
 	const UserHandler& user_handler,
 	const P2PStateHandler& P2P_state_handler,
+	const SRSStateHandler& SRS_state_handler,
 	const DataChannelStateHandler& datachannel_state_handler,
 	const ServerConnectionStateHandler& serverconnection_state_handler,
 	const RecvMessageHandler& recv_msg_handler,
@@ -148,6 +153,7 @@ RtcAgent::RtcAgent(
 		&room_handler,
 		&user_handler,
 		&P2P_state_handler,
+		&SRS_state_handler,
 		&datachannel_state_handler,
 		&serverconnection_state_handler,
 		&recv_msg_handler,
@@ -160,6 +166,7 @@ RtcAgent::RtcAgent(
 				room_handler,
 				user_handler,
 				P2P_state_handler,
+				SRS_state_handler,
 				datachannel_state_handler,
 				serverconnection_state_handler,
 				recv_msg_handler,
@@ -279,11 +286,10 @@ ErrorCode RtcAgent::PublishToSRS(const SRSStreamurl& streamurl) const {
 		});
 }
 
-ErrorCode RtcAgent::UnpublishToSRS(const vts_rtc::SRSStreamurl& streamurl,
-	const vts_rtc::SRSSessionId& sessionid) const {
+ErrorCode RtcAgent::UnpublishToSRS(const vts_rtc::SRSStreamurl& streamurl) const {
 	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
-		[this, &streamurl, &sessionid]() {
-			return rtc_conn_manager_->UnpublishRtc2SRS(streamurl, sessionid);
+		[this, &streamurl]() {
+			return rtc_conn_manager_->UnpublishRtc2SRS(streamurl);
 		});
 }
 
@@ -294,11 +300,10 @@ ErrorCode RtcAgent::PlayFromSRS(const SRSStreamurl& streamurl) const {
 		});
 }
 
-ErrorCode RtcAgent::UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl,
-	const vts_rtc::SRSSessionId& sessionid) const {
+ErrorCode RtcAgent::UnplayFromSRS(const vts_rtc::SRSStreamurl& streamurl) const {
 	return logic_thread_->Invoke<ErrorCode>(RTC_FROM_HERE,
-		[this, &streamurl, &sessionid] {
-			return rtc_conn_manager_->UnplayFromSRS(streamurl, sessionid);
+		[this, &streamurl] {
+			return rtc_conn_manager_->UnplayFromSRS(streamurl);
 		});
 }
 

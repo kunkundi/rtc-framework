@@ -36,6 +36,7 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	const vts_rtc::RoomHandler& room_handler,
 	const vts_rtc::UserHandler& user_handler,
 	const vts_rtc::P2PStateHandler& P2P_state_handler,
+	const vts_rtc::SRSStateHandler& SRS_state_handler,
 	const vts_rtc::DataChannelStateHandler& datachannel_state_handler,
 	const vts_rtc::ServerConnectionStateHandler& serverconnection_state_handler,
 	const vts_rtc::RecvMessageHandler& recv_msg_handler,
@@ -47,6 +48,7 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	room_handler_(room_handler),
 	user_handler_(user_handler),
 	P2P_state_handler_(P2P_state_handler),
+	SRS_state_handler_(SRS_state_handler),
 	datachannel_state_handler_(datachannel_state_handler),
 	serverconnection_state_handler_(serverconnection_state_handler),
 	recv_msg_handler_(recv_msg_handler),
@@ -806,6 +808,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
 	// peer_conn_config.enable_dtls_srtp = true;
 	webrtc::PeerConnectionDependencies depends(&SRS_conn->peer_conn_observer_);
+
 	auto peer_conn = peer_conn_factory_->CreatePeerConnection(
 		peer_conn_config, std::move(depends));
 	if (!peer_conn) {
@@ -815,15 +818,14 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 
 	webrtc::RtpTransceiverInit rtp_transceiver_init;
 	rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendOnly;
-	peer_conn->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, rtp_transceiver_init);
-	peer_conn->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
+	
+	auto audio_track_num = external_audiosources_.size();
+	while (audio_track_num--)
+		peer_conn->AddTransceiver(cricket::MEDIA_TYPE_AUDIO, rtp_transceiver_init);
 
-	// Add audio track
-	rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track(
-		peer_conn_factory_->CreateAudioTrack("SRS_track_audio",
-			peer_conn_factory_->CreateAudioSource(cricket::AudioOptions()))
-	);
-	peer_conn->AddTrack(audio_track, { "SRS_stream_audio" });
+	auto video_track_num = external_feed_tracksources_.size();
+	while (video_track_num--)
+		peer_conn->AddTransceiver(cricket::MEDIA_TYPE_VIDEO, rtp_transceiver_init);
 
 	this->AddAudioTrack2PeerConnection(peer_conn);
 	this->AddVideoTrack2PeerConnection(peer_conn);
@@ -842,9 +844,14 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 				SRS_streamurl.c_str());
 
 			logic_thread_->PostTask(RTC_FROM_HERE,
-				[this, SRS_streamurl]() {
+				[this, SRS_streamurl, state]() {
 					// @attention: must run in logic thread, otherwise cannot re-create
 					// PeerConnection
+
+					if (SRS_state_handler_) {
+						SRS_state_handler_(SRS_streamurl, state);
+					}
+
 					auto iter = std::find_if(SRS_publish_conns_.begin(), SRS_publish_conns_.end(),
 						[&SRS_streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
 							return conn->SRS_streamurl_ == SRS_streamurl;
@@ -935,9 +942,49 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 }
 
 vts_rtc::ErrorCode RtcConnectionManager::UnpublishRtc2SRS(
-	const vts_rtc::SRSStreamurl& streamurl,
-	const vts_rtc::SRSSessionId& sessionid) {
-	// TO DO
+	const vts_rtc::SRSStreamurl& streamurl) {
+
+	auto iter = std::find_if(SRS_publish_conns_.begin(), SRS_publish_conns_.end(),
+		[&streamurl](std::shared_ptr<Rtc2SRSConnection> conn) {
+			return conn->SRS_streamurl_ == streamurl;
+		});
+	if (iter != SRS_publish_conns_.end()) {
+		try {
+			LOG_INFO("Unpublish RTC to SRS with streamurl: %s, sessionid: %", streamurl.c_str(), 
+				(*iter)->GetSRSSessionid().c_str());
+
+			json publisher_obj = {
+				{ "streamurl", streamurl },
+				{ "sessionid", (*iter)->GetSRSSessionid() }
+			};
+			auto response = SRS_http_client_->request(
+				"POST", "/rtc/v1/unpublish/", publisher_obj.dump());
+			json result_obj = json::parse(response->content.string(), nullptr, false);
+			if (result_obj.is_discarded()) {
+				LOG_ERROR("SRS http client unpublish RTC to SRS, parse content failed, "
+					"not valid json");
+				return vts_rtc::ErrorCode::InternalError;
+			}
+
+			auto code = result_obj["code"].get<int>();
+			if (code == 0)
+			{
+				LOG_WARN("Unpublish RTC to SRS success, error code: %d", code);
+			}
+			else
+			{
+				LOG_ERROR("Unpublish RTC to SRS success, error code: %d", code);
+			}
+		}
+		catch (const SimpleWeb::system_error& e) {
+			LOG_ERROR("Unpublish RTC to SRS success occurs error: %s", e.what());
+			auto a = e; 
+		}
+
+		*iter = nullptr;
+		SRS_publish_conns_.erase(iter);
+	}
+
 	return vts_rtc::ErrorCode::OK;
 }
 
@@ -1077,8 +1124,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 }
 
 vts_rtc::ErrorCode RtcConnectionManager::UnplayFromSRS(
-	const vts_rtc::SRSStreamurl& streamurl,
-	const vts_rtc::SRSSessionId& sessionid) {
+	const vts_rtc::SRSStreamurl& streamurl) {
 	// TO DO
 	return vts_rtc::ErrorCode::OK;
 }
