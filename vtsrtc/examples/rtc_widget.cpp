@@ -350,9 +350,10 @@ void RtcWidget::SendFrame() {
 void RtcWidget::AddAudioSource() {
 	auto code = RtcAddExternalAudioSource("external_audio", RtcPriorityType::High);
 	CHECK_ERRORCODE
-	
+#if !defined  __aarch64__
 	LoadPCMData();
 	SendAudioFrame();
+#endif
 }
 
 void RtcWidget::AddVideoSource() {

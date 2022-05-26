@@ -244,8 +244,8 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
     ret = jetsonh264_encoder->setIFrameInterval(codec_settings->H264().keyFrameInterval);
     if(ret < 0) LOG_ERROR("Could not set encoder I-Frame interval");
 
-	// ret = jetsonh264_encoder->setInsertSpsPpsAtIdrEnabled(true);
-    // if(ret < 0) printf("Could not set insertSPSPPSAtIDR\n");
+	ret = jetsonh264_encoder->setInsertSpsPpsAtIdrEnabled(true);
+    if(ret < 0) printf("Could not set insertSPSPPSAtIDR\n");
 
     // /* Set framerate for encoder */
     ret = jetsonh264_encoder->setFrameRate(30, 1);
