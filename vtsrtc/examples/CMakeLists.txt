@@ -34,6 +34,17 @@ else()
 	)
 endif()
 
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+target_link_libraries(${target}
+	${OPENGL_LIBRARIES}
+	vtsrtc.aarch64
+	Qt5::Core
+	Qt5::Widgets
+	Qt5::Gui
+	Qt5::OpenGL
+	Threads::Threads
+)
+else()
 target_link_libraries(${target}
 	${OPENGL_LIBRARIES}
 	vtsrtc
@@ -43,6 +54,7 @@ target_link_libraries(${target}
 	Qt5::OpenGL
 	Threads::Threads
 )
+endif()
 
 if(MSVC)
     set_target_properties(${target} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY $<TARGET_FILE_DIR:${target}>)

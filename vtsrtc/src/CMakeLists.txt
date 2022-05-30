@@ -1,5 +1,5 @@
 project(vtsrtc VERSION 0.5.0)
-set(target vtsrtc)
+set(target vtsrtc.aarch64)
 
 if(USE_DEFAULT_JETSON_ENCODER)
     add_definitions(-DUSE_DEFAULT_JETSON_ENCODER)
