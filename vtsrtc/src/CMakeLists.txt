@@ -1,5 +1,9 @@
 project(vtsrtc VERSION 0.5.0)
-set(target vtsrtc.aarch64)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+        set(target vtsrtc.aarch64)
+else()
+	set(target vtsrtc)
+endif()
 
 if(USE_DEFAULT_JETSON_ENCODER)
     add_definitions(-DUSE_DEFAULT_JETSON_ENCODER)
