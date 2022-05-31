@@ -55,6 +55,13 @@ enum class ServerConnectionState {
 	Reconnecting
 };
 
+enum class SRSResponse {
+	SRSOK = 0,
+	SRSAuthFailed,
+	SRSStreamNotExisted,
+	SRSStreamAlreadyExisted,
+};
+
 // RoomOperation, RoomId
 using RoomHandler = std::function<void(enum RoomOperation, const RoomId&)>;
 // user related callback
@@ -64,6 +71,8 @@ using UserHandler = std::function<void()>;
 using P2PStateHandler = std::function<void(SessionId, enum P2PState)>;
 // srs url, P2PState
 using SRSStateHandler = std::function<void(SRSStreamurl, enum P2PState)>;
+// srs url, SRSResponse
+using SRSResponseHandler = std::function<void(SRSStreamurl, enum SRSResponse)>;
 // remote sessionid, label, state
 using DataChannelStateHandler =
 	std::function<void(SessionId, const std::string&, enum DataChannelState)>;
@@ -142,9 +151,6 @@ enum class ErrorCode {
 	RoomNotExisted,
 	RoomAlreadyExisted,
 	AgentAlreadyInRoom,
-	SRSAuthFailed,
-	SRSStreamNotExisted,
-	SRSStreamAlreadyExisted,
 	AgentNotLogined,
 };
 

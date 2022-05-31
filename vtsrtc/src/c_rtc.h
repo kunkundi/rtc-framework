@@ -80,15 +80,19 @@ typedef struct RtcRoom {
 
 typedef RtcRoom* RtcRooms;
 
+typedef enum RtcSRSResponse {
+	SRSOK = 0,
+	SRSAuthFailed,
+	SRSStreamNotExisted,
+	SRSStreamAlreadyExisted,
+} RtcSRSResponse;
+
 typedef enum RtcErrorCode {
 	OK = 0,
 	InternalError,
 	RoomNotExisted,
 	RoomAlreadyExisted,
 	AgentAlreadyInRoom,
-	SRSAuthFailed,
-	SRSStreamNotExisted,
-	SRSStreamAlreadyExisted,
 	AgentNotLogined,
 	AgentNotInited,
 	Failed,
@@ -147,6 +151,8 @@ typedef void(*RoomHandler)(RtcRoomOperation, RtcRoomId);
 typedef void(*P2PStateHandler)(RtcSessionId, RtcP2PState);
 // srs streamurl, RtcP2PState
 typedef void(*SRSStateHandler)(RtcSRSStreamurl, RtcP2PState);
+// srs streamurl, RtcErrorCode
+typedef void(*SRSResponseHandler)(RtcSRSStreamurl, RtcSRSResponse);
 // remote sessionId, label, state
 typedef void(*DataChannelStateHandler)(RtcSessionId,
 	RtcDataChannelLabel, RtcDataChannelState);
@@ -163,6 +169,19 @@ typedef void(*RecvAudioFrameHandler)(RtcAudioSourceId, RtcMediaSourceType,
 // video_data, video_data_size
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, const unsigned char*, size_t);
+
+typedef struct RtcInitParams {
+	const char* config_filepath;
+	RoomHandler room_handler;
+	P2PStateHandler P2P_state_handler;
+	DataChannelStateHandler datachannel_state_handler;
+	ServerConnectionStateHandler serverconnection_state_handler;
+	SRSStateHandler SRS_state_handler;
+	SRSResponseHandler SRS_response_handler;
+	RecvMessageHandler recv_msg_handler;
+	RecvAudioFrameHandler recv_audioframe_handler;
+	RecvFrameHandler recv_frame_handler;
+}RtcInitParams;
 
 #ifdef  __cplusplus
 extern "C" {
@@ -193,6 +212,17 @@ extern "C" {
 		RecvMessageHandler recv_msg_handler,
 		RecvAudioFrameHandler recv_audioframe_handler,
 		RecvFrameHandler recv_frame_handler);
+
+	/**
+	 * @brief 初始化Rtc Agent
+	 *
+	 * @param pst_params Rtc初始化参数
+	 * @return 函数是否执行成功
+	 *   @retval RtcErrorCode::OK 初始化成功
+	 *   @retval RtcErrorCode::Failed 初始化失败
+	 * @attention 调用其他函数前，必须首先调用该函数
+	 */
+	RTC_API RtcErrorCode RtcInitAgentWithPst(RtcInitParams& st_params);
 
 	/**
 	 * @brief 释放Rtc Agent资源

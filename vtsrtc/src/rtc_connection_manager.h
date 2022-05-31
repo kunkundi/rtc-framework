@@ -69,9 +69,10 @@ public:
 		const vts_rtc::RoomHandler& room_handler,
 		const vts_rtc::UserHandler& user_handler,
 		const vts_rtc::P2PStateHandler& P2P_state_handler,
-		const vts_rtc::SRSStateHandler& SRS_state_handler,
 		const vts_rtc::DataChannelStateHandler& datachannel_state_handler,
 		const vts_rtc::ServerConnectionStateHandler& serverconnection_state_handler,
+		const vts_rtc::SRSStateHandler& SRS_state_handler,
+		const vts_rtc::SRSResponseHandler& SRS_response_handler,
 		const vts_rtc::RecvMessageHandler& recv_msg_handler,
 		const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
 		const vts_rtc::RecvFrameHandler& recv_frame_handler);
@@ -133,9 +134,10 @@ private:
 	vts_rtc::RoomHandler room_handler_ = nullptr;
 	vts_rtc::UserHandler user_handler_ = nullptr;
 	vts_rtc::P2PStateHandler P2P_state_handler_ = nullptr;
-	vts_rtc::SRSStateHandler SRS_state_handler_ = nullptr;
 	vts_rtc::DataChannelStateHandler datachannel_state_handler_ = nullptr;
 	vts_rtc::ServerConnectionStateHandler serverconnection_state_handler_ = nullptr;
+	vts_rtc::SRSStateHandler SRS_state_handler_ = nullptr;
+	vts_rtc::SRSResponseHandler SRS_publish_state_handler_ = nullptr;
 	vts_rtc::RecvMessageHandler recv_msg_handler_ = nullptr;
 	vts_rtc::RecvAudioFrameHandler recv_audioframe_handler_ = nullptr;
 	vts_rtc::RecvFrameHandler recv_frame_handler_ = nullptr;

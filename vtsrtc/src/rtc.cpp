@@ -10,9 +10,10 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const RoomHandler& room_handler,
 	const UserHandler& user_handler,
 	const P2PStateHandler& P2P_state_handler,
-	const SRSStateHandler& SRS_state_handler,
 	const DataChannelStateHandler& datachannel_state_handler,
 	const ServerConnectionStateHandler& serverconnection_state_handler,
+	const SRSStateHandler& SRS_state_handler,
+	const SRSResponseHandler& SRS_response_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler) {
@@ -96,9 +97,10 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 			room_handler,
 			user_handler,
 			P2P_state_handler,
-			SRS_state_handler,
 			datachannel_state_handler,
 			serverconnection_state_handler,
+			SRS_state_handler,
+			SRS_response_handler,
 			recv_msg_handler,
 			recv_audioframe_handler,
 			recv_frame_handler));
@@ -110,9 +112,10 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const RoomHandler& room_handler,
 	const UserHandler& user_handler,
 	const P2PStateHandler& P2P_state_handler,
-	const SRSStateHandler& SRS_state_handler,
 	const DataChannelStateHandler& datachannel_state_handler,
 	const ServerConnectionStateHandler& serverconnection_state_handler,
+	const SRSStateHandler& SRS_state_handler,
+	const SRSResponseHandler& SRS_response_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler) {
@@ -123,9 +126,10 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		room_handler,
 		user_handler,
 		P2P_state_handler,
-		SRS_state_handler,
 		datachannel_state_handler,
 		serverconnection_state_handler,
+		SRS_state_handler,
+		SRS_response_handler,
 		recv_msg_handler,
 		recv_audioframe_handler,
 		recv_frame_handler));
@@ -137,9 +141,10 @@ RtcAgent::RtcAgent(
 	const RoomHandler& room_handler,
 	const UserHandler& user_handler,
 	const P2PStateHandler& P2P_state_handler,
-	const SRSStateHandler& SRS_state_handler,
 	const DataChannelStateHandler& datachannel_state_handler,
 	const ServerConnectionStateHandler& serverconnection_state_handler,
+	const SRSStateHandler& SRS_state_handler,
+	const SRSResponseHandler& SRS_response_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler) {
@@ -153,9 +158,10 @@ RtcAgent::RtcAgent(
 		&room_handler,
 		&user_handler,
 		&P2P_state_handler,
-		&SRS_state_handler,
 		&datachannel_state_handler,
 		&serverconnection_state_handler,
+		&SRS_state_handler,
+		&SRS_response_handler,
 		&recv_msg_handler,
 		&recv_audioframe_handler,
 		&recv_frame_handler]() {
@@ -166,11 +172,13 @@ RtcAgent::RtcAgent(
 				room_handler,
 				user_handler,
 				P2P_state_handler,
-				SRS_state_handler,
 				datachannel_state_handler,
 				serverconnection_state_handler,
+				SRS_state_handler,
+				SRS_response_handler,
 				recv_msg_handler,
-				recv_audioframe_handler, recv_frame_handler);
+				recv_audioframe_handler,
+				recv_frame_handler);
 		});
 }
 

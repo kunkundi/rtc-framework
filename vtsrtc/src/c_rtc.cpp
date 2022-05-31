@@ -5,6 +5,7 @@
 #define CHECK_RTCAGENT_INITED if (!rtc_agent) { return RtcErrorCode::AgentNotInited; }
 
 std::shared_ptr<vts_rtc::RtcAgent> rtc_agent = nullptr;
+static RtcInitParams gst_params;
 
 std::map<RtcErrorCode, const char*> rtcerrorcode_map = {
 	{ RtcErrorCode::OK, "OK" },
@@ -12,9 +13,9 @@ std::map<RtcErrorCode, const char*> rtcerrorcode_map = {
 	{ RtcErrorCode::RoomNotExisted, "Room not existed" },
 	{ RtcErrorCode::RoomAlreadyExisted, "Room already existed" },
 	{ RtcErrorCode::AgentAlreadyInRoom, "Agent already in room" },
-	{ RtcErrorCode::SRSAuthFailed, "SRS authorization failed" },
-	{ RtcErrorCode::SRSStreamNotExisted, "SRS stream not exisetd" },
-	{ RtcErrorCode::SRSStreamAlreadyExisted, "SRS stream already existed" },
+	// { RtcErrorCode::SRSAuthFailed, "SRS authorization failed" },
+	// { RtcErrorCode::SRSStreamNotExisted, "SRS stream not exisetd" },
+	// { RtcErrorCode::SRSStreamAlreadyExisted, "SRS stream already existed" },
 	{ RtcErrorCode::AgentNotLogined, "Agent not logined" },
 	{ RtcErrorCode::AgentNotInited, "Agent not initialized" },
 	{ RtcErrorCode::Failed, "Failed" },
@@ -52,15 +53,6 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		};
 	}
 
-	vts_rtc::SRSStateHandler inner_SRS_state_handler = nullptr;
-	if (SRS_state_handler) {
-		inner_SRS_state_handler = [SRS_state_handler](
-			vts_rtc::SRSStreamurl streamurl, vts_rtc::P2PState p2p_state) {
-				SRS_state_handler((RtcSRSStreamurl)(streamurl.c_str()),
-					static_cast<RtcP2PState>(p2p_state));
-		};
-	}
-
 	vts_rtc::DataChannelStateHandler inner_datachannel_state_handler = nullptr;
 	if (datachannel_state_handler) {
 		inner_datachannel_state_handler = [datachannel_state_handler](
@@ -75,6 +67,15 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		inner_serverconnection_state_handler = [serverconnection_state_handler](
 			vts_rtc::ServerConnectionState state) {
 			serverconnection_state_handler(static_cast<RtcServerConnectionState>(state));
+		};
+	}
+
+	vts_rtc::SRSStateHandler inner_SRS_state_handler = nullptr;
+	if (SRS_state_handler) {
+		inner_SRS_state_handler = [SRS_state_handler](
+			vts_rtc::SRSStreamurl streamurl, vts_rtc::P2PState p2p_state) {
+				SRS_state_handler((RtcSRSStreamurl)(streamurl.c_str()),
+					static_cast<RtcP2PState>(p2p_state));
 		};
 	}
 
@@ -126,9 +127,135 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		inner_room_handler,
 		nullptr,
 		inner_P2P_state_handler,
-		inner_SRS_state_handler,
 		inner_datachannel_state_handler,
 		inner_serverconnection_state_handler,
+		inner_SRS_state_handler,
+		nullptr,
+		msg_handler,
+		audioframe_handler,
+		frame_handler);
+
+	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
+}
+
+RtcErrorCode RtcInitAgentUseStructure(RtcInitParams& st_params) {
+	RtcDestoryAgent();
+
+	gst_params.config_filepath = st_params.config_filepath;
+	gst_params.room_handler = st_params.room_handler;
+	gst_params.P2P_state_handler = st_params.P2P_state_handler;
+	gst_params.datachannel_state_handler = st_params.datachannel_state_handler;
+	gst_params.serverconnection_state_handler = st_params.serverconnection_state_handler;
+	gst_params.SRS_state_handler = st_params.SRS_state_handler;
+	gst_params.SRS_response_handler = st_params.SRS_response_handler;
+	gst_params.recv_msg_handler = st_params.recv_msg_handler;
+	gst_params.recv_audioframe_handler = st_params.recv_audioframe_handler;
+	gst_params.recv_frame_handler = st_params.recv_frame_handler;
+
+	vts_rtc::RoomHandler inner_room_handler = nullptr;
+	if (gst_params.room_handler) {
+		inner_room_handler = [](
+			vts_rtc::RoomOperation room_operation, const vts_rtc::RoomId& roomid) {
+			gst_params.room_handler(static_cast<RtcRoomOperation>(room_operation),
+				const_cast<char*>(roomid.c_str()));
+		};
+	}
+
+	vts_rtc::P2PStateHandler inner_P2P_state_handler = nullptr;
+	if (gst_params.P2P_state_handler) {
+		inner_P2P_state_handler = [](
+			vts_rtc::SessionId sessionid, vts_rtc::P2PState p2p_state) {
+			gst_params.P2P_state_handler(sessionid, static_cast<RtcP2PState>(p2p_state));
+		};
+	}
+
+	vts_rtc::SRSStateHandler inner_SRS_state_handler = nullptr;
+	if (gst_params.SRS_state_handler) {
+		inner_SRS_state_handler = [](
+			vts_rtc::SRSStreamurl streamurl, vts_rtc::P2PState p2p_state) {
+				gst_params.SRS_state_handler((RtcSRSStreamurl)(streamurl.c_str()),
+					static_cast<RtcP2PState>(p2p_state));
+		};
+	}
+
+	vts_rtc::SRSResponseHandler inner_SRS_response_handler = nullptr;
+	if (gst_params.SRS_response_handler) {
+		inner_SRS_response_handler = [](
+			vts_rtc::SRSStreamurl streamurl, vts_rtc::SRSResponse srs_response) {
+				gst_params.SRS_response_handler((RtcSRSStreamurl)(streamurl.c_str()),
+					static_cast<RtcSRSResponse>(srs_response));
+		};
+	}
+
+	vts_rtc::DataChannelStateHandler inner_datachannel_state_handler = nullptr;
+	if (gst_params.datachannel_state_handler) {
+		inner_datachannel_state_handler = [](
+			vts_rtc::SessionId sessionid, const std::string& label, vts_rtc::DataChannelState state) {
+				gst_params.datachannel_state_handler(sessionid, label.c_str(),
+					static_cast<RtcDataChannelState>(state));
+		};
+	}
+
+	vts_rtc::ServerConnectionStateHandler inner_serverconnection_state_handler = nullptr;
+	if (gst_params.serverconnection_state_handler) {
+		inner_serverconnection_state_handler = [](
+			vts_rtc::ServerConnectionState state) {
+			gst_params.serverconnection_state_handler(static_cast<RtcServerConnectionState>(state));
+		};
+	}
+
+	vts_rtc::RecvMessageHandler msg_handler = nullptr;
+	if (gst_params.recv_msg_handler) {
+		msg_handler = [](vts_rtc::SessionId sessionid,
+			const std::string& channel_label, const std::string& msg) {
+			gst_params.recv_msg_handler(sessionid, channel_label.c_str(), msg.c_str(), msg.size());
+		};
+	}
+
+	vts_rtc::RecvAudioFrameHandler audioframe_handler = nullptr;
+	if (gst_params.recv_audioframe_handler) {
+		audioframe_handler = [](
+			const vts_rtc::AudioSourceId& audio_sourceid,
+			vts_rtc::MediaSourceType audio_sourcetype,
+			size_t bits_per_sample,
+			size_t sample_rate,
+			size_t number_of_channels,
+			size_t number_of_frames,
+			const void* audio_data) {
+			size_t audio_data_size = bits_per_sample * number_of_channels *
+				number_of_frames / 8;
+			gst_params.recv_audioframe_handler(audio_sourceid.c_str(),
+				static_cast<RtcMediaSourceType>(audio_sourcetype),
+				bits_per_sample, sample_rate, number_of_channels,
+				number_of_frames, audio_data, audio_data_size);
+		};
+	}
+
+	vts_rtc::RecvFrameHandler frame_handler = nullptr;
+	if (gst_params.recv_frame_handler) {
+		frame_handler = [](
+			const vts_rtc::VideoSourceId& video_sourceid,
+			vts_rtc::MediaSourceType video_sourcetype,
+			size_t width,
+			size_t height,
+			size_t dimension,
+			const std::vector<unsigned char>& framebuffer) {
+			gst_params.recv_frame_handler(video_sourceid.c_str(),
+				static_cast<RtcMediaSourceType>(video_sourcetype),
+				width, height, dimension, framebuffer.data(),
+				framebuffer.size());
+		};
+	}
+
+	rtc_agent = vts_rtc::RtcAgent::Create(
+		std::string(gst_params.config_filepath),
+		inner_room_handler,
+		nullptr,
+		inner_P2P_state_handler,
+		inner_datachannel_state_handler,
+		inner_serverconnection_state_handler,
+		inner_SRS_state_handler,
+		inner_SRS_response_handler,
 		msg_handler,
 		audioframe_handler,
 		frame_handler);

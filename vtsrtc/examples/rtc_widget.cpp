@@ -32,9 +32,6 @@ void RtcWidget::HandleP2PState(RtcSessionId sessionid, RtcP2PState state) {
 	qDebug() << "-----> HandleP2PState, sessionid: " << sessionid << ", state: " << state;
 }
 
-void RtcWidget::HandleSRSState(RtcSRSStreamurl streamurl, RtcP2PState state) {
-	qDebug() << "-----> HandleSRSState, streamurl: " << streamurl << ", state: " << state;
-}
 
 void RtcWidget::HandleDataChannelState(RtcSessionId sessionid,
 	RtcDataChannelLabel label, RtcDataChannelState state) {
@@ -46,6 +43,13 @@ void RtcWidget::HandleServerConnectionState(RtcServerConnectionState state) {
 	qDebug() << "-----> HandleServerConnectionState, state: " << state;
 }
 
+void RtcWidget::HandleSRSState(RtcSRSStreamurl streamurl, RtcP2PState state) {
+	qDebug() << "-----> HandleSRSState, streamurl: " << streamurl << ", state: " << state;
+}
+
+void RtcWidget::HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse response) {
+	qDebug() << "-----> HandleSRSResponse, streamurl: " << streamurl << ", state: " << response;
+}
 
 void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
 	const char* channel_label, const char* msg, size_t msg_size) {
@@ -90,9 +94,23 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 	QWidget(parent) {
 	CreateUI();
 
-	auto code = RtcInitAgent(rtc_config_filepath.c_str(),
-		HandleRoom, HandleP2PState, HandleSRSState, HandleDataChannelState, HandleServerConnectionState,
-		HandleMessage, HandleAudioFrame, HandleFrame);
+	// auto code = RtcInitAgent(rtc_config_filepath.c_str(),
+	// 	HandleRoom, HandleP2PState, HandleSRSState, HandleDataChannelState, HandleServerConnectionState,
+	// 	HandleMessage, HandleAudioFrame, HandleFrame);
+
+	RtcInitParams st_params;
+	st_params.config_filepath = rtc_config_filepath.c_str();
+	st_params.room_handler = HandleRoom;
+	st_params.P2P_state_handler = HandleP2PState;
+	st_params.datachannel_state_handler = HandleDataChannelState;
+	st_params.serverconnection_state_handler = HandleServerConnectionState;
+	st_params.SRS_state_handler = HandleSRSState;
+	st_params.SRS_response_handler = HandleSRSResponse;
+	st_params.recv_msg_handler = HandleMessage;
+	st_params.recv_audioframe_handler = HandleAudioFrame;
+	st_params.recv_frame_handler = HandleFrame;
+	auto code = RtcInitAgentUseStructure(st_params);
+
 	CHECK_ERRORCODE
 
 	code = RtcAddDataChannel("datachannel", RtcPriorityType::High, true, -1);

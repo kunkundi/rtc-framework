@@ -36,9 +36,10 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	const vts_rtc::RoomHandler& room_handler,
 	const vts_rtc::UserHandler& user_handler,
 	const vts_rtc::P2PStateHandler& P2P_state_handler,
-	const vts_rtc::SRSStateHandler& SRS_state_handler,
 	const vts_rtc::DataChannelStateHandler& datachannel_state_handler,
 	const vts_rtc::ServerConnectionStateHandler& serverconnection_state_handler,
+	const vts_rtc::SRSStateHandler& SRS_state_handler,
+	const vts_rtc::SRSResponseHandler& SRS_response_handler,
 	const vts_rtc::RecvMessageHandler& recv_msg_handler,
 	const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
 	const vts_rtc::RecvFrameHandler& recv_frame_handler)
@@ -48,9 +49,10 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	room_handler_(room_handler),
 	user_handler_(user_handler),
 	P2P_state_handler_(P2P_state_handler),
-	SRS_state_handler_(SRS_state_handler),
 	datachannel_state_handler_(datachannel_state_handler),
 	serverconnection_state_handler_(serverconnection_state_handler),
+	SRS_state_handler_(SRS_state_handler),
+	SRS_publish_state_handler_(SRS_response_handler),
 	recv_msg_handler_(recv_msg_handler),
 	recv_audioframe_handler_(recv_audioframe_handler),
 	recv_frame_handler_(recv_frame_handler) {
@@ -907,6 +909,9 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 
 					auto code = result_obj["code"].get<int>();
 					if (code == 0) {
+						if (SRS_publish_state_handler_) {
+							SRS_publish_state_handler_(streamurl, vts_rtc::SRSResponse::SRSOK);
+						}
 						auto answer_sdp = result_obj["sdp"].get<std::string>();
 						auto SRS_sessionid = result_obj["sessionid"].get<vts_rtc::SRSSessionId>();
 
@@ -928,6 +933,9 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 					} else {
 						LOG_ERROR("Publish RTC to SRS failed, error code: %d", code);
 						RemoveCurrecntConnection();
+						if (code == 400 && SRS_publish_state_handler_) {
+								SRS_publish_state_handler_(streamurl, vts_rtc::SRSResponse::SRSStreamAlreadyExisted);
+						}
 					}
 				} catch (const SimpleWeb::system_error& e) {
 					LOG_ERROR("Publish RTC to SRS occurs error: %s", e.what());

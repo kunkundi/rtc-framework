@@ -23,10 +23,11 @@ public:
 private:
 	static void HandleRoom(RtcRoomOperation room_operation, RtcRoomId roomid);
 	static void HandleP2PState(RtcSessionId sessionid, RtcP2PState state);
-	static void HandleSRSState(RtcSRSStreamurl streamurl, RtcP2PState state);
 	static void HandleDataChannelState(RtcSessionId sessionid,
 		RtcDataChannelLabel label, RtcDataChannelState state);
 	static void HandleServerConnectionState(RtcServerConnectionState state);
+	static void HandleSRSState(RtcSRSStreamurl streamurl, RtcP2PState state);
+	static void HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse response);
 
 	static void HandleMessage(RtcSessionId remote_sessionid,
 		const char* channel_label, const char* msg, size_t msg_size);
