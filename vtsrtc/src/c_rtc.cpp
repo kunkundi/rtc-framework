@@ -28,7 +28,6 @@ RtcErrorCode ConvertCode(vts_rtc::ErrorCode roomcode) {
 RtcErrorCode RtcInitAgent(const char* config_filepath,
 	RoomHandler room_handler,
 	P2PStateHandler P2P_state_handler,
-	SRSStateHandler SRS_state_handler,
 	DataChannelStateHandler datachannel_state_handler,
 	ServerConnectionStateHandler serverconnection_state_handler,
 	RecvMessageHandler recv_msg_handler,
@@ -67,15 +66,6 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		inner_serverconnection_state_handler = [serverconnection_state_handler](
 			vts_rtc::ServerConnectionState state) {
 			serverconnection_state_handler(static_cast<RtcServerConnectionState>(state));
-		};
-	}
-
-	vts_rtc::SRSStateHandler inner_SRS_state_handler = nullptr;
-	if (SRS_state_handler) {
-		inner_SRS_state_handler = [SRS_state_handler](
-			vts_rtc::SRSStreamurl streamurl, vts_rtc::P2PState p2p_state) {
-				SRS_state_handler((RtcSRSStreamurl)(streamurl.c_str()),
-					static_cast<RtcP2PState>(p2p_state));
 		};
 	}
 
@@ -129,7 +119,7 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		inner_P2P_state_handler,
 		inner_datachannel_state_handler,
 		inner_serverconnection_state_handler,
-		inner_SRS_state_handler,
+		nullptr,
 		nullptr,
 		msg_handler,
 		audioframe_handler,
@@ -138,7 +128,7 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
-RtcErrorCode RtcInitAgentUseStructure(RtcInitParams& st_params) {
+RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 	RtcDestoryAgent();
 
 	gst_params.config_filepath = st_params.config_filepath;

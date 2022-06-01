@@ -109,7 +109,7 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 	st_params.recv_msg_handler = HandleMessage;
 	st_params.recv_audioframe_handler = HandleAudioFrame;
 	st_params.recv_frame_handler = HandleFrame;
-	auto code = RtcInitAgentUseStructure(st_params);
+	auto code = RtcInitAgentV2(st_params);
 
 	CHECK_ERRORCODE
 

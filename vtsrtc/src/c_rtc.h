@@ -170,6 +170,18 @@ typedef void(*RecvAudioFrameHandler)(RtcAudioSourceId, RtcMediaSourceType,
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, const unsigned char*, size_t);
 
+/**
+ * @param config_filepath Rtc配置文件
+ * @param room_handler 房间事件通知的回调函数
+ * @param P2P_state_handler P2P连接状态变化的回调函数
+ * @param datachannel_state_handler DataChannel连接状态变化的回调函数
+ * @param serverconnection_state_handler 与信令服务器连接状态变化的回调函数
+ * @param SRS_state_handler SRS连接状态变化的回调函数
+ * @param SRS_response_handler SRS推流响应的回调函数
+ * @param recv_msg_handler 收到远端消息的回调函数
+ * @param recv_frame_handler 收到远端图像帧的回调函数
+ * @param recv_audioframe_handler 收到远端音频帧的回调函数
+ */
 typedef struct RtcInitParams {
 	const char* config_filepath;
 	RoomHandler room_handler;
@@ -206,7 +218,6 @@ extern "C" {
 	RTC_API RtcErrorCode RtcInitAgent(const char* config_filepath,
 		RoomHandler room_handler,
 		P2PStateHandler P2P_state_handler,
-		SRSStateHandler SRS_state_handler,
 		DataChannelStateHandler datachannel_state_handler,
 		ServerConnectionStateHandler serverconnection_state_handler,
 		RecvMessageHandler recv_msg_handler,
@@ -222,7 +233,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 初始化失败
 	 * @attention 调用其他函数前，必须首先调用该函数
 	 */
-	RTC_API RtcErrorCode RtcInitAgentUseStructure(RtcInitParams& st_params);
+	RTC_API RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params);
 
 	/**
 	 * @brief 释放Rtc Agent资源
