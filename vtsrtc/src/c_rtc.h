@@ -222,7 +222,7 @@ extern "C" {
 	 *   @retval RtcErrorCode::Failed 初始化失败
 	 * @attention 调用其他函数前，必须首先调用该函数
 	 */
-	RTC_API RtcErrorCode RtcInitAgentWithPst(RtcInitParams& st_params);
+	RTC_API RtcErrorCode RtcInitAgentUseStructure(RtcInitParams& st_params);
 
 	/**
 	 * @brief 释放Rtc Agent资源
