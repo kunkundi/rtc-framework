@@ -818,6 +818,8 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 		return vts_rtc::ErrorCode::InternalError;
 	}
 
+	SRS_conn->peer_conn_ = peer_conn;
+
 	webrtc::RtpTransceiverInit rtp_transceiver_init;
 	rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendOnly;
 	
@@ -836,8 +838,6 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 	// API instead of RTCOfferAnswerOptions parameters for Unified Plan)
 	webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
 	peer_conn->CreateOffer(SRS_conn->create_sdp_observer_.get(), options);
-
-	SRS_conn->peer_conn_ = peer_conn;
 
 	SRS_conn->on_P2P_state_changed_ = [this](
 		const vts_rtc::SRSStreamurl& SRS_streamurl, vts_rtc::P2PState state) {
