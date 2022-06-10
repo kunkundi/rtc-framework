@@ -265,11 +265,13 @@ void RtcConnectionBase::InitObserverCallbacks() {
 			return;
 		}
 
-		peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
+		if(peer_conn_) {
+			peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
 
-		std::string sdp;
-		desc->ToString(&sdp);
-		HandleSdpCreateSucceed(sdp);
+			std::string sdp;
+			desc->ToString(&sdp);
+			HandleSdpCreateSucceed(sdp);
+		}
 	};
 
 	set_sdp_observer_ =

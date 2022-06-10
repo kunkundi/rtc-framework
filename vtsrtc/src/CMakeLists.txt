@@ -22,7 +22,7 @@ find_package(Boost REQUIRED)
 find_package(WebRTC REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-	message(STATUS "Use hardware accelerated decode on Aarch64")
+	message(STATUS "Use hardware accelerated codec on Aarch64")
 else()
 	message(STATUS "Use Nvcodec")
 	find_package(CUDAToolkit REQUIRED)

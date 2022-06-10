@@ -176,7 +176,7 @@ public:
 
 	//  A data buffer was successfully received.
 	void OnMessage(const webrtc::DataBuffer& buffer) override {
-		LOG_INFO("[WEBRTC] Data channel on message, buffer size: %d", buffer.size());
+		//LOG_INFO("[WEBRTC] Data channel on message, buffer size: %d", buffer.size());
 
 		if (on_message_) { on_message_(buffer); }
 	}
