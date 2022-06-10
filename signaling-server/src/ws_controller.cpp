@@ -22,7 +22,7 @@ void WsController::OnOpen(WsConnection conn) {
 
 	SteadyTimer pingtimer = std::make_shared<SimpleWeb::asio::steady_timer>(
 		io_context_->get_executor(), std::chrono::milliseconds(client_ping_timeout_));
-	pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, pingtimer));
+	pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn, pingtimer));
 	conn_pingtimer_map_[conn] = pingtimer;
 
 	json info_obj = {
@@ -60,7 +60,7 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 			auto pingtimer = conn_pingtimer_map_[conn];
 			try {
 				pingtimer->expires_after(std::chrono::milliseconds(client_ping_timeout_));
-				pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, pingtimer));
+				pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn, pingtimer));
 			}
 			catch (const boost::system::system_error& ec) {
 				LOG_ERROR("Call expires_after method of pingtimer failed, reason: %s", ec.what());
@@ -122,10 +122,10 @@ void WsController::OnClose(WsConnection conn, int status, const std::string& rea
 	this->CloseConnectionAndTimer(conn, false);
 }
 
-void WsController::SetClientPingTimeout(const SimpleWeb::error_code& ec, SteadyTimer pingtimer) {
+void WsController::SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConnection conn, SteadyTimer pingtimer) {
 	if (!ec) {
 		// exclude SimpleWeb::asio::error::operation_aborted
-		LOG_WARN("ping timeout, client not available");
+		LOG_WARN("remote peer: %s:%u ping timeout, client not available", conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
 
 		for (const auto& conn_pingtimer : conn_pingtimer_map_) {
 			if (conn_pingtimer.second == pingtimer) {

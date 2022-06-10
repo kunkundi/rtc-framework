@@ -76,7 +76,7 @@ private:
 	void OnError(WsConnection conn, const SimpleWeb::error_code& error_code);
 	void OnClose(WsConnection conn, int status, const std::string& reason);
 
-	void SetClientPingTimeout(const SimpleWeb::error_code& ec, SteadyTimer pingtimer);
+	void SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConnection conn, SteadyTimer pingtimer);
 	bool IsSessionidExisted(SessionId sessionid, RoomId& roomid) const;
 	void OpenRoom(Room newroom);
 	void LeaveRoom(SessionId sessionid);
