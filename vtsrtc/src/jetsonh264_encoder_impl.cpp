@@ -241,7 +241,7 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
     if(ret < 0) LOG_ERROR("Could not set encoder IDR interval");
 
     /* Set I frame interval for encoder */
-    ret = jetsonh264_encoder->setIFrameInterval(codec_settings->H264().keyFrameInterval);
+    ret = jetsonh264_encoder->setIFrameInterval(60);
     if(ret < 0) LOG_ERROR("Could not set encoder I-Frame interval");
 
 	ret = jetsonh264_encoder->setInsertSpsPpsAtIdrEnabled(true);
@@ -369,10 +369,6 @@ int32_t JetsonH264EncoderImpl::Encode(const VideoFrame& input_frame,
 		ReportError();
 		return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 	}
-	
-	// TO DO
-	// 	if (codec_.maxFramerate < 1 || codec_.maxBitrate < 1) {
-	// 	}
 
 	auto frame_buffer = input_frame.video_frame_buffer()->ToI420();
 
