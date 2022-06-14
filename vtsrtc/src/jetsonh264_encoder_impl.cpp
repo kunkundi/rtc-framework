@@ -10,7 +10,7 @@
 #include "jetsonh264_encoder_impl.h"
 
 // QP scaling thresholds.
-static const int kLowH264QpThreshold = 24;
+static const int kLowH264QpThreshold = 33;
 static const int kHighH264QpThreshold = 37;
 
 enum class H264EncoderImplEvent {
@@ -90,6 +90,7 @@ bool JetsonH264EncoderImpl::CapturePlaneDqCallback(struct v4l2_buffer *v4l2_buf,
 			auto qp = h264_bitstream_parser_.GetLastSliceQp();			
 			if (qp.has_value()) {
 				encoded_image->qp_ = qp.value();
+				LOG_WARN("QP = %d", qp.value());
 			}
 		}
 	}
@@ -226,14 +227,14 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
     ret = jetsonh264_encoder->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
     if(ret < 0) LOG_ERROR("Could not set encoder profile");
 
-    // ret = jetsonh264_encoder->setLevel((uint32_t)V4L2_MPEG_VIDEO_H264_LEVEL_5_1);
-    // if(ret < 0) LOG_ERROR("Could not set encoder level");
+    ret = jetsonh264_encoder->setLevel((uint32_t)V4L2_MPEG_VIDEO_H264_LEVEL_3_1);
+    if(ret < 0) LOG_ERROR("Could not set encoder level");
 
-    // /* Set rate control mode for encoder */
+    /* Set rate control mode for encoder */
     // ret = jetsonh264_encoder->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
     // if(ret < 0) LOG_ERROR("Could not set encoder rate control mode");
-    // /* Set peak bitrate value for variable bitrate mode for encoder */
-    // ret = jetsonh264_encoder->setPeakBitrate(codec_settings->maxBitrate * 1000);
+    /* Set peak bitrate value for variable bitrate mode for encoder */
+    // ret = jetsonh264_encoder->setPeakBitrate(10 * 1000 * 1000);
     // if(ret < 0) LOG_ERROR("Could not set encoder peak bitrate");
 
     /* Set IDR frame interval for encoder */
@@ -241,7 +242,7 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
     if(ret < 0) LOG_ERROR("Could not set encoder IDR interval");
 
     /* Set I frame interval for encoder */
-    ret = jetsonh264_encoder->setIFrameInterval(codec_settings->H264().keyFrameInterval);
+    ret = jetsonh264_encoder->setIFrameInterval(30 * 5);
     if(ret < 0) LOG_ERROR("Could not set encoder I-Frame interval");
 
 	ret = jetsonh264_encoder->setInsertSpsPpsAtIdrEnabled(true);
@@ -254,16 +255,15 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 	// ret = jetsonh264_encoder->setAlliFramesEncode(true);
     // if(ret < 0) LOG_ERROR("Could not set Alliframes encoding");
 
-    uint32_t nMinQpI = kLowH264QpThreshold;
-    uint32_t nMaxQpI = kHighH264QpThreshold;
-    uint32_t nMinQpP = kLowH264QpThreshold;
-    uint32_t nMaxQpP = kHighH264QpThreshold;
-    uint32_t nMinQpB = kLowH264QpThreshold;
-    uint32_t nMaxQpB = kHighH264QpThreshold;
+    uint32_t nMinQpI = 20;
+    uint32_t nMaxQpI = 40;
+    uint32_t nMinQpP = 20;
+    uint32_t nMaxQpP = 40;
+    uint32_t nMinQpB = 20;
+    uint32_t nMaxQpB = 40;
     /* Set Min & Max qp range values for I/P/B-frames to be used by encoder */
     ret = jetsonh264_encoder->setQpRange(nMinQpI, nMaxQpI, nMinQpP, nMaxQpP, nMinQpB, nMaxQpB);
     if(ret < 0) LOG_ERROR("Could not set quantization parameters");
-
 
 	ret = jetsonh264_encoder->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 1, false, true);
 	if(ret < 0) LOG_ERROR("Could not setup output plane");
@@ -369,10 +369,6 @@ int32_t JetsonH264EncoderImpl::Encode(const VideoFrame& input_frame,
 		ReportError();
 		return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 	}
-	
-	// TO DO
-	// 	if (codec_.maxFramerate < 1 || codec_.maxBitrate < 1) {
-	// 	}
 
 	auto frame_buffer = input_frame.video_frame_buffer()->ToI420();
 
@@ -469,6 +465,15 @@ VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
 	info.is_hardware_accelerated = true;
 	info.has_internal_source = false;
 	info.supports_simulcast = false;
+
+	// ResolutionBitrateLimits strategy[6] = 
+	//      {{0 * 0, 0, 0, 0},
+    //       {320 * 180, 0, 30000, 100000},
+    //       {480 * 270, 100000, 80000, 300000},
+    //       {640 * 360, 300000, 100000, 800000},
+    //       {960 * 540, 800000, 500000, 1500000},
+    //       {1280 * 720, 1500000, 1000000, 2500000}};
+	// info.resolution_bitrate_limits.insert(info.resolution_bitrate_limits.begin(), strategy, strategy+6);
 
 	return info;
 }

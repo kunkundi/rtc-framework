@@ -15,8 +15,9 @@ public:
 		int cropped_width = 0, cropped_height = 0;
 		int out_width = 0, out_height = 0;
 
-		if (!video_adapter_.AdaptFrameResolution(frame.width(), frame.height(), frame.timestamp_us() * 1000,
-			&cropped_width, &cropped_height, &out_width, &out_height)) {
+		if ((!video_adapter_.AdaptFrameResolution(frame.width(), frame.height(), frame.timestamp_us() * 1000,
+			&cropped_width, &cropped_height, &out_width, &out_height)) || 
+			(!video_broadcaster_.frame_wanted())){
 			// Drop frame in order to respect frame rate constraint.
 			return;
 		}
