@@ -10,7 +10,7 @@
 #include "jetsonh264_encoder_impl.h"
 
 // QP scaling thresholds.
-static const int kLowH264QpThreshold = 24;
+static const int kLowH264QpThreshold = 33;
 static const int kHighH264QpThreshold = 37;
 
 enum class H264EncoderImplEvent {
@@ -234,7 +234,7 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
     // ret = jetsonh264_encoder->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
     // if(ret < 0) LOG_ERROR("Could not set encoder rate control mode");
     /* Set peak bitrate value for variable bitrate mode for encoder */
-    // ret = jetsonh264_encoder->setPeakBitrate(10000 * 1000);
+    // ret = jetsonh264_encoder->setPeakBitrate(10 * 1000 * 1000);
     // if(ret < 0) LOG_ERROR("Could not set encoder peak bitrate");
 
     /* Set IDR frame interval for encoder */
@@ -461,7 +461,7 @@ VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
 	info.supports_native_handle = false;
 	info.implementation_name = "NvJetsonEncH264";
 	info.scaling_settings =
-		VideoEncoder::ScalingSettings(33, kHighH264QpThreshold);
+		VideoEncoder::ScalingSettings(kLowH264QpThreshold, kHighH264QpThreshold);
 	info.is_hardware_accelerated = true;
 	info.has_internal_source = false;
 	info.supports_simulcast = false;
