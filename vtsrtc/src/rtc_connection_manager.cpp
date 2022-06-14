@@ -208,6 +208,7 @@ void RtcConnectionManager::InitWebsocket() {
 	ws_client_->io_service = ws_io_context_;
 
 	ws_client_->on_open = [this](WsConnection conn) {
+		// websocket-client线程（对应ws_client_thread_实例）
 		LOG_INFO("Websocket onopen, remote peer: %s:%u",
 			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
 		
@@ -238,6 +239,7 @@ void RtcConnectionManager::InitWebsocket() {
 	};
 
 	ws_client_->on_message = [this](WsConnection conn, std::shared_ptr<WsClient::InMessage> in_message) {
+		// websocket-client线程（对应ws_client_thread_实例）
 		auto msg_json = json::parse(in_message->string(), nullptr, false);
 		if (msg_json.is_discarded()) {
 			LOG_ERROR("Websocket onmessage, parse message failed, not vaild json");
@@ -354,29 +356,19 @@ void RtcConnectionManager::InitWebsocket() {
 	};
 	
 	ws_client_->on_error = [this](WsConnection conn, const SimpleWeb::error_code& ec) {
+		// websocket-client线程（对应ws_client_thread_实例）
 		LOG_ERROR("Websocket onerror, remote peer: %s:%u, error value: %d, error message: %s",
 			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
 			ec.value(), ec.message().c_str());
-
-		{
-			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
-			current_sessionid_ = nullptr;
-			ws_conn_ = nullptr;
-		}
 
 		ReconnectWebsocket();
 	};
 
 	ws_client_->on_close = [this](WsConnection conn, int status, const std::string& reason) {
+		// websocket-client线程（对应ws_client_thread_实例）
 		LOG_INFO("Websocket onclose, remote peer: %s:%u, status value: %d, reason: %s",
 			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
 			status, reason.c_str());
-
-		{
-			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
-			current_sessionid_ = nullptr;
-			ws_conn_ = nullptr;
-		}
 
 		ReconnectWebsocket();
 	};
@@ -396,7 +388,9 @@ void RtcConnectionManager::SetPingTimeout(const SimpleWeb::error_code& ec) {
 		};
 		{
 			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
-			ws_conn_->send(heartbeat_json.dump());
+			if (ws_conn_) {
+				ws_conn_->send(heartbeat_json.dump());
+			}
 		}
 		
 		
@@ -408,16 +402,10 @@ void RtcConnectionManager::SetPingTimeout(const SimpleWeb::error_code& ec) {
 			pong_timer_->expires_after(std::chrono::milliseconds(rtc_config_.pong_timeout));
 		}
 		pong_timer_->async_wait([this](const SimpleWeb::error_code& ec) {
+			// websocket-client线程（对应ws_client_thread_实例）
 			if (!ec) {
 				// this means client is disconnected from websocket server
 				LOG_WARN("pong timeout, server not available");
-				
-				{
-					std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
-					ws_conn_->send_close(1000, "Rtcagent closed");
-					current_sessionid_ = nullptr;
-					ws_conn_ = nullptr;
-				}
 
 				ReconnectWebsocket();
 			}
@@ -429,6 +417,12 @@ void RtcConnectionManager::ReconnectWebsocket() {
 	RTC_DCHECK_RUN_ON(ws_client_thread_.get());
 
 	if (!network_disconnected_notified_) {
+		{
+			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+			current_sessionid_ = nullptr;
+			ws_conn_ = nullptr;
+		}
+
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this]() {
 				// remove p2p connections when WebSocket disconnected
@@ -805,6 +799,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 	}
 
 	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl);
+	SRS_conn->InitObserverCallbacks();
 
 	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
 	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
@@ -1005,6 +1000,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 	}
 
 	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl);
+	SRS_conn->InitObserverCallbacks();
 
 	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
 	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
@@ -1223,6 +1219,8 @@ void RtcConnectionManager::SetRtpSendersPriority() {
 
 void RtcConnectionManager::AddAudioTrack2PeerConnection(
 	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	// @attention
 	// 由于接收端的MediaStreamTrack的id域是唯一的GUID，并不具有业务含义，
 	// 所以此处约定一个track只属于一个stream，同时track和stream的label值相同，
@@ -1251,6 +1249,8 @@ void RtcConnectionManager::AddAudioTrack2PeerConnection(
 
 void RtcConnectionManager::AddVideoTrack2PeerConnection(
 	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn) {
+	RTC_DCHECK_RUN_ON(logic_thread_);
+
 	// @attention
 	// 由于接收端的MediaStreamTrack的id域是唯一的GUID，并不具有业务含义，
 	// 所以此处约定一个track只属于一个stream，同时track和stream的label值相同，
@@ -1263,7 +1263,7 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 			auto tracklabel = track_source->GetLabel();
 			auto video_track = peer_conn_factory_->CreateVideoTrack(
 				tracklabel, track_source.get());
-				// 帧率优先
+			// 帧率优先
 			video_track->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
 			auto rtpsender_error = peer_conn->AddTrack(
 				video_track, { tracklabel });
@@ -1301,34 +1301,42 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 	}
 }
 
-void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp) {
+void RtcConnectionManager::InteractRemotePeer(
+	vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
 	std::shared_ptr<RtcConnection> rtc_conn = nullptr;
 	{
 		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+		if (!current_sessionid_) {
+			LOG_ERROR("Interact remote peer, but current_sessionid_ is null");
+			return;
+		}
 		rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
 	}
+	rtc_conn->InitObserverCallbacks();
 
 	rtc_conn->on_P2P_state_changed_ = [this](
 		vts_rtc::SessionId remote_sessionid, vts_rtc::P2PState state) {
+			RTC_DCHECK_RUN_ON(logic_thread_);
+
 			if (P2P_state_handler_) {
 				P2P_state_handler_(remote_sessionid, state);
 			}
 
 			if (state == vts_rtc::P2PState::Failed) {
-				logic_thread_->PostTask(RTC_FROM_HERE,
-					[this, remote_sessionid]() {
-						// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
-						if (remotesessionid_rtcconn_map_.find(remote_sessionid) != remotesessionid_rtcconn_map_.cend()) {
-							remotesessionid_rtcconn_map_.erase(remote_sessionid);
-						}
-					});
+				// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
+				if (remotesessionid_rtcconn_map_.find(remote_sessionid) !=
+					remotesessionid_rtcconn_map_.cend()) {
+					remotesessionid_rtcconn_map_.erase(remote_sessionid);
+				}
 			}
 	};
 
-	rtc_conn->on_sdp_create_succeed_ = [this, offer_peer](vts_rtc::SessionId remote_sessionid, const std::string& sdp) {
-		// @attention: in signaling thread
+	rtc_conn->on_sdp_create_succeed_ =
+		[this, offer_peer](vts_rtc::SessionId remote_sessionid, const std::string& sdp) {
+		RTC_DCHECK_RUN_ON(logic_thread_);
+
 		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 		if (current_sessionid_ && ws_conn_) {
 			json msg_obj = {
@@ -1344,8 +1352,10 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 		}
 	};
 
-	rtc_conn->on_ice_candidate_received_ = [this](vts_rtc::SessionId remote_sessionid, const std::tuple<std::string, std::string, int>& ice_candidate) {
-		// @attention: in signaling thread
+	rtc_conn->on_ice_candidate_received_ = [this](vts_rtc::SessionId remote_sessionid,
+		const std::tuple<std::string, std::string, int>& ice_candidate) {
+		RTC_DCHECK_RUN_ON(logic_thread_);
+
 		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 		if (current_sessionid_ && ws_conn_) {
 			json msg_obj = {
@@ -1411,12 +1421,15 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 	else {
 		// set remote offer SDP
 		webrtc::SdpParseError error;
-		auto remote_session_description = webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, remote_sdp, &error);
+		auto remote_session_description =
+			webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, remote_sdp, &error);
 		if (!remote_session_description) {
-			LOG_ERROR("Interact remote peer, create SDP failed, line: %s, description: %s", error.line.c_str(), error.description.c_str());
+			LOG_ERROR("Interact remote peer, create SDP failed, line: %s, description: %s",
+				error.line.c_str(), error.description.c_str());
 			return;
 		}
-		rtc_conn->peer_conn_->SetRemoteDescription(std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
+		rtc_conn->peer_conn_->SetRemoteDescription(
+			std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
 
 		// create answer
 		webrtc::RtpTransceiverInit rtp_transceiver_init;
@@ -1435,23 +1448,29 @@ void RtcConnectionManager::InteractRemotePeer(vts_rtc::SessionId remote_sessioni
 	remotesessionid_rtcconn_map_[remote_sessionid] = rtc_conn;
 }
 
-void RtcConnectionManager::AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp) {
+void RtcConnectionManager::AckRemotePeerSdp(
+	vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 	
-	if (remotesessionid_rtcconn_map_.find(remote_sessionid) == remotesessionid_rtcconn_map_.cend()) {
-		LOG_ERROR("Ack remote peer SDP, rtc connection of remote_sessionid: %u do not exist", remote_sessionid);
+	if (remotesessionid_rtcconn_map_.find(remote_sessionid) ==
+		remotesessionid_rtcconn_map_.cend()) {
+		LOG_ERROR("Ack remote peer SDP, rtc connection of remote_sessionid: "
+			"%u do not exist", remote_sessionid);
 		return;
 	}
 
 	auto rtc_conn = remotesessionid_rtcconn_map_[remote_sessionid];
 	webrtc::SdpParseError error;
-	auto remote_session_description = webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer, remote_sdp, &error);
+	auto remote_session_description =
+		webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer, remote_sdp, &error);
 	if (!remote_session_description) {
-		LOG_ERROR("Ack remote peer SDP, create SDP failed, line: %s, description: %s", error.line.c_str(), error.description.c_str());
+		LOG_ERROR("Ack remote peer SDP, create SDP failed, line: %s, description: %s",
+			error.line.c_str(), error.description.c_str());
 		remotesessionid_rtcconn_map_.erase(remote_sessionid);
 		return;
 	}
-	rtc_conn->peer_conn_->SetRemoteDescription(std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
+	rtc_conn->peer_conn_->SetRemoteDescription(
+		std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
 
 	this->SetRtpSendersPriority();
 }

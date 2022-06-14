@@ -49,7 +49,8 @@ public:
 		if (receiver) {
 			auto media_track = receiver->track();
 			if (media_track) {
-				LOG_INFO("[WEBRTC] On add track, receiverid: %s, media trackid: %s", receiver->id().c_str(), media_track->id().c_str());
+				LOG_INFO("[WEBRTC] On add track, receiverid: %s, media trackid: %s",
+					receiver->id().c_str(), media_track->id().c_str());
 			}
 			else {
 				LOG_INFO("[WEBRTC] On add track, receiverid: %s", receiver->id().c_str());
@@ -67,7 +68,8 @@ public:
 		if (receiver) {
 			auto media_track = receiver->track();
 			if (media_track) {
-				LOG_INFO("[WEBRTC] On remove track, receiverid: %s, media trackid: %s", receiver->id().c_str(), media_track->id().c_str());
+				LOG_INFO("[WEBRTC] On remove track, receiverid: %s, media trackid: %s",
+					receiver->id().c_str(), media_track->id().c_str());
 			}
 			else {
 				LOG_INFO("[WEBRTC] On remove track, receiverid: %s", receiver->id().c_str());
@@ -125,13 +127,17 @@ public:
 		}
 	}
 
-	void OnIceCandidateError(const std::string& host_candidate, const std::string& url, int error_code, const std::string& error_text) override {
-		LOG_ERROR("[WEBRTC] On ICE candidate error, host_candidate: %s, url: %s, error_code: %d, error_text: %s", 
+	void OnIceCandidateError(const std::string& host_candidate, const std::string& url,
+		int error_code, const std::string& error_text) override {
+		LOG_ERROR("[WEBRTC] On ICE candidate error, "
+			"host_candidate: %s, url: %s, error_code: %d, error_text: %s", 
 			host_candidate.c_str(), url.c_str(), error_code, error_text.c_str());
 	}
 
-	void OnIceCandidateError(const std::string& address, int port, const std::string& url, int error_code, const std::string& error_text) override {
-		LOG_ERROR("[WEBRTC] On ICE candidate error, address: %s, port: %d, url: %s, error_code: %d, error_text: %s",
+	void OnIceCandidateError(const std::string& address, int port, const std::string& url,
+		int error_code, const std::string& error_text) override {
+		LOG_ERROR("[WEBRTC] On ICE candidate error, "
+			"address: %s, port: %d, url: %s, error_code: %d, error_text: %s",
 			address.c_str(), port, url.c_str(), error_code, error_text.c_str());
 	}
 
@@ -183,7 +189,7 @@ public:
 
 	// The data channel's buffered_amount has changed.
 	void OnBufferedAmountChange(uint64_t sent_data_size) override {
-		LOG_INFO("[WEBRTC] Data channel on buffered amount change, sent data size: %llu", sent_data_size);
+		//LOG_INFO("[WEBRTC] Data channel on buffered amount change, sent data size: %llu", sent_data_size);
 	}
 
 private:
@@ -202,9 +208,12 @@ public:
 
 	// Successfully created a session description.
 	void OnSuccess(webrtc::SessionDescriptionInterface* desc) override {
-		LOG_INFO("[WEBRTC] Create SDP on success, sessionid: %s, session version: %s", desc->session_id().c_str(), desc->session_version().c_str());
+		if (desc) {
+			LOG_INFO("[WEBRTC] Create SDP on success, sessionid: %s, session version: %s",
+				desc->session_id().c_str(), desc->session_version().c_str());
 
-		if (on_success_) { on_success_(desc); }
+			if (on_success_) { on_success_(desc); }
+		}
 	}
 
 	// Failure to create a session description.

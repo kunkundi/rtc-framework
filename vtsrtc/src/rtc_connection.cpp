@@ -5,7 +5,6 @@
 /////////////////// BEGIN RtcConnectionBase ///////////////////
 RtcConnectionBase::RtcConnectionBase() :
 	logic_thread_(rtc::Thread::Current()) {
-	InitObserverCallbacks();
 }
 
 RtcConnectionBase::~RtcConnectionBase() {
@@ -38,7 +37,13 @@ RtcConnectionBase::~RtcConnectionBase() {
 
 	if (peer_conn_) {
 		peer_conn_->Close();
+		peer_conn_ = nullptr;
 	}
+
+	rtc_pc_videosinks_.clear();
+	rtc_pc_audiosinks_.clear();
+	datachannel_observers_.clear();
+	label_datachannel_map_.clear();
 }
 
 RtcConnectionBase::PeerConnState RtcConnectionBase::GetPeerConnectionState()
@@ -120,12 +125,15 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 	datachannel_observers_.emplace_back(observer);
 	datachannel->RegisterObserver(observer.get());
 
-	observer->on_statechange = [this, datachannel]() {
-		LOG_INFO("[WEBRTC] Data channel (%s) on state change, new state: %s",
-			datachannel->label().c_str(),
-			webrtc::DataChannelInterface::DataStateString(datachannel->state()));
+	std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
+	// 注意：lambda的捕获是立刻发生的，而不是等到函数调用的时候
+	observer->on_statechange = [this, weak_self, datachannel]() {
+		auto self = weak_self.lock();
+		if (!self) {
+			return;
+		}
 
-		std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
+		// signaling线程
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this, weak_self, datachannel]() {
 				auto self = weak_self.lock();
@@ -139,13 +147,21 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 					return;
 				}
 
+				LOG_INFO("[WEBRTC] Data channel (%s) on state change, new state: %s",
+					datachannel->label().c_str(),
+					webrtc::DataChannelInterface::DataStateString(datachannel->state()));
+
 				HandleDataChannelStateChanged(datachannel->label(),
 					datachannel->state());
 			});
 	};
 
-	observer->on_message_ = [this, datachannel](const webrtc::DataBuffer& buffer) {
-		std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
+	observer->on_message_ = [this, weak_self, datachannel](const webrtc::DataBuffer& buffer) {
+		auto self = weak_self.lock();
+		if (!self) {
+			return;
+		}
+
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this, weak_self, datachannel, buffer]() {
 				auto self = weak_self.lock();
@@ -168,48 +184,101 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 void RtcConnectionBase::InitObserverCallbacks() {
 	RTC_DCHECK_RUN_ON(logic_thread_);
 
-	peer_conn_observer_.on_P2PState_changed_ = [this](PeerConnState state) {
+	std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
+	peer_conn_observer_.on_P2PState_changed_ = [this, weak_self](PeerConnState state) {
+		auto self = weak_self.lock();
+		if (!self) {
+			return;
+		}
+
 		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, state]() {
+			[this, weak_self, state]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] P2P state changed, "
+						"but rtc connection has been destroyed.");
+					return;
+				}
+
 				HandleP2PStateChanged(state);
 			});
 	};
 
-	peer_conn_observer_.on_addtrack_ = [this](
+	peer_conn_observer_.on_addtrack_ = [this, weak_self](
 		rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&
 		streams) {
-		auto media_track = receiver->track();
-		if (!media_track) {
+		auto self = weak_self.lock();
+		if (!self) {
 			return;
 		}
 
-		if (media_track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
-			auto audio_trackid =
-				streams.size() > 0 ? streams[0]->id() : std::string("unknown");
-			auto audio_track =
-				static_cast<webrtc::AudioTrackInterface*>(media_track.get());
-			auto rtc_audiosink = std::make_unique<RtcAudioSink>(audio_trackid);
-			rtc_audiosink->on_audioframe_ = std::bind(
-				&RtcConnectionBase::HandleAudioFrameReceived, this,
-				std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-				std::placeholders::_4, std::placeholders::_5, std::placeholders::_6);
-			audio_track->AddSink(rtc_audiosink.get());
-			rtc_pc_audiosinks_.emplace_back(std::move(rtc_audiosink));
-		}
-		else if (media_track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
-			auto video_trackid =
-				streams.size() > 0 ? streams[0]->id() : std::string("unknown");
-			auto video_track =
-				static_cast<webrtc::VideoTrackInterface*>(media_track.get());
-			auto rtc_videosink = std::make_unique<RtcVideoSink>(video_trackid);
-			rtc_videosink->on_frame_ = std::bind(
-				&RtcConnectionBase::HandleFrameReceived, this,
-				std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-				std::placeholders::_4, std::placeholders::_5);
-			video_track->AddOrUpdateSink(rtc_videosink.get(), rtc::VideoSinkWants());
-			rtc_pc_videosinks_.emplace_back(std::move(rtc_videosink));
-		}
+		// 注意：receiver和streams的生命周期和peer_conn_绑定
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, weak_self, receiver, streams]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] P2P on addtrack, "
+						"but rtc connection has been destroyed.");
+					return;
+				}
+
+				if (!receiver) {
+					return;
+				}
+
+				auto media_track = receiver->track();
+				if (!media_track) {
+					return;
+				}
+
+				if (media_track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
+					auto audio_trackid =
+						streams.size() > 0 && streams[0] ? streams[0]->id() : std::string("unknown");
+					auto audio_track =
+						static_cast<webrtc::AudioTrackInterface*>(media_track.get());
+					auto rtc_audiosink = std::make_unique<RtcAudioSink>(audio_trackid);
+					rtc_audiosink->on_audioframe_ = [this, weak_self](
+						const vts_rtc::AudioSourceId& sourceid, size_t bits_per_sample,
+						size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
+						const void* audio_data) {
+						// IncomingAudioStream线程
+						auto self = weak_self.lock();
+						if (!self) {
+							LOG_ERROR("[WEBRTC] On audio frame, "
+								"but rtc connection has been destroyed.");
+							return;
+						}
+
+						HandleAudioFrameReceived(sourceid, bits_per_sample,
+							sample_rate, number_of_channels, number_of_frames, audio_data);
+					};
+					audio_track->AddSink(rtc_audiosink.get());
+					rtc_pc_audiosinks_.emplace_back(std::move(rtc_audiosink));
+				}
+				else if (media_track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+					auto video_trackid =
+						streams.size() > 0 && streams[0] ? streams[0]->id() : std::string("unknown");
+					auto video_track =
+						static_cast<webrtc::VideoTrackInterface*>(media_track.get());
+					auto rtc_videosink = std::make_unique<RtcVideoSink>(video_trackid);
+					rtc_videosink->on_frame_ = [this, weak_self](
+						const vts_rtc::VideoSourceId& sourceid, size_t width, size_t height, size_t dimension,
+						const std::vector<unsigned char>& buffer) {
+						// IncomingVideoStream线程
+						auto self = weak_self.lock();
+						if (!self) {
+							LOG_ERROR("[WEBRTC] On video frame, "
+								"but rtc connection has been destroyed.");
+							return;
+						}
+
+						HandleFrameReceived(sourceid, width, height, dimension, buffer);
+					};
+					video_track->AddOrUpdateSink(rtc_videosink.get(), rtc::VideoSinkWants());
+					rtc_pc_videosinks_.emplace_back(std::move(rtc_videosink));
+				}
+			});
 	};
 
 	peer_conn_observer_.on_removetrack_ = [](
@@ -218,13 +287,18 @@ void RtcConnectionBase::InitObserverCallbacks() {
 	};
 
 	peer_conn_observer_.on_datachannel_ =
-		[this](rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) {
-		std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
+		[this, weak_self](rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel) {
+		auto self = weak_self.lock();
+		if (!self) {
+			return;
+		}
+
+		// 注意：datachannel的生命周期和peer_conn_绑定
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this, weak_self, datachannel]() {
 				auto self = weak_self.lock();
 				if (!self) {
-					LOG_ERROR("[WEBRTC] Data channel state changed, "
+					LOG_ERROR("[WEBRTC] P2P on datachannel, "
 						"but rtc connection has been destroyed.");
 					return;
 				}
@@ -249,33 +323,70 @@ void RtcConnectionBase::InitObserverCallbacks() {
 	};
 
 	peer_conn_observer_.on_ice_candidate_ =
-		[this](const webrtc::IceCandidateInterface* candidate) {
-		std::string candidate_str;
-		candidate->ToString(&candidate_str);
-
-		HandleIceCandidateReceived(
-			candidate_str, candidate->sdp_mid(), candidate->sdp_mline_index());
-	};
-
-	create_sdp_observer_ =
-		new rtc::RefCountedObject<CreateSessionDescriptionObserver>();
-	create_sdp_observer_->on_success_ =
-		[this](webrtc::SessionDescriptionInterface* desc) {
-		if (!desc) {
+		[this, weak_self](const webrtc::IceCandidateInterface* candidate) {
+		auto self = weak_self.lock();
+		if (!self) {
 			return;
 		}
 
-		if(peer_conn_) {
-			peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
-
-			std::string sdp;
-			desc->ToString(&sdp);
-			HandleSdpCreateSucceed(sdp);
+		if (!candidate) {
+			return;
 		}
+
+		std::string candidate_str;
+		candidate->ToString(&candidate_str);
+		std::string sdp_mid = candidate->sdp_mid();
+		int sdp_mline_idx = candidate->sdp_mline_index();
+
+		// 注意：不能直接传递candidate变量，因为candidate生命周期指在当前回调有效
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, weak_self, candidate_str, sdp_mid, sdp_mline_idx] {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] P2P on ice candidate, "
+						"but rtc connection has been destroyed.");
+					return;
+				}
+
+				HandleIceCandidateReceived(
+					candidate_str, sdp_mid, sdp_mline_idx);
+			});
 	};
 
 	set_sdp_observer_ =
 		new rtc::RefCountedObject<SetSessionDescriptionObserver>();
+
+	create_sdp_observer_ =
+		new rtc::RefCountedObject<CreateSessionDescriptionObserver>();
+	create_sdp_observer_->on_success_ =
+		[this, weak_self](webrtc::SessionDescriptionInterface* desc) {
+		auto self = weak_self.lock();
+		if (!self) {
+			return;
+		}
+
+		// 注意：CreateSessionDescriptionObserver的回调函数OnSuccess会将desc所有权转移
+		// 所以与上面candidate变量的情况并不相同，desc生命周期更长
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, weak_self, desc]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] Create SDP on success, "
+						"but rtc connection has been destroyed.");
+					return;
+				}
+
+				if (!desc || !peer_conn_) {
+					return;
+				}
+
+				peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
+
+				std::string sdp;
+				desc->ToString(&sdp);
+				HandleSdpCreateSucceed(sdp);
+			});
+	};
 
 	set_remote_sdp_observer_ =
 		new rtc::RefCountedObject<SetRemoteDescriptionObserver>();

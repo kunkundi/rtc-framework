@@ -24,6 +24,7 @@ public:
 	RtcConnectionBase();
 	virtual ~RtcConnectionBase();
 
+	void InitObserverCallbacks();
 	PeerConnState GetPeerConnectionState() const;
 	bool DataChannelExisted(const std::string& label) const;
 	RtcDataChannelState GetDataChannelState(const std::string& label) const;
@@ -51,7 +52,6 @@ protected:
 private:
 	void InitDataChannelObserverCallbacks(
 		rtc::scoped_refptr<webrtc::DataChannelInterface> datachannel);
-	void InitObserverCallbacks();
 
 protected:
 	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn_ = nullptr;
