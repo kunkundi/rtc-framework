@@ -213,6 +213,10 @@ void RtcConnectionManager::InitWebsocket() {
 			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
 		
 		network_disconnected_notified_ = false;
+		lock_reconnect_ = false;
+		if (reconnect_timer_) {
+			reconnect_timer_->cancel();
+		}
 
 		{
 			std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
@@ -449,9 +453,27 @@ void RtcConnectionManager::ReconnectWebsocket() {
 		pong_timer_->cancel();
 	}
 
-	// stop first
-	ws_client_->stop();
-	ws_client_->start([]() { LOG_INFO("Websocket client is reconnecting..."); });
+	if (!lock_reconnect_) {
+		lock_reconnect_ = true;
+		if (!reconnect_timer_) {
+			reconnect_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
+				ws_io_context_->get_executor(), std::chrono::milliseconds(1000));
+		}
+		else {
+			reconnect_timer_->expires_after(std::chrono::milliseconds(1000));
+		}
+		reconnect_timer_->async_wait([this](const SimpleWeb::error_code& ec) {
+			// websocket-client线程（对应ws_client_thread_实例）
+			if (!ec) {
+				lock_reconnect_ = false;
+				ReconnectWebsocket();
+			}
+			});
+
+		// stop first
+		ws_client_->stop();
+		ws_client_->start([]() { LOG_INFO("Websocket client is reconnecting..."); });
+	}
 }
 
 bool RtcConnectionManager::AddDataChannel(const std::string& label, vts_rtc::PriorityType priority,

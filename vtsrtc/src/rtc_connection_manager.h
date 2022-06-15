@@ -148,6 +148,8 @@ private:
 	std::shared_ptr<SimpleWeb::io_context> ws_io_context_ = nullptr;
 	bool network_disconnected_notified_ = false;
 	SteadyTimer ping_timer_ = nullptr, pong_timer_ = nullptr;
+	bool lock_reconnect_ = false;
+	SteadyTimer reconnect_timer_ = nullptr;
 	// @attention: WsClient start() and stop() method is thread-safe
 	std::shared_ptr<WsClient> ws_client_ = nullptr;
 	std::unique_ptr<rtc::Thread> ws_client_thread_ = nullptr;
