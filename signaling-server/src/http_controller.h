@@ -43,4 +43,7 @@ private:
 
 private:
 	std::shared_ptr<WsController> ws_ctrl_;
+	std::string last_request_address_ = "";
+	unsigned short last_request_port_ = 0;
+	int last_same_request_ = 0;
 };

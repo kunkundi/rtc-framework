@@ -102,7 +102,20 @@ void HttpController::QueryRoom(HttpResponse response, HttpRequest request) {
 }
 
 void HttpController::QueryRooms(HttpResponse response, HttpRequest request) {
-	LOG_REQUEST_INFO("query rooms");
+	if (last_request_address_ != request->remote_endpoint().address().to_string() ||
+		last_request_port_ != request->remote_endpoint().port()) {
+		if (!last_request_address_.empty() && last_request_port_ != 0 && last_same_request_ > 1) {
+			LOG_INFO("Remote peer: [%s:%u] query rooms <%d> times", last_request_address_.c_str(),
+				last_request_port_, last_same_request_);
+		}
+		LOG_REQUEST_INFO("query rooms");
+		last_request_address_ = request->remote_endpoint().address().to_string();
+		last_request_port_ = request->remote_endpoint().port();
+		last_same_request_ = 0;
+	}
+	else {
+		last_same_request_++;
+	}
 
 	this->WriteJson(response, HttpStatus::OK, ws_ctrl_->rooms_);
 }
@@ -147,6 +160,7 @@ void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
 		}
 
 		rooms.erase(roomid);
+		LOG_WARN("Room <%s> is closed because of OpenRoom with force", roomid.c_str());
 	}
 
 
