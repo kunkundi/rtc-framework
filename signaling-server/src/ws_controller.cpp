@@ -205,8 +205,10 @@ void WsController::LeaveRoom(SessionId sessionid) {
 			existed_room.broadcaster_sessionid == sessionid) ||
 			m_sessionids.size() - cnt == 0) {
 			rooms_.erase(existed_roomid);
-			LOG_WARN("Room <%s> is closed [%d][%d]", (existed_room.room_type == RoomType::VideoBroadcasting &&
-				existed_room.broadcaster_sessionid == sessionid), (m_sessionids.size() - cnt == 0));
+			LOG_WARN("Room <%s> is closed [%d][%d]", existed_roomid.c_str(), 
+				(existed_room.room_type == RoomType::VideoBroadcasting &&
+				existed_room.broadcaster_sessionid == sessionid), 
+				(m_sessionids.size() - cnt == 0));
 
 			// notify rtc agent
 			for (const auto& sessionid_conn : sessionid_conn_map_) {
