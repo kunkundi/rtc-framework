@@ -165,6 +165,7 @@ void WsController::OpenRoom(Room newroom) {
 
 void WsController::CloseRoom(RoomId& roomid) {
 	rooms_.erase(roomid);
+	LOG_WARN("Room <%s> is closed", roomid.c_str());
 
 	// notify rtc agent
 	for (const auto& sessionid_conn : sessionid_conn_map_) {
@@ -204,6 +205,10 @@ void WsController::LeaveRoom(SessionId sessionid) {
 			existed_room.broadcaster_sessionid == sessionid) ||
 			m_sessionids.size() - cnt == 0) {
 			rooms_.erase(existed_roomid);
+			LOG_WARN("Room <%s> is closed [%d][%d]", existed_roomid.c_str(), 
+				(existed_room.room_type == RoomType::VideoBroadcasting &&
+				existed_room.broadcaster_sessionid == sessionid), 
+				(m_sessionids.size() - cnt == 0));
 
 			// notify rtc agent
 			for (const auto& sessionid_conn : sessionid_conn_map_) {
@@ -218,6 +223,7 @@ void WsController::LeaveRoom(SessionId sessionid) {
 		else {
 			m_sessionids.erase(std::remove(
 				m_sessionids.begin(), m_sessionids.end(), sessionid), m_sessionids.end());
+			LOG_WARN("SessionIds for room <%s> is cleared", existed_roomid.c_str());
 		}
 	}
 }
@@ -231,6 +237,7 @@ void WsController::CloseConnectionAndTimer(WsConnection conn, bool notify_client
 				conn->send_close(1000, "Closed by signaling server");
 			}
 			iter = sessionid_conn_map_.erase(iter);
+			LOG_WARN("sessionid_conn_map_ is cleard because of CloseConnectionAndTimer");
 		}
 		else {
 			++iter;
