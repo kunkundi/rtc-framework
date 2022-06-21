@@ -57,7 +57,7 @@ public:
 	vts_rtc::PriorityType priority_ = vts_rtc::PriorityType::Low;
 };
 
-class RtcConnectionManager {
+class RtcConnectionManager : public std::enable_shared_from_this<RtcConnectionManager> {
 	using HttpClient = SimpleWeb::Client<SimpleWeb::HTTP>;
 	using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 	using WsConnection = std::shared_ptr<WsClient::Connection>;

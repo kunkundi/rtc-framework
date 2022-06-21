@@ -108,6 +108,7 @@ struct RtcConfig {
 
 	long ping_timeout = 2000;
 	long pong_timeout = 4000;  // unit: milliseconds
+	long reconnect_interval = 2500;
 };
 
 struct VideoDeviceCapability {

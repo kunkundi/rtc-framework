@@ -457,10 +457,10 @@ void RtcConnectionManager::ReconnectWebsocket() {
 		lock_reconnect_ = true;
 		if (!reconnect_timer_) {
 			reconnect_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-				ws_io_context_->get_executor(), std::chrono::milliseconds(1000));
+				ws_io_context_->get_executor(), std::chrono::milliseconds(rtc_config_.reconnect_interval));
 		}
 		else {
-			reconnect_timer_->expires_after(std::chrono::milliseconds(1000));
+			reconnect_timer_->expires_after(std::chrono::milliseconds(rtc_config_.reconnect_interval));
 		}
 		reconnect_timer_->async_wait([this](const SimpleWeb::error_code& ec) {
 			// websocket-client线程（对应ws_client_thread_实例）
@@ -1047,8 +1047,33 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 
 	SRS_conn->peer_conn_ = peer_conn;
 
-	SRS_conn->on_audioframe_received_ = recv_audioframe_handler_;
-	SRS_conn->on_frame_received_ = recv_frame_handler_;
+	std::weak_ptr<RtcConnectionManager> weak_self = shared_from_this();
+	SRS_conn->on_audioframe_received_ = [this, weak_self](
+		const vts_rtc::AudioSourceId& sourceid, enum vts_rtc::MediaSourceType type,
+		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
+		const void* audio_data) {
+			auto self = weak_self.lock();
+			if (!self) {
+				LOG_ERROR("[WEBRTC] SRS connection on_audioframe_received, "
+					"but rtc connection manager has been destroyed.");
+				return;
+			}
+
+			recv_audioframe_handler_(sourceid, type,
+				bits_per_sample, sample_rate, number_of_channels, number_of_frames, audio_data);
+	};
+	SRS_conn->on_frame_received_ = [this, weak_self](
+		const vts_rtc::VideoSourceId& sourceid, enum vts_rtc::MediaSourceType type,
+		size_t width, size_t height, size_t dimension, const std::vector<unsigned char>& buffer) {
+			auto self = weak_self.lock();
+			if (!self) {
+				LOG_ERROR("[WEBRTC] SRS connection on_frame_received, "
+					"but rtc connection manager has been destroyed.");
+				return;
+			}
+
+			recv_frame_handler_(sourceid, type, width, height, dimension, buffer);
+	};
 
 	SRS_conn->on_P2P_state_changed_ = [this](
 		const vts_rtc::SRSStreamurl& SRS_streamurl, vts_rtc::P2PState state) {
@@ -1396,8 +1421,33 @@ void RtcConnectionManager::InteractRemotePeer(
 	rtc_conn->on_dc_state_changed_ = datachannel_state_handler_;
 	rtc_conn->on_dc_message_received_ = recv_msg_handler_;
 
-	rtc_conn->on_audioframe_received_ = recv_audioframe_handler_;
-	rtc_conn->on_frame_received_ = recv_frame_handler_;
+	std::weak_ptr<RtcConnectionManager> weak_self = shared_from_this();
+	rtc_conn->on_audioframe_received_ = [this, weak_self](
+		const vts_rtc::AudioSourceId& sourceid, enum vts_rtc::MediaSourceType type,
+		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
+		const void* audio_data) {
+		auto self = weak_self.lock();
+		if (!self) {
+			LOG_ERROR("[WEBRTC] Rtc connection on_audioframe_received, "
+				"but rtc connection manager has been destroyed.");
+			return;
+		}
+
+		recv_audioframe_handler_(sourceid, type,
+			bits_per_sample, sample_rate, number_of_channels, number_of_frames, audio_data);
+	};
+	rtc_conn->on_frame_received_ = [this, weak_self](
+		const vts_rtc::VideoSourceId& sourceid, enum vts_rtc::MediaSourceType type,
+		size_t width, size_t height, size_t dimension, const std::vector<unsigned char>& buffer) {
+		auto self = weak_self.lock();
+		if (!self) {
+			LOG_ERROR("[WEBRTC] Rtc connection on_frame_received, "
+				"but rtc connection manager has been destroyed.");
+			return;
+		}
+
+		recv_frame_handler_(sourceid, type, width, height, dimension, buffer);
+	};
 
 	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
 	for (const auto& ice_server : rtc_config_.ice_servers) {

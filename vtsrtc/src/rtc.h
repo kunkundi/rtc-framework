@@ -110,7 +110,7 @@ private:
 private:
 	std::unique_ptr<rtc::Thread> logic_thread_;
 	std::shared_ptr<RtcDeviceManager> rtc_device_manager_;
-	std::unique_ptr<RtcConnectionManager> rtc_conn_manager_;
+	std::shared_ptr<RtcConnectionManager> rtc_conn_manager_;
 };
 
 VTS_RTC_NAMESPACE_END

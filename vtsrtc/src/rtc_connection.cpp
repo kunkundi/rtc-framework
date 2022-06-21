@@ -359,16 +359,19 @@ void RtcConnectionBase::InitObserverCallbacks() {
 	create_sdp_observer_ =
 		new rtc::RefCountedObject<CreateSessionDescriptionObserver>();
 	create_sdp_observer_->on_success_ =
-		[this, weak_self](webrtc::SessionDescriptionInterface* desc) {
+		[this, weak_self](webrtc::SessionDescriptionInterface* desc_ptr) {
 		auto self = weak_self.lock();
 		if (!self) {
 			return;
 		}
 
-		// 注意：CreateSessionDescriptionObserver的回调函数OnSuccess会将desc所有权转移
-		// 所以与上面candidate变量的情况并不相同，desc生命周期更长
+		if (!desc_ptr) {
+			return;
+		}
+
 		logic_thread_->PostTask(RTC_FROM_HERE,
-			[this, weak_self, desc]() {
+			[this, weak_self,
+				desc = std::unique_ptr<webrtc::SessionDescriptionInterface>(desc_ptr)]() mutable {
 				auto self = weak_self.lock();
 				if (!self) {
 					LOG_ERROR("[WEBRTC] Create SDP on success, "
@@ -380,10 +383,9 @@ void RtcConnectionBase::InitObserverCallbacks() {
 					return;
 				}
 
-				peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc);
-
 				std::string sdp;
-				desc->ToString(&sdp);
+				desc->ToString(&sdp);  // 注意：需要在desc.release()之前运行，否则desc会失效
+				peer_conn_->SetLocalDescription(set_sdp_observer_.get(), desc.release());
 				HandleSdpCreateSucceed(sdp);
 			});
 	};

@@ -90,6 +90,10 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	if (rtc_cfg_obj.contains("pong_timeout")) {
 		rtc_config.pong_timeout = rtc_cfg_obj["pong_timeout"].get<long>();
 	}
+	
+	if (rtc_cfg_obj.contains("reconnect_interval")) {
+		rtc_config.reconnect_interval = rtc_cfg_obj["reconnect_interval"].get<long>();
+	}
 
 	auto rtc_agent = std::shared_ptr<RtcAgent>(
 		new RtcAgent(
@@ -166,7 +170,7 @@ RtcAgent::RtcAgent(
 		&recv_audioframe_handler,
 		&recv_frame_handler]() {
 			rtc_device_manager_ = std::make_shared<RtcDeviceManager>();
-			rtc_conn_manager_ = std::make_unique<RtcConnectionManager>(
+			rtc_conn_manager_ = std::make_shared<RtcConnectionManager>(
 				rtc_config,
 				rtc_device_manager_,
 				room_handler,
@@ -183,11 +187,11 @@ RtcAgent::RtcAgent(
 }
 
 RtcAgent::~RtcAgent() {
-	logic_thread_->Invoke<void>(RTC_FROM_HERE,
-		[this]() {
-			rtc_device_manager_ = nullptr;
-			rtc_conn_manager_ = nullptr;
+	logic_thread_->PostTask(RTC_FROM_HERE, [this]() {
+		rtc_device_manager_ = nullptr;
+		rtc_conn_manager_ = nullptr;
 		});
+	logic_thread_->Stop();
 }
 
 bool RtcAgent::Init() {
