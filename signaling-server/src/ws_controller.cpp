@@ -64,15 +64,17 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 		conn->send(msg_json.dump());
 	}
 	else if (command == "take_configuration") {
-		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
-			conn->remote_endpoint().address().to_string().c_str(),
-			conn->remote_endpoint().port(), command.c_str());
 		if (!msg_json.contains("type")) {
 			LOG_ERROR("Message donot contain type field");
 			return;
 		}
 
 		auto type = msg_json["type"].get<std::string>();
+
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s], type [%s], message size: %llu",
+			conn->remote_endpoint().address().to_string().c_str(),
+			conn->remote_endpoint().port(), command.c_str(), type.c_str(), in_message->size());
+
 		if (type == "offer" || type == "answer") {
 			auto to_sessionid = msg_json["to"].get<SessionId>();
 			if (sessionid_conn_map_.find(to_sessionid) != sessionid_conn_map_.cend()) {
@@ -88,9 +90,9 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 		}
 	}
 	else if (command == "take_candidate") {
-		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s], message size: %llu",
 			conn->remote_endpoint().address().to_string().c_str(),
-			conn->remote_endpoint().port(), command.c_str());
+			conn->remote_endpoint().port(), command.c_str(), in_message->size());
 		auto to_sessionid = msg_json["to"].get<SessionId>();
 		if (sessionid_conn_map_.find(to_sessionid) != sessionid_conn_map_.cend()) {
 			const auto& to_conn = sessionid_conn_map_[to_sessionid];
@@ -98,14 +100,14 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 		}
 	}
 	else if (command == "take_info") {
-		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s], message size: %llu",
 			conn->remote_endpoint().address().to_string().c_str(),
-			conn->remote_endpoint().port(), command.c_str());
+			conn->remote_endpoint().port(), command.c_str(), in_message->size());
 	}
 	else if (command == "take_roominfo") {
-		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s], message size: %llu",
 			conn->remote_endpoint().address().to_string().c_str(),
-			conn->remote_endpoint().port(), command.c_str());
+			conn->remote_endpoint().port(), command.c_str(), in_message->size());
 	}
 	else
 	{
