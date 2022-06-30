@@ -1,9 +1,12 @@
 #include "http_controller.h"
 #include <boost/filesystem.hpp>
 
-#define LOG_REQUEST_INFO(X) LOG_INFO("Http %s, remote peer: %s:%u, method: %s, path: %s, query string: %s, http version: %s", \
+#define LOG_REQUEST_INFO(X) LOG_INFO("Http %s, remote peer: [%s]:[%u], method: %s, path: %s, query string: %s, http version: %s", \
 	X, request->remote_endpoint().address().to_string().c_str(), request->remote_endpoint().port(), \
 	request->method.c_str(), request->path.c_str(), request->query_string.c_str(), request->http_version.c_str()); \
+
+#define REMOTE_ADDR request->remote_endpoint().address().to_string().c_str()
+#define REMOTE_PORT request->remote_endpoint().port()
 
 HttpController::HttpController(std::shared_ptr<HttpServer> http_server, std::shared_ptr<WsController> ws_ctrl)
 	: ws_ctrl_(ws_ctrl) {
@@ -84,8 +87,6 @@ void HttpController::QueryDefaultResource(HttpResponse response, HttpRequest req
 }
 
 void HttpController::QueryRoom(HttpResponse response, HttpRequest request) {
-	LOG_REQUEST_INFO("query room");
-
 	if (request->argument_size() < 1) {
 		this->WriteJson(response, HttpStatus::ArgumentIncorrect);
 		return;
@@ -93,7 +94,12 @@ void HttpController::QueryRoom(HttpResponse response, HttpRequest request) {
 
 	const auto& rooms = ws_ctrl_->rooms_;
 	auto roomid = request->argument_at(0);
-	if (rooms.find(roomid) == rooms.cend()) {
+	bool bExist = rooms.find(roomid) == rooms.cend();
+
+	LOG_INFO("Remote peer: [%s:%u] QueryRoom, roomid [%s][%s]",
+		REMOTE_ADDR, REMOTE_PORT, roomid.c_str(), bExist ? " but this room does not exist" : "");
+
+	if (bExist) {
 		this->WriteJson(response, HttpStatus::RoomNotExisted);
 		return;
 	}
@@ -102,13 +108,12 @@ void HttpController::QueryRoom(HttpResponse response, HttpRequest request) {
 }
 
 void HttpController::QueryRooms(HttpResponse response, HttpRequest request) {
-	if (last_request_address_ != request->remote_endpoint().address().to_string() ||
-		last_request_port_ != request->remote_endpoint().port()) {
+	if (last_request_address_ != REMOTE_ADDR || last_request_port_ != REMOTE_PORT) {
 		if (!last_request_address_.empty() && last_request_port_ != 0 && last_same_request_ > 1) {
-			LOG_INFO("Remote peer: [%s:%u] query rooms <%d> times", last_request_address_.c_str(),
-				last_request_port_, last_same_request_);
+			LOG_INFO("Remote peer: [%s]:[%u] QueryRooms [%d] times", 
+				last_request_address_.c_str(), last_request_port_, last_same_request_);
 		}
-		LOG_REQUEST_INFO("query rooms");
+		LOG_INFO("Remote peer: [%s:%u] QueryRooms", REMOTE_ADDR, REMOTE_PORT);
 		last_request_address_ = request->remote_endpoint().address().to_string();
 		last_request_port_ = request->remote_endpoint().port();
 		last_same_request_ = 0;
@@ -121,8 +126,6 @@ void HttpController::QueryRooms(HttpResponse response, HttpRequest request) {
 }
 
 void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
-	LOG_REQUEST_INFO("open room");
-
 	json param_obj = json::parse(request->content.string(), nullptr, false);
 	if (param_obj.is_discarded()) {
 		this->WriteJson(response, HttpStatus::BodyParameterJsonInvalid);
@@ -140,20 +143,29 @@ void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
 	auto roomid = param_obj["roomid"].get<RoomId>();
 	auto room_type = static_cast<RoomType>(param_obj["room_type"].get<int>());
 	bool force = false;
+	bool bRoomExist = rooms.find(roomid) != rooms.cend();
+	RoomId existed_roomid;
+	bool bSessionInRoom = ws_ctrl_->IsSessionidExisted(sessionid, existed_roomid);
+
 	if (param_obj.contains("force")) {
 		force = param_obj["force"].get<int>();
 	}
 
+	LOG_INFO("Remote peer: [%s:%u] OpenRoom, roomid [%s], sessionid [%d], room_type [%s]%s%s%s",
+		REMOTE_ADDR, REMOTE_PORT, roomid.c_str(), sessionid,
+		room_type == RoomType::VideoBroadcasting ? "VideoBroadcasting" : "VideoConference",
+		bRoomExist ? ", this room already exists" : "",
+		bSessionInRoom ? ", this session is already in room [" : "",
+		bSessionInRoom ? (existed_roomid+"]").c_str() : "");
 	// check if sessionid already in room
-	RoomId existed_roomid;
-	if (ws_ctrl_->IsSessionidExisted(sessionid, existed_roomid)) {
+	if (bSessionInRoom) {
 		json data_obj = { "roomid", existed_roomid };
 		this->WriteJson(response, HttpStatus::SessionidAlreadyInRoom, data_obj);
 		return;
 	}
 
 	// check if roomid already existed
-	if (rooms.find(roomid) != rooms.cend()) {
+	if (bRoomExist) {
 		if (!force) {
 			this->WriteJson(response, HttpStatus::RoomAlreadyExisted);
 			return;
@@ -176,8 +188,6 @@ void HttpController::OpenRoom(HttpResponse response, HttpRequest request) {
 }
 
 void HttpController::CloseRoom(HttpResponse response, HttpRequest request) {
-	LOG_REQUEST_INFO("close room");
-
 	json param_obj = json::parse(request->content.string(), nullptr, false);
 	if (param_obj.is_discarded()) {
 		this->WriteJson(response, HttpStatus::BodyParameterJsonInvalid);
@@ -191,9 +201,13 @@ void HttpController::CloseRoom(HttpResponse response, HttpRequest request) {
 
 	auto& rooms = ws_ctrl_->rooms_;
 	auto roomid = param_obj["roomid"].get<RoomId>();
+	bool bExist = rooms.find(roomid) == rooms.cend();
+
+	LOG_INFO("Remote peer: [%s:%u] CloseRoom, roomid [%s][%s]",
+		REMOTE_ADDR, REMOTE_PORT, roomid.c_str(), bExist ? " but this room does not exist" : "");
 
 	// check if roomid not existed
-	if (rooms.find(roomid) == rooms.cend()) {
+	if (bExist) {
 		this->WriteJson(response, HttpStatus::RoomNotExisted);
 		return;
 	}
@@ -203,8 +217,6 @@ void HttpController::CloseRoom(HttpResponse response, HttpRequest request) {
 }
 
 void HttpController::JoinRoom(HttpResponse response, HttpRequest request) {
-	LOG_REQUEST_INFO("join room");
-
 	json param_obj = json::parse(request->content.string(), nullptr, false);
 	if (param_obj.is_discarded()) {
 		this->WriteJson(response, HttpStatus::BodyParameterJsonInvalid);
@@ -219,16 +231,24 @@ void HttpController::JoinRoom(HttpResponse response, HttpRequest request) {
 	auto& rooms = ws_ctrl_->rooms_;
 	auto sessionid = param_obj["sessionid"].get<SessionId>();
 	auto roomid = param_obj["roomid"].get<RoomId>();
+	bool bExist = rooms.find(roomid) == rooms.cend();
+	RoomId existed_roomid;
 
-	// check if roomid already existed
-	if (rooms.find(roomid) == rooms.cend()) {
+	LOG_INFO("Remote peer: [%s]:[%u] JoinRoom, roomid [%s]%s, sessionid [%d]",
+		REMOTE_ADDR, REMOTE_PORT, 
+		roomid.c_str(), bExist ? " but this room does not exist" : "",
+		sessionid);
+
+	// check if roomid not existed 
+	if (bExist) {
 		this->WriteJson(response, HttpStatus::RoomNotExisted);
 		return;
 	}
 
-	// check if sessionid already in room
-	RoomId existed_roomid;
+	// check if sessionid not in room
 	if (ws_ctrl_->IsSessionidExisted(sessionid, existed_roomid)) {
+		LOG_WARN("Remote peer: [%s:%u] JoinRoom, but sessionid [%d] is already in room [%s]", 
+			REMOTE_ADDR, REMOTE_PORT, sessionid, existed_roomid.c_str());
 		json data_obj = { "roomid", existed_roomid };
 		this->WriteJson(response, HttpStatus::SessionidAlreadyInRoom, data_obj);
 		return;
@@ -240,8 +260,6 @@ void HttpController::JoinRoom(HttpResponse response, HttpRequest request) {
 }
 
 void HttpController::LeaveRoom(HttpResponse response, HttpRequest request) {
-	LOG_REQUEST_INFO("leave room");
-
 	json param_obj = json::parse(request->content.string(), nullptr, false);
 	if (param_obj.is_discarded()) {
 		this->WriteJson(response, HttpStatus::BodyParameterJsonInvalid);
@@ -254,6 +272,10 @@ void HttpController::LeaveRoom(HttpResponse response, HttpRequest request) {
 	}
 
 	auto sessionid = param_obj["sessionid"].get<SessionId>();
+
+	LOG_INFO("Remote peer: [%s:%u] LeaveRoom, sessionid [%d]",
+		REMOTE_ADDR, REMOTE_PORT, sessionid);
+
 	ws_ctrl_->LeaveRoom(sessionid);
 
 	this->WriteJson(response, HttpStatus::OK);

@@ -14,7 +14,7 @@ WsController::WsController(std::shared_ptr<SimpleWeb::io_context> io_context,
 }
 
 void WsController::OnOpen(WsConnection conn) {
-	LOG_INFO("Websocket onopen, remote peer: %s:%u",
+	LOG_INFO("Websocket onopen, remote peer: [%s]:[%u]",
 		conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
 
 	auto new_sessionid = sessionid_generator_.Next();
@@ -47,13 +47,6 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 
 	auto command = msg_json["command"].get<std::string>();
 
-	// filter heartbeat log info
-	if (command != "take_heartbeat") {
-		LOG_INFO("Websocket onmessage, remote peer: %s:%u, receive message size: %llu",
-			conn->remote_endpoint().address().to_string().c_str(),
-			conn->remote_endpoint().port(), in_message->size());
-	}
-
 	if (command == "take_heartbeat") {
 		// reset expire time when receive ping message
 		if (conn_pingtimer_map_.find(conn) != conn_pingtimer_map_.cend()) {
@@ -71,6 +64,9 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 		conn->send(msg_json.dump());
 	}
 	else if (command == "take_configuration") {
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
+			conn->remote_endpoint().address().to_string().c_str(),
+			conn->remote_endpoint().port(), command.c_str());
 		if (!msg_json.contains("type")) {
 			LOG_ERROR("Message donot contain type field");
 			return;
@@ -92,16 +88,42 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 		}
 	}
 	else if (command == "take_candidate") {
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
+			conn->remote_endpoint().address().to_string().c_str(),
+			conn->remote_endpoint().port(), command.c_str());
 		auto to_sessionid = msg_json["to"].get<SessionId>();
 		if (sessionid_conn_map_.find(to_sessionid) != sessionid_conn_map_.cend()) {
 			const auto& to_conn = sessionid_conn_map_[to_sessionid];
 			to_conn->send(msg_json.dump());
 		}
 	}
+	else if (command == "take_info") {
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
+			conn->remote_endpoint().address().to_string().c_str(),
+			conn->remote_endpoint().port(), command.c_str());
+	}
+	else if (command == "take_roominfo") {
+		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s]",
+			conn->remote_endpoint().address().to_string().c_str(),
+			conn->remote_endpoint().port(), command.c_str());
+	}
+	else
+	{
+		if (in_message->size() > 300) {
+			LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive message size: %llu",
+				conn->remote_endpoint().address().to_string().c_str(),
+				conn->remote_endpoint().port(), in_message->size());
+		}
+		else {
+			LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive message size: %llu",
+				conn->remote_endpoint().address().to_string().c_str(),
+				conn->remote_endpoint().port(), in_message->string().c_str());
+		}
+	}
 }
 
 void WsController::OnError(WsConnection conn, const SimpleWeb::error_code& ec) {
-	LOG_ERROR("Websocket onerror, remote peer: %s:%u, error value: %d, error message: %s",
+	LOG_ERROR("Websocket onerror, remote peer: [%s]:[%u], error value: %d, error message: %s",
 		conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(), 
 		ec.value(), ec.message().c_str());
 
@@ -115,7 +137,7 @@ void WsController::OnError(WsConnection conn, const SimpleWeb::error_code& ec) {
 }
 
 void WsController::OnClose(WsConnection conn, int status, const std::string& reason) {
-	LOG_INFO("Websocket onclose, remote peer: %s:%u, status value: %d, reason: %s",
+	LOG_INFO("Websocket onclose, remote peer: [%s]:[%u], status value: %d, reason: %s",
 		conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
 		status, reason.c_str());
 
@@ -125,7 +147,7 @@ void WsController::OnClose(WsConnection conn, int status, const std::string& rea
 void WsController::SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConnection conn, SteadyTimer pingtimer) {
 	if (!ec) {
 		// exclude SimpleWeb::asio::error::operation_aborted
-		LOG_WARN("remote peer: %s:%u ping timeout, client not available", conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
+		LOG_WARN("remote peer: [%s]:[%u] ping timeout, client not available", conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
 
 		for (const auto& conn_pingtimer : conn_pingtimer_map_) {
 			if (conn_pingtimer.second == pingtimer) {
@@ -151,6 +173,7 @@ bool WsController::IsSessionidExisted(SessionId sessionid, RoomId& roomid) const
 
 void WsController::OpenRoom(Room newroom) {
 	rooms_[newroom.roomid] = newroom;
+	LOG_WARN("Room [%s] is opened", newroom.roomid.c_str());
 
 	// notify rtc agent
 	for (const auto& sessionid_conn : sessionid_conn_map_) {
@@ -165,7 +188,7 @@ void WsController::OpenRoom(Room newroom) {
 
 void WsController::CloseRoom(RoomId& roomid) {
 	rooms_.erase(roomid);
-	LOG_WARN("Room <%s> is closed", roomid.c_str());
+	LOG_WARN("Room [%s] is closed", roomid.c_str());
 
 	// notify rtc agent
 	for (const auto& sessionid_conn : sessionid_conn_map_) {
@@ -182,7 +205,7 @@ void WsController::LeaveRoom(SessionId sessionid) {
 	RoomId existed_roomid;
 	while (this->IsSessionidExisted(sessionid, existed_roomid)) {
 		if (rooms_.find(existed_roomid) == rooms_.cend()) {
-			LOG_ERROR("Rooms donot contain existed_roomid: %s, it cannot be.", existed_roomid.c_str());
+			LOG_ERROR("Rooms do not contain existed_roomid: %s, it cannot be.", existed_roomid.c_str());
 			continue;
 		}
 
@@ -190,25 +213,25 @@ void WsController::LeaveRoom(SessionId sessionid) {
 		auto& m_sessionids = existed_room.sessionids;
 		auto cnt = std::count(m_sessionids.cbegin(), m_sessionids.cend(), sessionid);
 		if (cnt <= 0) {
-			LOG_ERROR("Room (%s) must contain sessionid: %d, it cannot be.",
+			LOG_ERROR("Room [%s] must contain sessionid: %d, it cannot be.",
 				existed_roomid.c_str(), sessionid);
 			continue;
 		}
 
 		if (cnt > 1) {
 			// just print log
-			LOG_ERROR("Room (%s) contains more than one same sessionid: %d, it cannot be.",
+			LOG_ERROR("Room [%s] contains more than one same sessionid: %d, it cannot be.",
 				existed_roomid.c_str(), sessionid);
 		}
 
 		if ((existed_room.room_type == RoomType::VideoBroadcasting &&
 			existed_room.broadcaster_sessionid == sessionid) ||
 			m_sessionids.size() - cnt == 0) {
-			rooms_.erase(existed_roomid);
-			LOG_WARN("Room <%s> is closed [%d][%d]", existed_roomid.c_str(), 
+			LOG_WARN("Room [%s] is closed, because%s%s", existed_roomid.c_str(),
 				(existed_room.room_type == RoomType::VideoBroadcasting &&
-				existed_room.broadcaster_sessionid == sessionid), 
-				(m_sessionids.size() - cnt == 0));
+					existed_room.broadcaster_sessionid == sessionid) ? " room type is VideoBroadcasting and this session is the broadcaster" : "",
+				(m_sessionids.size() - cnt == 0) ? ", no session in this room" : "");
+			rooms_.erase(existed_roomid);
 
 			// notify rtc agent
 			for (const auto& sessionid_conn : sessionid_conn_map_) {
@@ -220,10 +243,11 @@ void WsController::LeaveRoom(SessionId sessionid) {
 				sessionid_conn.second->send(roominfo_obj.dump());
 			}
 		}
+
 		else {
 			m_sessionids.erase(std::remove(
 				m_sessionids.begin(), m_sessionids.end(), sessionid), m_sessionids.end());
-			LOG_WARN("SessionIds for room <%s> is cleared", existed_roomid.c_str());
+			LOG_WARN("Session [%d] is removed from room [%s], remanent session number [%d]", sessionid, existed_roomid.c_str(), m_sessionids.size());
 		}
 	}
 }
@@ -233,11 +257,11 @@ void WsController::CloseConnectionAndTimer(WsConnection conn, bool notify_client
 	for (auto iter = sessionid_conn_map_.begin(); iter != sessionid_conn_map_.end();) {
 		if (iter->second == conn) {
 			this->LeaveRoom(iter->first);
+			LOG_WARN("Sessionid [%d] is removed, due to CloseConnectionAndTimer", iter->first);
 			if (notify_client) {
 				conn->send_close(1000, "Closed by signaling server");
 			}
 			iter = sessionid_conn_map_.erase(iter);
-			LOG_WARN("sessionid_conn_map_ is cleard because of CloseConnectionAndTimer");
 		}
 		else {
 			++iter;
