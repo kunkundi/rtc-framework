@@ -259,8 +259,10 @@ void RtcConnectionManager::InitWebsocket() {
 
 		// filter heartbeat log info
 		if (command != "take_heartbeat") {
-			LOG_INFO("Websocket onmessage, remote peer: %s:%u, receive message size: %llu",
-				conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(), in_message->size());
+			LOG_INFO("Websocket onmessage, remote peer: %s:%u, "
+				"receive command [%s], receive message size: %llu",
+				conn->remote_endpoint().address().to_string().c_str(),
+				conn->remote_endpoint().port(), command.c_str(), in_message->size());
 		}
 
 		if (command == "take_heartbeat") {
@@ -411,7 +413,12 @@ void RtcConnectionManager::SetPingTimeout(const SimpleWeb::error_code& ec) {
 				// this means client is disconnected from websocket server
 				LOG_WARN("pong timeout, server not available");
 
-				ReconnectWebsocket();
+				{
+					std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
+					if (ws_conn_) {
+						ws_conn_->send_close(1000, "closed by rtc_agent for pong timeout");
+					}
+				}
 			}
 			});
 	}
@@ -1357,6 +1364,7 @@ void RtcConnectionManager::InteractRemotePeer(
 		std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
 		if (!current_sessionid_) {
 			LOG_ERROR("Interact remote peer, but current_sessionid_ is null");
+			P2P_state_handler_(remote_sessionid, vts_rtc::P2PState::Closed);
 			return;
 		}
 		rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
@@ -1462,6 +1470,7 @@ void RtcConnectionManager::InteractRemotePeer(
 	rtc_conn->peer_conn_ = peer_conn_factory_->CreatePeerConnection(peer_conn_config, std::move(depends));
 	if (!rtc_conn->peer_conn_) {
 		LOG_ERROR("Interact remote peer, create peer connection failed");
+		P2P_state_handler_(remote_sessionid, vts_rtc::P2PState::Failed);
 		return;
 	}
 

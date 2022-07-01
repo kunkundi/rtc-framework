@@ -76,12 +76,12 @@ private:
 	void OnError(WsConnection conn, const SimpleWeb::error_code& error_code);
 	void OnClose(WsConnection conn, int status, const std::string& reason);
 
-	void SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConnection conn, SteadyTimer pingtimer);
+	void SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConnection conn);
 	bool IsSessionidExisted(SessionId sessionid, RoomId& roomid) const;
 	void OpenRoom(Room newroom);
 	void LeaveRoom(SessionId sessionid);
 	void CloseRoom(RoomId& roomid);
-	void CloseConnectionAndTimer(WsConnection conn, bool notify_client);
+	void CloseConnectionAndTimer(WsConnection conn);
 	
 private:
 	long client_ping_timeout_ = 3000;  // unit: milliseconds

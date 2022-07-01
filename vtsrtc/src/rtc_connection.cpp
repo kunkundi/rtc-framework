@@ -407,6 +407,9 @@ RtcConnection::~RtcConnection() {
 
 void RtcConnection::HandleP2PStateChanged(PeerConnState state) const {
 	if (on_P2P_state_changed_) {
+		LOG_INFO("P2P state changed, local sessionid: %d, "
+			"remote sessionid: %d, state: %d",
+			local_sessionid_, remote_sessionid_, state);
 		on_P2P_state_changed_(remote_sessionid_,
 			static_cast<vts_rtc::P2PState>(state));
 	}
@@ -429,6 +432,9 @@ void RtcConnection::HandleSdpCreateSucceed(const std::string& sdp) const {
 void RtcConnection::HandleDataChannelStateChanged(
 	const std::string& label, RtcDataChannelState state) const {
 	if (on_dc_state_changed_) {
+		LOG_INFO("Data channel state changed, local sessionid: %d, "
+			"remote sessionid: %d, state: %d",
+			local_sessionid_, remote_sessionid_, state);
 		on_dc_state_changed_(remote_sessionid_, label,
 			static_cast<vts_rtc::DataChannelState>(state));
 	}

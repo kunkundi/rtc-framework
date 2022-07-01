@@ -22,7 +22,7 @@ void WsController::OnOpen(WsConnection conn) {
 
 	SteadyTimer pingtimer = std::make_shared<SimpleWeb::asio::steady_timer>(
 		io_context_->get_executor(), std::chrono::milliseconds(client_ping_timeout_));
-	pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn, pingtimer));
+	pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn));
 	conn_pingtimer_map_[conn] = pingtimer;
 
 	json info_obj = {
@@ -53,15 +53,15 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 			auto pingtimer = conn_pingtimer_map_[conn];
 			try {
 				pingtimer->expires_after(std::chrono::milliseconds(client_ping_timeout_));
-				pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn, pingtimer));
+				pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn));
 			}
 			catch (const boost::system::system_error& ec) {
 				LOG_ERROR("Call expires_after method of pingtimer failed, reason: %s", ec.what());
 			}
 		}
 
-		msg_json["type"] = "pong";
-		conn->send(msg_json.dump());
+ 		msg_json["type"] = "pong";
+ 		conn->send(msg_json.dump());
 	}
 	else if (command == "take_configuration") {
 		if (!msg_json.contains("type")) {
@@ -135,7 +135,7 @@ void WsController::OnError(WsConnection conn, const SimpleWeb::error_code& ec) {
 // 		this->CloseConnectionAndTimer(conn, false);
 // 	}
 
-	this->CloseConnectionAndTimer(conn, false);
+	this->CloseConnectionAndTimer(conn);
 }
 
 void WsController::OnClose(WsConnection conn, int status, const std::string& reason) {
@@ -143,21 +143,16 @@ void WsController::OnClose(WsConnection conn, int status, const std::string& rea
 		conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port(),
 		status, reason.c_str());
 
-	this->CloseConnectionAndTimer(conn, false);
+	this->CloseConnectionAndTimer(conn);
 }
 
-void WsController::SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConnection conn, SteadyTimer pingtimer) {
+void WsController::SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConnection conn) {
 	if (!ec) {
 		// exclude SimpleWeb::asio::error::operation_aborted
-		LOG_WARN("remote peer: [%s]:[%u] ping timeout, client not available", conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
+		LOG_WARN("remote peer: [%s]:[%u] ping timeout, client not available",
+			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
 
-		for (const auto& conn_pingtimer : conn_pingtimer_map_) {
-			if (conn_pingtimer.second == pingtimer) {
-				// Do not notify client,
-				// or maybe will cause client reconnection disconnected
-				CloseConnectionAndTimer(conn_pingtimer.first, false);
-			}
-		}
+		conn->send_close(1000, "closed by signaling server for ping timeout");
 	}
 }
 
@@ -254,15 +249,12 @@ void WsController::LeaveRoom(SessionId sessionid) {
 	}
 }
 
-void WsController::CloseConnectionAndTimer(WsConnection conn, bool notify_client) {
+void WsController::CloseConnectionAndTimer(WsConnection conn) {
 	// close connection
 	for (auto iter = sessionid_conn_map_.begin(); iter != sessionid_conn_map_.end();) {
 		if (iter->second == conn) {
 			this->LeaveRoom(iter->first);
 			LOG_WARN("Sessionid [%d] is removed, due to CloseConnectionAndTimer", iter->first);
-			if (notify_client) {
-				conn->send_close(1000, "Closed by signaling server");
-			}
 			iter = sessionid_conn_map_.erase(iter);
 		}
 		else {
