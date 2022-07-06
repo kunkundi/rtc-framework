@@ -413,12 +413,7 @@ void RtcConnectionManager::SetPingTimeout(const SimpleWeb::error_code& ec) {
 				// this means client is disconnected from websocket server
 				LOG_WARN("pong timeout, server not available");
 
-				{
-					std::lock_guard<std::mutex> lg(cursessionid_wsconn_mtx_);
-					if (ws_conn_) {
-						ws_conn_->send_close(1000, "closed by rtc_agent for pong timeout");
-					}
-				}
+				ReconnectWebsocket();
 			}
 			});
 	}

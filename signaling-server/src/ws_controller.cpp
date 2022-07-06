@@ -58,10 +58,10 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 			catch (const boost::system::system_error& ec) {
 				LOG_ERROR("Call expires_after method of pingtimer failed, reason: %s", ec.what());
 			}
-		}
 
- 		msg_json["type"] = "pong";
- 		conn->send(msg_json.dump());
+			msg_json["type"] = "pong";
+			conn->send(msg_json.dump());
+		}
 	}
 	else if (command == "take_configuration") {
 		if (!msg_json.contains("type")) {
@@ -152,7 +152,7 @@ void WsController::SetClientPingTimeout(const SimpleWeb::error_code& ec, WsConne
 		LOG_WARN("remote peer: [%s]:[%u] ping timeout, client not available",
 			conn->remote_endpoint().address().to_string().c_str(), conn->remote_endpoint().port());
 
-		conn->send_close(1000, "closed by signaling server for ping timeout");
+		this->CloseConnectionAndTimer(conn);
 	}
 }
 

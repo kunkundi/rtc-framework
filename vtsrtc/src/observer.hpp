@@ -120,8 +120,8 @@ public:
 	// A new ICE candidate has been gathered.
 	void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override {
 		if (candidate) {
-			LOG_INFO("[WEBRTC] On ICE candidate, server url: %s, sdp_mid: %s, sdp_mline_index: %d", 
-				candidate->server_url().c_str(), candidate->sdp_mid().c_str(), candidate->sdp_mline_index());
+			//LOG_INFO("[WEBRTC] On ICE candidate, server url: %s, sdp_mid: %s, sdp_mline_index: %d", 
+			//	candidate->server_url().c_str(), candidate->sdp_mid().c_str(), candidate->sdp_mline_index());
 
 			if (on_ice_candidate_) { on_ice_candidate_(candidate); }
 		}
