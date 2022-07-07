@@ -977,7 +977,7 @@ vts_rtc::ErrorCode RtcConnectionManager::UnpublishRtc2SRS(
 		});
 	if (iter != SRS_publish_conns_.end()) {
 		try {
-			LOG_INFO("Unpublish RTC to SRS with streamurl: %s, sessionid: %", streamurl.c_str(), 
+			LOG_INFO("Unpublish RTC to SRS with streamurl: %s, sessionid: %s", streamurl.c_str(), 
 				(*iter)->GetSRSSessionid().c_str());
 
 			json publisher_obj = {
