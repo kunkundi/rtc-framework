@@ -90,9 +90,9 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 		}
 	}
 	else if (command == "take_candidate") {
-		LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s], message size: %llu",
-			conn->remote_endpoint().address().to_string().c_str(),
-			conn->remote_endpoint().port(), command.c_str(), in_message->size());
+		//LOG_INFO("Websocket onmessage, remote peer: [%s]:[%u], receive command [%s], message size: %llu",
+		//	conn->remote_endpoint().address().to_string().c_str(),
+		//	conn->remote_endpoint().port(), command.c_str(), in_message->size());
 		auto to_sessionid = msg_json["to"].get<SessionId>();
 		if (sessionid_conn_map_.find(to_sessionid) != sessionid_conn_map_.cend()) {
 			const auto& to_conn = sessionid_conn_map_[to_sessionid];
