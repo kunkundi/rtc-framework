@@ -42,7 +42,8 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	const vts_rtc::SRSResponseHandler& SRS_response_handler,
 	const vts_rtc::RecvMessageHandler& recv_msg_handler,
 	const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
-	const vts_rtc::RecvFrameHandler& recv_frame_handler)
+	const vts_rtc::RecvFrameHandler& recv_frame_handler,
+	const vts_rtc::ChannelNetworkStatsHandler& channel_network_stats_handler)
 	: logic_thread_(rtc::Thread::Current()),
 	rtc_config_(rtc_config),
 	rtc_device_manager_(device_manager),
@@ -55,7 +56,8 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	SRS_publish_state_handler_(SRS_response_handler),
 	recv_msg_handler_(recv_msg_handler),
 	recv_audioframe_handler_(recv_audioframe_handler),
-	recv_frame_handler_(recv_frame_handler) {
+	recv_frame_handler_(recv_frame_handler),
+	channel_network_stats_handler_(channel_network_stats_handler) {
 	http_client_ = std::make_shared<HttpClient>(rtc_config_.api_server_url);
 	if (!rtc_config_.SRS_api_server_url.empty()) {
 		SRS_http_client_ = std::make_unique<HttpClient>(
@@ -63,6 +65,10 @@ RtcConnectionManager::RtcConnectionManager(const vts_rtc::RtcConfig& rtc_config,
 	}
 	// 通过优化语句顺序，可以做到不加锁
 	ws_io_context_ = std::make_shared<SimpleWeb::io_context>();
+	stats_report_io_context_ = std::make_shared<SimpleWeb::io_context>();
+
+	statistics_collector_ = std::make_shared<RtcStatistics>();
+	statistics_collector_->SetStatisticsReportCallback(channel_network_stats_handler);
 }
 
 RtcConnectionManager::~RtcConnectionManager() {
@@ -88,6 +94,10 @@ RtcConnectionManager::~RtcConnectionManager() {
 	// 不能在ws_client_thread_线程中停止，因为ws_io_context_->run()已经阻塞住ws_client_thread_线程
 	if (ws_io_context_) {
 		ws_io_context_->stop();
+	}
+
+	if (stats_report_io_context_) {
+		stats_report_io_context_->stop();
 	}
 
 	if (ws_client_thread_) {
@@ -116,6 +126,15 @@ bool RtcConnectionManager::Init() {
 			[this]() {
 				InitWebsocket();
 			});
+
+		stats_report_thread_ = rtc::Thread::Create();
+		stats_report_thread_->SetName("stats_report_thread_", nullptr);
+		stats_report_thread_->Start();
+
+		// stats_report_thread_->PostTask(RTC_FROM_HERE,
+		// 	[this]() {
+		// 		InitWebsocket();
+		// 	});
 
 		// notify connecting to signaling server
 		if (serverconnection_state_handler_) {
@@ -163,6 +182,7 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 #else
 		LOG_INFO("Use hardware H264 video encoder.");
 		video_encoder_factory = std::make_unique<webrtc::RtcEncoderFactory>();
+		dynamic_cast<webrtc::RtcEncoderFactory*>(video_encoder_factory.get())->setConfig(rtc_config_);
 #endif
 	}
 	else {
@@ -1224,18 +1244,51 @@ void RtcConnectionManager::SendFrame(const vts_rtc::VideoSourceId& video_sourcei
 	RTC_DCHECK_RUN_ON(logic_thread_);
 	
 	if (external_feed_tracksources_.find(video_sourceid) != external_feed_tracksources_.cend()) {
-		// @attention: copy frame data
-		auto I420buffer = webrtc::I420Buffer::Copy(frame.width, frame.height,
+		auto frame_build = BuildAndLimitFrameSize(video_sourceid, frame);
+		external_feed_tracksources_[video_sourceid]->video_source_->OnFrame(frame_build);
+	}
+}
+
+webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame) {
+	// @attention: copy frame data
+	auto I420buffer = webrtc::I420Buffer::Copy(frame.width, frame.height,
 			frame.buffer, frame.stride_Y,
 			frame.buffer + frame.stride_Y * frame.height, frame.stride_U,
 			frame.buffer + frame.stride_Y * frame.height + frame.stride_U * ((frame.height + 1) / 2), 
 			frame.stride_V);
 
-		auto inner_frame_builder = webrtc::VideoFrame::Builder()
+	auto iter = rtc_config_.resolution_limit.find(video_sourceid);
+	if(iter != rtc_config_.resolution_limit.end()) {
+		int out_width = iter->second.first;
+		int out_height = iter->second.second;
+		if(frame.width > out_width || frame.height > out_height) {
+			auto scaled_buffer = webrtc::I420Buffer::Create(out_width, out_height);
+				scaled_buffer->ScaleFrom(*I420buffer);
+				auto frame_build = webrtc::VideoFrame::Builder()
+					.set_video_frame_buffer(scaled_buffer)
+					.set_rotation(webrtc::kVideoRotation_0)
+					.set_timestamp_us(rtc::TimeMicros()).build();
+				// if (frame.has_update_rect()) {
+				// 	auto new_rect = frame.update_rect().ScaleWithFrame(frame.width(), frame.height(),
+				// 		0, 0, frame.width(), frame.height(), out_width, out_height);
+				// 	frame_build.set_update_rect(new_rect);
+				// }
+			return frame_build;
+		}
+		else {
+			auto frame_build = webrtc::VideoFrame::Builder()
 			.set_video_frame_buffer(I420buffer)
 			.set_rotation(webrtc::kVideoRotation_0)
-			.set_timestamp_us(rtc::TimeMicros());
-		external_feed_tracksources_[video_sourceid]->video_source_->OnFrame(inner_frame_builder.build());
+			.set_timestamp_us(rtc::TimeMicros()).build();
+			return frame_build;
+		}
+	}
+	else {
+		auto frame_build = webrtc::VideoFrame::Builder()
+			.set_video_frame_buffer(I420buffer)
+			.set_rotation(webrtc::kVideoRotation_0)
+			.set_timestamp_us(rtc::TimeMicros()).build();
+			return frame_build;
 	}
 }
 
@@ -1350,6 +1403,38 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 	}
 }
 
+void RtcConnectionManager::InitStatsReport() {
+	RTC_DCHECK_RUN_ON(stats_report_thread_.get());
+	if (!stats_report_timer_) {
+		stats_report_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
+		stats_report_io_context_->get_executor(), std::chrono::milliseconds(1000));
+	}
+	LOG_WARN("Start stats_report_timer_");
+	rtc_channel_stats_observer_ = new rtc::RefCountedObject<RtcChannelStatsObserver>();
+	StatsReport(stats_report_timer_);
+	
+	stats_report_io_context_->run();
+}
+
+void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
+	RTC_DCHECK_RUN_ON(ws_client_thread_.get());
+	steady_timer->expires_from_now(std::chrono::milliseconds(1000));
+    steady_timer->async_wait(
+        [this, steady_timer](const boost::system::error_code &ec)
+        {
+			stats_report_timer_->async_wait([this](const boost::system::error_code& ec) {
+					for(auto rtccon_obj: remotesessionid_rtcconn_map_) {
+						if (rtccon_obj.second->peer_conn_ != nullptr)
+						{
+							rtccon_obj.second->peer_conn_->GetStats(rtccon_obj.second->rtc_channel_stats_observer_);
+						}
+					}
+			});
+            StatsReport(steady_timer);
+        }
+    );
+}
+
 void RtcConnectionManager::InteractRemotePeer(
 	vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
@@ -1365,13 +1450,41 @@ void RtcConnectionManager::InteractRemotePeer(
 		rtc_conn = std::make_shared<RtcConnection>(*current_sessionid_, remote_sessionid);
 	}
 	rtc_conn->InitObserverCallbacks();
+	std::weak_ptr<RtcConnectionManager> weak_self = shared_from_this();
 
-	rtc_conn->on_P2P_state_changed_ = [this](
+	rtc_conn->on_P2P_state_changed_ = [this, rtc_conn, weak_self](
 		vts_rtc::SessionId remote_sessionid, vts_rtc::P2PState state) {
 			RTC_DCHECK_RUN_ON(logic_thread_);
+			auto self = weak_self.lock();
+			if (!self) {
+				LOG_ERROR("[WEBRTC] Rtc connection on_P2P_state_changed_, "
+					"but rtc connection manager has been destroyed.");
+				return;
+			}
 
 			if (P2P_state_handler_) {
 				P2P_state_handler_(remote_sessionid, state);
+			}
+
+			if(state == vts_rtc::P2PState::Connected && current_sessionid_)
+			{
+				stats_report_thread_->PostTask(RTC_FROM_HERE,
+				[this]() {
+					InitStatsReport();
+				});
+
+				auto rtc_con = rtc_conn;
+
+				auto rtpsenders = rtc_con->peer_conn_->GetSenders();
+				for(auto it: rtpsenders)
+				{
+					if(external_feed_tracksources_.find(it->id()) != external_feed_tracksources_.end()) {
+						external_feed_tracksources_ssrc_vs_id_[it->ssrc()] = it->id();
+						external_feed_tracksources_id_vs_ssrc_[it->id()] = it->ssrc();
+					}
+				}
+				statistics_collector_->SetMediaSsrcVsId(external_feed_tracksources_ssrc_vs_id_, 
+					external_feed_tracksources_id_vs_ssrc_);
 			}
 
 			if (state == vts_rtc::P2PState::Failed) {
@@ -1381,6 +1494,11 @@ void RtcConnectionManager::InteractRemotePeer(
 					remotesessionid_rtcconn_map_.erase(remote_sessionid);
 				}
 			}
+	};
+
+	rtc_conn->on_net_stats_report_ = 
+		[this, weak_self](const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+			statistics_collector_->OnStatisticsReport(report);
 	};
 
 	rtc_conn->on_sdp_create_succeed_ =
@@ -1424,7 +1542,6 @@ void RtcConnectionManager::InteractRemotePeer(
 	rtc_conn->on_dc_state_changed_ = datachannel_state_handler_;
 	rtc_conn->on_dc_message_received_ = recv_msg_handler_;
 
-	std::weak_ptr<RtcConnectionManager> weak_self = shared_from_this();
 	rtc_conn->on_audioframe_received_ = [this, weak_self](
 		const vts_rtc::AudioSourceId& sourceid, enum vts_rtc::MediaSourceType type,
 		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
@@ -1468,6 +1585,10 @@ void RtcConnectionManager::InteractRemotePeer(
 		P2P_state_handler_(remote_sessionid, vts_rtc::P2PState::Failed);
 		return;
 	}
+
+	webrtc::BitrateSettings bitratelimit;
+	bitratelimit.max_bitrate_bps = rtc_config_.bitrate_maxmum;
+	rtc_conn->peer_conn_->SetBitrate(bitratelimit);
 
 	this->AddAudioTrack2PeerConnection(rtc_conn->peer_conn_);
 	this->AddVideoTrack2PeerConnection(rtc_conn->peer_conn_);

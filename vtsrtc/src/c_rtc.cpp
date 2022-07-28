@@ -112,6 +112,32 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		};
 	}
 
+	vts_rtc::ChannelNetworkStatsHandler channel_network_stats_handler = nullptr;
+	if (gst_params.channel_network_stats_handler) {
+		channel_network_stats_handler = [](const vts_rtc::NetStats& net_stats) {
+			RtcNetStats rtc_net_stats;
+			rtc_net_stats.input = net_stats.input;
+
+			rtc_net_stats.audio_stats.sourceid = net_stats.audio_stats.sourceid.c_str();
+			rtc_net_stats.audio_stats.bitrate_bps = net_stats.audio_stats.bitrate_bps;
+
+			rtc_net_stats.video_stats.sourceid = net_stats.video_stats.sourceid.c_str();
+			rtc_net_stats.video_stats.width = net_stats.video_stats.width;
+			rtc_net_stats.video_stats.height = net_stats.video_stats.height;
+			rtc_net_stats.video_stats.bitrate_bps = net_stats.video_stats.bitrate_bps;
+			rtc_net_stats.video_stats.fps = net_stats.video_stats.fps;
+			rtc_net_stats.video_stats.loss_rate = net_stats.video_stats.loss_rate;
+			rtc_net_stats.video_stats.delay_ms = net_stats.video_stats.delay_ms;
+			rtc_net_stats.video_stats.key_frame_count = net_stats.video_stats.key_frame_count;
+			rtc_net_stats.video_stats.fir_count = net_stats.video_stats.fir_count;
+			rtc_net_stats.video_stats.pli_count = net_stats.video_stats.pli_count;
+			rtc_net_stats.video_stats.nack_count = net_stats.video_stats.nack_count;
+			rtc_net_stats.video_stats.codec_name = net_stats.video_stats.codec_name.c_str();
+
+			gst_params.channel_network_stats_handler(rtc_net_stats);
+		};
+	}
+
 	rtc_agent = vts_rtc::RtcAgent::Create(
 		std::string(config_filepath),
 		inner_room_handler,
@@ -123,7 +149,8 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 		nullptr,
 		msg_handler,
 		audioframe_handler,
-		frame_handler);
+		frame_handler,
+		channel_network_stats_handler);
 
 	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
@@ -141,6 +168,7 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 	gst_params.recv_msg_handler = st_params.recv_msg_handler;
 	gst_params.recv_audioframe_handler = st_params.recv_audioframe_handler;
 	gst_params.recv_frame_handler = st_params.recv_frame_handler;
+	gst_params.channel_network_stats_handler = st_params.channel_network_stats_handler;
 
 	vts_rtc::RoomHandler inner_room_handler = nullptr;
 	if (gst_params.room_handler) {
@@ -237,6 +265,32 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 		};
 	}
 
+	vts_rtc::ChannelNetworkStatsHandler channel_network_stats_handler = nullptr;
+	if (gst_params.channel_network_stats_handler) {
+		channel_network_stats_handler = [](const vts_rtc::NetStats& net_stats) {
+			RtcNetStats rtc_net_stats;
+			rtc_net_stats.input = net_stats.input;
+
+			rtc_net_stats.audio_stats.sourceid = net_stats.audio_stats.sourceid.c_str();
+			rtc_net_stats.audio_stats.bitrate_bps = net_stats.audio_stats.bitrate_bps;
+
+			rtc_net_stats.video_stats.sourceid = net_stats.video_stats.sourceid.c_str();
+			rtc_net_stats.video_stats.width = net_stats.video_stats.width;
+			rtc_net_stats.video_stats.height = net_stats.video_stats.height;
+			rtc_net_stats.video_stats.bitrate_bps = net_stats.video_stats.bitrate_bps;
+			rtc_net_stats.video_stats.fps = net_stats.video_stats.fps;
+			rtc_net_stats.video_stats.loss_rate = net_stats.video_stats.loss_rate;
+			rtc_net_stats.video_stats.delay_ms = net_stats.video_stats.delay_ms;
+			rtc_net_stats.video_stats.key_frame_count = net_stats.video_stats.key_frame_count;
+			rtc_net_stats.video_stats.fir_count = net_stats.video_stats.fir_count;
+			rtc_net_stats.video_stats.pli_count = net_stats.video_stats.pli_count;
+			rtc_net_stats.video_stats.nack_count = net_stats.video_stats.nack_count;
+			rtc_net_stats.video_stats.codec_name = net_stats.video_stats.codec_name.c_str();
+
+			gst_params.channel_network_stats_handler(rtc_net_stats);
+		};
+	}
+
 	rtc_agent = vts_rtc::RtcAgent::Create(
 		std::string(gst_params.config_filepath),
 		inner_room_handler,
@@ -248,7 +302,8 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 		inner_SRS_response_handler,
 		msg_handler,
 		audioframe_handler,
-		frame_handler);
+		frame_handler,
+		channel_network_stats_handler);
 
 	return rtc_agent ? RtcErrorCode::OK : RtcErrorCode::Failed;
 }

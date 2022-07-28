@@ -9,13 +9,14 @@
 #include <memory>
 #include <fstream>
 
+#include "rtc_types.h"
 #include "NvVideoEncoder.h"
 
 namespace webrtc {
 
 class JetsonH264EncoderImpl : public VideoEncoder {
 public:
-	explicit JetsonH264EncoderImpl(const cricket::VideoCodec& codec);
+	explicit JetsonH264EncoderImpl(const cricket::VideoCodec& codec, const vts_rtc::RtcConfig& rtc_config);
 	~JetsonH264EncoderImpl() override;
 
 	int InitEncode(const VideoCodec* codec_settings,
@@ -76,7 +77,7 @@ private:
     EncodedImageCallback* encoded_image_callback_ = nullptr;
     VideoCodec codec_;
 	H264PacketizationMode packetization_mode_ =
-		H264PacketizationMode::SingleNalUnit;
+		H264PacketizationMode::NonInterleaved;
 	EncodedImage encoded_image_;
     size_t max_payload_size_ = 0;
     bool has_reported_init_ = false;
@@ -87,6 +88,10 @@ private:
 	bool save_stream_ = false;
 	uint32_t fps_ = 0;
 	uint32_t bitrate_ = 0;
+	vts_rtc::RtcConfig rtc_config_;
+	std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
+	int qp_last_ = 0;
+	unsigned short encoder_id_ = 0;
 };
 
 }  // namespace webrtc

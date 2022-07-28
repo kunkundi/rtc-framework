@@ -27,9 +27,11 @@ typedef RtcSessionId* RtcSessionIds;
 typedef const char* RtcDataChannelLabel;
 typedef const char* RtcAudioSourceId;
 typedef const char* RtcVideoSourceId;
+typedef const char* RtcMediaSourceId;
 typedef char* RtcRoomId;
 typedef char* RtcSRSStreamurl;
 typedef char* RtcSRSSessionId;
+typedef bool RtcIsVideoChannel;
 
 typedef enum RtcMediaSourceType {
 	Rtc = 0,
@@ -145,6 +147,41 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
+typedef enum RtcMediaChannelType {
+	Video = 0,
+	Audio,
+	data
+} RtcMediaChannelType;
+
+typedef struct RtcAudioNetStats {
+	const char* sourceid;
+	double bitrate_bps;
+} RtcAudioNetStats;
+
+typedef struct RtcVideoNetStats {
+	const char* sourceid;
+
+	unsigned int width;
+	unsigned int height;
+	unsigned int bitrate_bps;
+	double fps;
+	double loss_rate;
+	double delay_ms;
+	unsigned int key_frame_count;
+
+	unsigned int fir_count;
+	unsigned int pli_count;
+	unsigned int nack_count;
+
+	const char* codec_name;
+} RtcVideoNetStats;
+
+typedef struct RtcNetStats {
+	bool input;
+	RtcAudioNetStats audio_stats;
+	RtcVideoNetStats video_stats;
+} RtcNetStats;
+
 // RtcRoomOperation, roomid
 typedef void(*RoomHandler)(RtcRoomOperation, RtcRoomId);
 // remote sessionId, RtcP2PState
@@ -169,6 +206,8 @@ typedef void(*RecvAudioFrameHandler)(RtcAudioSourceId, RtcMediaSourceType,
 // video_data, video_data_size
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, const unsigned char*, size_t);
+// RtcMediaChannelType, RtcMeidaSourceId, RtcNetStats
+typedef void(*ChannelNetworkStatsHandler)(RtcNetStats);
 
 /**
  * @param config_filepath Rtc配置文件
@@ -181,6 +220,7 @@ typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
  * @param recv_msg_handler 收到远端消息的回调函数
  * @param recv_frame_handler 收到远端图像帧的回调函数
  * @param recv_audioframe_handler 收到远端音频帧的回调函数
+ * @param channel_network_stats_handler 媒体通道网络状态的回调函数
  */
 typedef struct RtcInitParams {
 	const char* config_filepath;
@@ -193,6 +233,7 @@ typedef struct RtcInitParams {
 	RecvMessageHandler recv_msg_handler;
 	RecvAudioFrameHandler recv_audioframe_handler;
 	RecvFrameHandler recv_frame_handler;
+	ChannelNetworkStatsHandler channel_network_stats_handler;
 }RtcInitParams;
 
 #ifdef  __cplusplus

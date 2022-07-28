@@ -51,6 +51,31 @@ void RtcWidget::HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse resp
 	qDebug() << "-----> HandleSRSResponse, streamurl: " << streamurl << ", state: " << response;
 }
 
+void RtcWidget::HandleChannelNetStats(RtcNetStats params)
+{
+	qDebug() << "============================================";
+	qDebug() << params.input << " Net stats :";
+	qDebug() << "bInput:" << params.input;
+	qDebug() << "[Audio]";
+    qDebug() << "id:" << params.audio_stats.sourceid;
+    qDebug() << "bitrate:" << params.audio_stats.bitrate_bps;
+	qDebug() << "--------------------------------------------";
+	qDebug() << "[Video]";
+    qDebug() << "id:" << params.video_stats.sourceid;
+	qDebug() << "width:" << params.video_stats.width;
+	qDebug() << "height:" << params.video_stats.height;
+	qDebug() << "bitrate:" << params.video_stats.bitrate_bps;
+	qDebug() << "fps:" << params.video_stats.fps;
+	qDebug() << "lossrate:" << params.video_stats.loss_rate;
+	qDebug() << "delay:" << params.video_stats.delay_ms;
+	qDebug() << "keyframe count:" << params.video_stats.key_frame_count;
+	qDebug() << "fir count:" << params.video_stats.fir_count;
+	qDebug() << "pli count" << params.video_stats.pli_count;
+	qDebug() << "nack count" << params.video_stats.nack_count;
+	qDebug() << "codec name:" << params.video_stats.codec_name;
+	qDebug() << "============================================";
+}
+
 void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
 	const char* channel_label, const char* msg, size_t msg_size) {
 	if (recv_msg_listwgt_) {
@@ -109,6 +134,7 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 	st_params.recv_msg_handler = HandleMessage;
 	st_params.recv_audioframe_handler = HandleAudioFrame;
 	st_params.recv_frame_handler = HandleFrame;
+	st_params.channel_network_stats_handler = HandleChannelNetStats;
 	auto code = RtcInitAgentV2(st_params);
 
 	CHECK_ERRORCODE
@@ -176,6 +202,7 @@ void RtcWidget::CreateUI() {
 	QPushButton* join_room_btn = new QPushButton(tr("Join Room"));
 	QPushButton* leave_room_btn = new QPushButton(tr("Leave Room"));
 	QPushButton* close_room_btn = new QPushButton(tr("Close Room"));
+	QPushButton* stop_send_frame_btn = new QPushButton(tr("Stop Send Frame"));
 	room_layout->addWidget(open_room_edit_, 0, 0, 1, 3);
 	room_layout->addWidget(open_room_btn, 0, 3, 1, 1);
 	room_layout->addWidget(close_room_btn, 0, 4, 1, 1);
@@ -183,6 +210,7 @@ void RtcWidget::CreateUI() {
 	room_layout->addWidget(query_rooms_btn, 1, 2, 1, 1);
 	room_layout->addWidget(join_room_btn, 1, 3, 1, 1);
 	room_layout->addWidget(leave_room_btn, 1, 4, 1, 1);
+	room_layout->addWidget(stop_send_frame_btn, 1, 5, 1, 1);
 	room_groupbox->setLayout(room_layout);
 
 	// SRS管理
@@ -235,6 +263,7 @@ void RtcWidget::CreateUI() {
 	connect(close_room_btn, SIGNAL(clicked()), this, SLOT(CloseRoom()));
 	connect(join_room_btn, SIGNAL(clicked()), this, SLOT(JoinRoom()));
 	connect(leave_room_btn, SIGNAL(clicked()), this, SLOT(LeaveRoom()));
+	connect(stop_send_frame_btn, SIGNAL(clicked()), this, SLOT(StopSendFrame()));
 	connect(publish_to_SRS_btn, SIGNAL(clicked()), this, SLOT(PublishToSRS()));
 	connect(unpublish_to_SRS_btn, SIGNAL(clicked()), this, SLOT(UnpublishToSRS()));
 	connect(play_from_SRS_btn, SIGNAL(clicked()), this, SLOT(PlayFromSRS()));
@@ -277,7 +306,7 @@ void RtcWidget::LoadPCMData() {
 	}
 }
 
-void RtcWidget::LoadYUVData() {
+/* void RtcWidget::LoadYUVData() {
 	QStringList yuv_namefilters;
 	yuv_namefilters << "*.yuv";
 	QDir yuv_dir(yuv_folderpath_);
@@ -303,6 +332,63 @@ void RtcWidget::LoadYUVData() {
 			yuv_frames_.emplace_back(frame);
 		}
 	}
+} */
+
+//从UYVY中获取Y，并存到一个数组
+void UYVYToYRow(const char *src_uyvy, char *dst_y, int width) {
+  // Output a row of Y values.
+  for (int x = 0; x < width - 1; x += 2) {
+    dst_y[x] = src_uyvy[1];
+    dst_y[x + 1] = src_uyvy[3];
+    src_uyvy += 4;
+  }
+}
+//从UYVY中获取UV，并分别存到2个数组
+void UYVYToUVRow(const char *src_uyvy, int src_stride_uyvy, char *dst_u,
+                 char *dst_v, int width) {
+  // Output a row of UV values.
+  for (int x = 0; x < width - 1; x += 2) {
+    dst_u[0] = src_uyvy[0];
+    dst_v[0] = src_uyvy[2];
+    src_uyvy += 4;
+    dst_u += 1;
+    dst_v += 1;
+  }
+}
+
+int UYVYToI420(const char *src_uyvy, int src_stride_uyvy, char *dst_y,
+               int dst_stride_y, char *dst_u, int dst_stride_u, char *dst_v,
+               int dst_stride_v, int width, int height) {
+  for (int y = 0; y < height - 1; y += 2) {
+    UYVYToUVRow(src_uyvy, src_stride_uyvy, dst_u, dst_v, width);
+    UYVYToYRow(src_uyvy, dst_y, width);
+    UYVYToYRow(src_uyvy + src_stride_uyvy, dst_y + dst_stride_y, width);
+    src_uyvy += src_stride_uyvy * 2;
+    dst_y += dst_stride_y * 2;
+    dst_u += dst_stride_u;
+    dst_v += dst_stride_v;
+  }
+
+  return 0;
+}
+
+void RtcWidget::LoadYUVData() {
+	FILE* fp = fopen("zjlabs.yuv", "rb");
+	while (!feof(fp)) {
+		RtcYUV420pFrame frame{
+			1280,
+			720,
+			frame.width,
+			frame.width / 2,
+			frame.width / 2,
+			new unsigned char[frame.height * frame.width * 3 / 2],
+			frame.height * frame.width * 3 / 2
+		};
+		fread(frame.buffer, 1, frame.height * frame.width * 3 / 2, fp);
+		yuv_frames_.emplace_back(frame);
+	}
+	fflush(fp);
+	fclose(fp);
 }
 
 void RtcWidget::SendAudioFrame() {
@@ -343,22 +429,39 @@ void RtcWidget::SendFrame() {
 		videothread_ = QThread::create([this]() {
 #endif
 			size_t idx = 0;
+			size_t idx1 = 0;
 			bool need_stop = false;
 			while (!need_stop) {
 				if (idx == yuv_frames_.size()) {
 					idx = 0;
 				}
-				RtcSendFrame("external_feed", &yuv_frames_[idx++]);
-				QThread::msleep(30);
+				if (idx1 == yuv_frames_.size()) {
+					idx1 = 0;
+				}
+				if(send_frame_flag){
+					RtcSendFrame("external_feed", &yuv_frames_[idx++]);
+					idx1++;
+					QThread::msleep(30);
 
-				{
-					std::lock_guard<std::mutex> lg(stop_videothread_mtx_);
-					need_stop = stop_videothread_;
+					{
+						std::lock_guard<std::mutex> lg(stop_videothread_mtx_);
+						need_stop = stop_videothread_;
+					}
+				}
+				else{
+					RtcSendFrame("external_feed2", &yuv_frames_[idx1++]);
+					idx++;
+					QThread::msleep(30);
+
+					{
+						std::lock_guard<std::mutex> lg(stop_videothread_mtx_);
+						need_stop = stop_videothread_;
+					}
 				}
 			}
 			});
 #if defined  __aarch64__
-		videoThread.join();
+		videoThread.detach();
 #else
 		videothread_->start();
 #endif
@@ -379,6 +482,7 @@ void RtcWidget::AddVideoSource() {
 	if (current_idx == videosources_combobox_->count() - 1) {
 		// YUV420p video source
 		auto code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
+		code = RtcAddExternalVideoSource("external_feed2", RtcPriorityType::High);
 		//CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {
@@ -463,6 +567,11 @@ void RtcWidget::JoinRoom() {
 void RtcWidget::LeaveRoom() {
 	auto code = RtcLeaveRoom();
 	CHECK_ERRORCODE
+}
+
+void RtcWidget::StopSendFrame() {
+	send_frame_flag = !send_frame_flag;
+	printf("flag %d \n", send_frame_flag);
 }
 
 void RtcWidget::PublishToSRS() {

@@ -14,10 +14,12 @@ RtcConnectionBase::~RtcConnectionBase() {
 	set_remote_sdp_observer_->ResetCallbacks();
 	set_sdp_observer_->ResetCallbacks();
 	create_sdp_observer_->ResetCallbacks();
+	
 	for (const auto& observer : datachannel_observers_) {
 		observer->ResetCallbacks();
 	}
 	peer_conn_observer_.ResetCallbacks();
+	rtc_channel_stats_observer_->ResetCallbacks();
 
 	// reset videosinks and audiosinks callbacks
 	for (const auto& videosink : rtc_pc_videosinks_) {
@@ -392,6 +394,27 @@ void RtcConnectionBase::InitObserverCallbacks() {
 
 	set_remote_sdp_observer_ =
 		new rtc::RefCountedObject<SetRemoteDescriptionObserver>();
+
+	rtc_channel_stats_observer_ = new rtc::RefCountedObject<RtcChannelStatsObserver>();
+	rtc_channel_stats_observer_->on_stats_deliverd_ = 
+		[this, weak_self](const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+		auto self = weak_self.lock();
+		if (!self) {
+			return;
+		}
+
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, weak_self, report]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] Report stats failed, "
+						"because rtc connection has been destroyed.");
+					return;
+				}
+
+				HandleNetStatsReport(report);
+			});
+		};
 }
 /////////////////// END RtcConnectionBase ///////////////////
 
@@ -437,6 +460,13 @@ void RtcConnection::HandleDataChannelStateChanged(
 			local_sessionid_, remote_sessionid_, state);
 		on_dc_state_changed_(remote_sessionid_, label,
 			static_cast<vts_rtc::DataChannelState>(state));
+	}
+}
+
+void RtcConnection::HandleNetStatsReport(
+	const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const {
+	if (on_net_stats_report_) {
+		on_net_stats_report_(report);
 	}
 }
 
@@ -504,6 +534,11 @@ void Rtc2SRSConnection::HandleSdpCreateSucceed(const std::string& sdp) const {
 
 void Rtc2SRSConnection::HandleDataChannelStateChanged(
 	const std::string& label, RtcDataChannelState state) const {
+	// TO DO
+}
+
+void Rtc2SRSConnection::HandleNetStatsReport(
+	const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const {
 	// TO DO
 }
 

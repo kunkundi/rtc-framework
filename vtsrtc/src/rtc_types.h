@@ -21,6 +21,7 @@ using SRSStreamurl = std::string;
 using AudioSourceId = std::string;
 using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
+using MediaSourceId = std::string;
 enum class MediaSourceType {
 	Rtc = 0,
 	SRS
@@ -62,6 +63,41 @@ enum class SRSResponse {
 	SRSStreamAlreadyExisted,
 };
 
+enum class MediaChannelType {
+	Video = 0,
+	Audio,
+	data
+};
+
+struct AudioNetStats {
+	std::string sourceid;
+	double bitrate_bps;
+};
+
+struct VideoNetStats {
+	std::string sourceid;
+
+	unsigned int width;
+	unsigned int height;
+	unsigned int bitrate_bps;
+	double fps;
+	double loss_rate;
+	double delay_ms;
+	unsigned int key_frame_count;
+
+	unsigned int fir_count;
+	unsigned int pli_count;
+	unsigned int nack_count;
+
+	std::string codec_name;
+};
+
+struct NetStats {
+	bool input;
+	AudioNetStats audio_stats;
+	VideoNetStats video_stats;
+};
+
 // RoomOperation, RoomId
 using RoomHandler = std::function<void(enum RoomOperation, const RoomId&)>;
 // user related callback
@@ -89,6 +125,9 @@ using RecvAudioFrameHandler = std::function<void(const AudioSourceId&,
 // VideoSourceId, MediaSourceType, width, height, dimension, video_data
 using RecvFrameHandler = std::function<void(const VideoSourceId&,
 	enum MediaSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
+// VideoSourceId, MediaSourceType, width, height, dimension, video_data
+using ChannelNetworkStatsHandler = std::function<void(const NetStats&)>;
+using ChannelNetworkStatsHandlerUS = std::function<void(const NetStats&)>;
 
 
 struct RtcConfig {
@@ -102,6 +141,9 @@ struct RtcConfig {
 	std::string signaling_server_url;
 	std::string SRS_api_server_url;
 	std::vector<IceServer> ice_servers;
+	std::map<std::string, std::pair<long, long>> resolution_limit;
+	std::map<long, std::vector<long>> strategy;
+	long bitrate_maxmum = 2000000;
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;

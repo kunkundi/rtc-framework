@@ -4,6 +4,7 @@
 #include <iostream>
 #include <functional>
 #include <api/peer_connection_interface.h>
+#include <nlohmann/json.hpp>
 
 class PeerConnectionObserver : public webrtc::PeerConnectionObserver {
 	friend class RtcConnectionBase;
@@ -248,4 +249,18 @@ public:
 	void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override {
 		LOG_INFO("[WEBRTC] Set remote SDP on complete, error message: %s", error.message());
 	}
+};
+
+class RtcChannelStatsObserver : virtual public webrtc::RTCStatsCollectorCallback {
+	friend class RtcConnectionBase;
+public:
+	void ResetCallbacks() {
+		on_stats_deliverd_ = nullptr;
+	}
+	void OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override{
+		if(on_stats_deliverd_) { on_stats_deliverd_(report); }
+	}
+
+private:
+	std::function<void(const rtc::scoped_refptr<const webrtc::RTCStatsReport>&)> on_stats_deliverd_ = nullptr;
 };

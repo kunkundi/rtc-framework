@@ -4,6 +4,7 @@
 #include "rtc_connection.h"
 #include "rtc_audiosource.hpp"
 #include "rtc_device_manager.h"
+#include "rtc_statistics.h"
 #include <nlohmann/json.hpp>
 #include <client_http.hpp>
 #include <client_ws.hpp>
@@ -75,7 +76,8 @@ public:
 		const vts_rtc::SRSResponseHandler& SRS_response_handler,
 		const vts_rtc::RecvMessageHandler& recv_msg_handler,
 		const vts_rtc::RecvAudioFrameHandler& recv_audioframe_handler,
-		const vts_rtc::RecvFrameHandler& recv_frame_handler);
+		const vts_rtc::RecvFrameHandler& recv_frame_handler,
+		const vts_rtc::ChannelNetworkStatsHandler& channel_network_stats_handler);
 	~RtcConnectionManager();
 	bool Init();
 
@@ -120,8 +122,12 @@ private:
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn);
 	void AddVideoTrack2PeerConnection(
 		rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn);
+	void InitStatsReport();
+	void StatsReport(SteadyTimer steady_timer);
 	void InteractRemotePeer(vts_rtc::SessionId remote_sessionid, bool offer_peer, const std::string& remote_sdp);
 	void AckRemotePeerSdp(vts_rtc::SessionId remote_sessionid, const std::string& remote_sdp);
+    // limit input frame size
+	webrtc::VideoFrame BuildAndLimitFrameSize(const vts_rtc::VideoSourceId& video_sourceid, const vts_rtc::YUV420pFrame& frame);
 
 private:
 	// logic_thread_ is created in RtcAgent Constructor method
@@ -141,6 +147,7 @@ private:
 	vts_rtc::RecvMessageHandler recv_msg_handler_ = nullptr;
 	vts_rtc::RecvAudioFrameHandler recv_audioframe_handler_ = nullptr;
 	vts_rtc::RecvFrameHandler recv_frame_handler_ = nullptr;
+	vts_rtc::ChannelNetworkStatsHandler channel_network_stats_handler_ = nullptr;
 
 	std::shared_ptr<HttpClient> http_client_ = nullptr;
 	std::unique_ptr<HttpClient> SRS_http_client_ = nullptr;
@@ -163,6 +170,17 @@ private:
 	std::map<vts_rtc::VideoSourceId,
 		rtc::scoped_refptr<RtcExternalFeedTrackSource>>
 		external_feed_tracksources_;
+
+	std::shared_ptr<RtcStatistics> statistics_collector_ = nullptr;
+	std::map<vts_rtc::VideoSourceId, unsigned short> external_feed_tracksources_with_numid_;
+	std::map<vts_rtc::VideoSourceId, uint32_t> external_feed_tracksources_id_vs_ssrc_;
+	std::map<uint32_t, vts_rtc::VideoSourceId> external_feed_tracksources_ssrc_vs_id_;
+	rtc::scoped_refptr<RtcChannelStatsObserver> rtc_channel_stats_observer_;
+	std::unique_ptr<rtc::Thread> stats_report_thread_ = nullptr;
+	SteadyTimer stats_report_timer_ = nullptr;
+	std::shared_ptr<SimpleWeb::io_context> stats_report_io_context_ = nullptr;
+	unsigned short numid_ = 1;
+
 	std::map<vts_rtc::AudioSourceId, rtc::scoped_refptr<RtcAudioSource>>
 		external_audiosources_;
 	std::map<rtc::scoped_refptr<webrtc::RtpSenderInterface>,

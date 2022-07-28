@@ -28,6 +28,7 @@ private:
 	static void HandleServerConnectionState(RtcServerConnectionState state);
 	static void HandleSRSState(RtcSRSStreamurl streamurl, RtcP2PState state);
 	static void HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse response);
+	static void HandleChannelNetStats(RtcNetStats params);
 
 	static void HandleMessage(RtcSessionId remote_sessionid,
 		const char* channel_label, const char* msg, size_t msg_size);
@@ -54,6 +55,7 @@ private slots:
 	void CloseRoom();
 	void JoinRoom();
 	void LeaveRoom();
+	void StopSendFrame();
 	void PublishToSRS();
 	void UnpublishToSRS();
 	void PlayFromSRS();
@@ -63,7 +65,8 @@ private slots:
 private:
 	bool audio_source_added_ = false,
 		external_feed_inited_ = false,
-		video_source_added_ = false;
+		video_source_added_ = false,
+		send_frame_flag = true;
 	QString pcmdata_filepath_, yuv_folderpath_;
 	std::vector<RtcPCMData> pcmdatas_;
 	std::vector<RtcYUV420pFrame> yuv_frames_;
