@@ -1417,7 +1417,7 @@ void RtcConnectionManager::InitStatsReport() {
 }
 
 void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
-	RTC_DCHECK_RUN_ON(ws_client_thread_.get());
+	RTC_DCHECK_RUN_ON(stats_report_thread_.get());
 	steady_timer->expires_from_now(std::chrono::milliseconds(1000));
     steady_timer->async_wait(
         [this, steady_timer](const boost::system::error_code &ec)

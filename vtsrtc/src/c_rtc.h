@@ -155,7 +155,7 @@ typedef enum RtcMediaChannelType {
 
 typedef struct RtcAudioNetStats {
 	const char* sourceid;
-	double bitrate_bps;
+	unsigned long int bitrate_bps;
 } RtcAudioNetStats;
 
 typedef struct RtcVideoNetStats {
@@ -163,7 +163,7 @@ typedef struct RtcVideoNetStats {
 
 	unsigned int width;
 	unsigned int height;
-	unsigned int bitrate_bps;
+	unsigned long int bitrate_bps;
 	double fps;
 	double loss_rate;
 	double delay_ms;

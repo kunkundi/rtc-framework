@@ -71,7 +71,7 @@ enum class MediaChannelType {
 
 struct AudioNetStats {
 	std::string sourceid;
-	double bitrate_bps;
+	unsigned long int bitrate_bps;
 };
 
 struct VideoNetStats {
@@ -79,7 +79,7 @@ struct VideoNetStats {
 
 	unsigned int width;
 	unsigned int height;
-	unsigned int bitrate_bps;
+	unsigned long int bitrate_bps;
 	double fps;
 	double loss_rate;
 	double delay_ms;
