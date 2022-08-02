@@ -154,32 +154,32 @@ typedef enum RtcMediaChannelType {
 } RtcMediaChannelType;
 
 typedef struct RtcAudioNetStats {
-	const char* sourceid;
-	unsigned long int bitrate_bps;
+	const char* sourceid;			//音频流ID
+	unsigned long int bitrate_bps;	//码率
 } RtcAudioNetStats;
 
 typedef struct RtcVideoNetStats {
-	const char* sourceid;
+	const char* sourceid;			//视频流ID
 
-	unsigned int width;
-	unsigned int height;
-	unsigned long int bitrate_bps;
-	double fps;
-	double loss_rate;
-	double delay_ms;
-	unsigned int key_frame_count;
+	unsigned int width;				//宽
+	unsigned int height;			//高
+	unsigned long int bitrate_bps;	//码率
+	unsigned int fps;				//帧率
+	unsigned int loss_rate;			//丢包率
+	unsigned int delay_ms;			//延时
+	unsigned int key_frame_count;	//关键帧数
 
-	unsigned int fir_count;
-	unsigned int pli_count;
-	unsigned int nack_count;
+	unsigned int fir_count;			//强制I帧请求数
+	unsigned int pli_count;			//丢包I帧请求数
+	unsigned int nack_count;		//重传数
 
-	const char* codec_name;
+	const char* codec_name;			//编解码器名称
 } RtcVideoNetStats;
 
 typedef struct RtcNetStats {
-	bool input;
-	RtcAudioNetStats audio_stats;
-	RtcVideoNetStats video_stats;
+	bool input;						//是否是输入媒体流
+	RtcAudioNetStats audio_stats;	//音频流统计
+	RtcVideoNetStats video_stats;	//视频流统计
 } RtcNetStats;
 
 // RtcRoomOperation, roomid

@@ -173,13 +173,12 @@ private:
 
 	std::shared_ptr<RtcStatistics> statistics_collector_ = nullptr;
 	std::map<vts_rtc::VideoSourceId, unsigned short> external_feed_tracksources_with_numid_;
-	std::map<vts_rtc::VideoSourceId, uint32_t> external_feed_tracksources_id_vs_ssrc_;
 	std::map<uint32_t, vts_rtc::VideoSourceId> external_feed_tracksources_ssrc_vs_id_;
+	std::map<vts_rtc::VideoSourceId, uint32_t> receiver_tracksources_id_vs_ssrc_;
 	rtc::scoped_refptr<RtcChannelStatsObserver> rtc_channel_stats_observer_;
 	std::unique_ptr<rtc::Thread> stats_report_thread_ = nullptr;
 	SteadyTimer stats_report_timer_ = nullptr;
 	std::shared_ptr<SimpleWeb::io_context> stats_report_io_context_ = nullptr;
-	unsigned short numid_ = 1;
 
 	std::map<vts_rtc::AudioSourceId, rtc::scoped_refptr<RtcAudioSource>>
 		external_audiosources_;

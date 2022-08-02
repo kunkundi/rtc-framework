@@ -70,30 +70,35 @@ enum class MediaChannelType {
 };
 
 struct AudioNetStats {
-	std::string sourceid;
-	unsigned long int bitrate_bps;
+	std::string sourceid = "";
+	unsigned long int bitrate_bps = 0;
 };
 
 struct VideoNetStats {
-	std::string sourceid;
+	std::string sourceid = "";
 
-	unsigned int width;
-	unsigned int height;
-	unsigned long int bitrate_bps;
-	double fps;
-	double loss_rate;
-	double delay_ms;
-	unsigned int key_frame_count;
+	unsigned int width = 0;
+	unsigned int height = 0;
+	unsigned long int bitrate_bps = 0;
+	unsigned int fps = 0;
+	unsigned int loss_rate = 0;
+	unsigned int delay_ms = 0;
+	unsigned int key_frame_count = 0;
 
-	unsigned int fir_count;
-	unsigned int pli_count;
-	unsigned int nack_count;
+	unsigned int fir_count = 0;
+	unsigned int pli_count = 0;
+	unsigned int nack_count = 0;
 
-	std::string codec_name;
+	unsigned int packets_sent = 0;
+	unsigned int packets_resent = 0;
+	unsigned int packets_received = 0;
+	unsigned int packets_lost = 0;
+
+	std::string codec_name = "";
 };
 
 struct NetStats {
-	bool input;
+	bool input = false;
 	AudioNetStats audio_stats;
 	VideoNetStats video_stats;
 };

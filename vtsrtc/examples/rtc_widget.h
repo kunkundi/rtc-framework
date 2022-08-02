@@ -9,6 +9,8 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QListWidget>
+#include <QStandardItemModel>
+#include <QTableView>
 #include <mutex>
 
 class RtcWidget : public QWidget {
@@ -79,8 +81,11 @@ private:
 	QLineEdit* SRS_streamurl_edit_;
 	static QListWidget* recv_msg_listwgt_;
 	QLineEdit* send_msg_edit_;
+	static QStandardItemModel* model_;
+	static QTableView* tableView_;
+	static QStringList* sourceid_list_;
 #if !defined  __aarch64__
-	static RtcVideoRender* rtc_videorender_;
+	static std::map<std::string, RtcVideoRender*> source_render_;
 #endif
 	static RtcAudioRender* rtc_audiorender_;
 };

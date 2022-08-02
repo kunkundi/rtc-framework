@@ -8,6 +8,7 @@
 #include <QMessageBox>
 #include <QThread>
 #include <QDebug>
+#include <QHeaderView>
 #if defined  __aarch64__
 #include <iostream>
 #include <thread>
@@ -19,9 +20,14 @@
 	}
 
 QListWidget* RtcWidget::recv_msg_listwgt_ = nullptr;
+QStandardItemModel* RtcWidget::model_ = nullptr;
+QTableView* RtcWidget::tableView_ = nullptr;
+QStringList* RtcWidget::sourceid_list_ = nullptr;
+
 RtcAudioRender* RtcWidget::rtc_audiorender_ = nullptr;
 #if !defined  __aarch64__
-RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
+std::map<std::string, RtcVideoRender*> RtcWidget::source_render_;
+//RtcVideoRender* RtcWidget::rtc_videorender_ = nullptr;
 #endif
 
 void RtcWidget::HandleRoom(RtcRoomOperation room_operation, RtcRoomId roomid) {
@@ -53,27 +59,61 @@ void RtcWidget::HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse resp
 
 void RtcWidget::HandleChannelNetStats(RtcNetStats params)
 {
-	qDebug() << "============================================";
-	qDebug() << params.input << " Net stats :";
-	qDebug() << "bInput:" << params.input;
-	qDebug() << "[Audio]";
-    qDebug() << "id:" << params.audio_stats.sourceid;
-    qDebug() << "bitrate:" << params.audio_stats.bitrate_bps;
-	qDebug() << "--------------------------------------------";
-	qDebug() << "[Video]";
-    qDebug() << "id:" << params.video_stats.sourceid;
-	qDebug() << "width:" << params.video_stats.width;
-	qDebug() << "height:" << params.video_stats.height;
-	qDebug() << "bitrate:" << params.video_stats.bitrate_bps;
-	qDebug() << "fps:" << params.video_stats.fps;
-	qDebug() << "lossrate:" << params.video_stats.loss_rate;
-	qDebug() << "delay:" << params.video_stats.delay_ms;
-	qDebug() << "keyframe count:" << params.video_stats.key_frame_count;
-	qDebug() << "fir count:" << params.video_stats.fir_count;
-	qDebug() << "pli count" << params.video_stats.pli_count;
-	qDebug() << "nack count" << params.video_stats.nack_count;
-	qDebug() << "codec name:" << params.video_stats.codec_name;
-	qDebug() << "============================================";
+	{
+		if (!sourceid_list_->contains(params.audio_stats.sourceid))
+		{
+			sourceid_list_->append(params.audio_stats.sourceid);
+			//model_->setVerticalHeaderLabels(*sourceid_list_);
+		}
+
+		if (!sourceid_list_->contains(params.video_stats.sourceid))
+		{
+			sourceid_list_->append(params.video_stats.sourceid);
+			//model_->setVerticalHeaderLabels(*sourceid_list_);
+		}
+	}
+
+	if (params.input)
+	{
+// 		auto audio_id = sourceid_list_->indexOf(params.audio_stats.sourceid);
+// 		model_->setItem(audio_id, 0, new QStandardItem(params.audio_stats.sourceid));
+// 		model_->setItem(audio_id, 1, new QStandardItem(QString::number(params.audio_stats.bitrate_bps)));
+
+		auto video_id = sourceid_list_->indexOf(params.video_stats.sourceid);
+		model_->setItem(video_id, 0, new QStandardItem(params.video_stats.sourceid));
+		model_->setItem(video_id, 1, new QStandardItem(QString::number(params.video_stats.bitrate_bps)));
+		model_->setItem(video_id, 2, new QStandardItem(QString::number(params.video_stats.width)));
+		model_->setItem(video_id, 3, new QStandardItem(QString::number(params.video_stats.height)));
+		model_->setItem(video_id, 4, new QStandardItem(QString::number(params.video_stats.fps)));
+		model_->setItem(video_id, 5, new QStandardItem(QString::number(params.video_stats.loss_rate)));
+		model_->setItem(video_id, 6, new QStandardItem(QString::number(params.video_stats.delay_ms)));
+		model_->setItem(video_id, 7, new QStandardItem(QString::number(params.video_stats.key_frame_count)));
+		model_->setItem(video_id, 8, new QStandardItem(QString::number(params.video_stats.fir_count)));
+		model_->setItem(video_id, 9, new QStandardItem(QString::number(params.video_stats.pli_count)));
+		model_->setItem(video_id, 10, new QStandardItem(QString::number(params.video_stats.nack_count)));
+		model_->setItem(video_id, 11, new QStandardItem(params.video_stats.codec_name));
+	}
+	else
+	{
+// 		auto audio_id = sourceid_list_->indexOf(params.audio_stats.sourceid);
+// 		model_->setItem(audio_id, 0, new QStandardItem(params.audio_stats.sourceid));
+// 		model_->setItem(audio_id, 1, new QStandardItem(QString::number(params.audio_stats.bitrate_bps)));
+
+		auto video_id = sourceid_list_->indexOf(params.video_stats.sourceid);
+		model_->setItem(video_id, 0, new QStandardItem(params.video_stats.sourceid));
+		model_->setItem(video_id, 1, new QStandardItem(QString::number(params.video_stats.bitrate_bps)));
+		model_->setItem(video_id, 2, new QStandardItem(QString::number(params.video_stats.width)));
+		model_->setItem(video_id, 3, new QStandardItem(QString::number(params.video_stats.height)));
+		model_->setItem(video_id, 4, new QStandardItem(QString::number(params.video_stats.fps)));
+		model_->setItem(video_id, 5, new QStandardItem(QString::number(params.video_stats.loss_rate)));
+		model_->setItem(video_id, 6, new QStandardItem(QString::number(params.video_stats.delay_ms)));
+		model_->setItem(video_id, 7, new QStandardItem(QString::number(params.video_stats.key_frame_count)));
+		model_->setItem(video_id, 8, new QStandardItem(QString::number(params.video_stats.fir_count)));
+		model_->setItem(video_id, 9, new QStandardItem(QString::number(params.video_stats.pli_count)));
+		model_->setItem(video_id, 10, new QStandardItem(QString::number(params.video_stats.nack_count)));
+ 		model_->setItem(video_id, 11, new QStandardItem(params.video_stats.codec_name));
+ 	}
+	tableView_->viewport()->update();
 }
 
 void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
@@ -105,10 +145,18 @@ void RtcWidget::HandleFrame(RtcVideoSourceId sourceid,
 	size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {
 #if !defined  __aarch64__
-	if (rtc_videorender_) {
-		rtc_videorender_->OnFrame(sourceid, sourcetype,
-		width, height, dimension, buffer, sz_buffer);
+
+	auto it = source_render_.find(sourceid);
+	if (it != source_render_.end())
+	{
+		it->second->OnFrame(sourceid, sourcetype,
+			width, height, dimension, buffer, sz_buffer);
 	}
+	else
+	{
+		//source_render_.insert(std::make_pair(sourceid, new RtcVideoRender()));
+	}
+
 #endif
 }
 
@@ -202,7 +250,7 @@ void RtcWidget::CreateUI() {
 	QPushButton* join_room_btn = new QPushButton(tr("Join Room"));
 	QPushButton* leave_room_btn = new QPushButton(tr("Leave Room"));
 	QPushButton* close_room_btn = new QPushButton(tr("Close Room"));
-	QPushButton* stop_send_frame_btn = new QPushButton(tr("Stop Send Frame"));
+	QPushButton* stop_send_frame_btn = new QPushButton(tr("Switch Stream"));
 	room_layout->addWidget(open_room_edit_, 0, 0, 1, 3);
 	room_layout->addWidget(open_room_btn, 0, 3, 1, 1);
 	room_layout->addWidget(close_room_btn, 0, 4, 1, 1);
@@ -240,22 +288,43 @@ void RtcWidget::CreateUI() {
 	msg_layout->addWidget(send_msg_edit_, 1, 0, 1, 3);
 	msg_layout->addWidget(send_msg_btn, 1, 3, 1, 1);
 	msg_groupbox->setLayout(msg_layout);
+	msg_groupbox->setFixedSize(660, 100);
 
+	// 媒体统计
+	tableView_ = new QTableView;
+	tableView_->resize(1250, 400);
+	sourceid_list_ = new QStringList({ "" });
+	model_ = new QStandardItemModel();
+	model_->setHorizontalHeaderLabels({ "Source ID", "Bitrate", "Width", "Height", "Fps", "Loss Rate", "Delay", "Key Frame", "Fir", "Pli", "Nack", "Codec" });
+	model_->setVerticalHeaderLabels(*sourceid_list_);
+	tableView_->setModel(model_);
+	tableView_->show();
+
+	// 渲染
 	rtc_audiorender_ = new RtcAudioRender(this);
 #if !defined  __aarch64__
-	rtc_videorender_ = new RtcVideoRender();
+	source_render_.insert(std::make_pair("external_feed", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("external_feed1", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("external_feed2", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("camera_capturer1", new RtcVideoRender()));
 #endif
+	QGroupBox* Render_groupbox = new QGroupBox(tr("Render"));
+	QGridLayout* gLayout = new QGridLayout();
+	gLayout->addWidget(source_render_["external_feed"], 0, 0, 1, 1);
+	gLayout->addWidget(source_render_["external_feed1"], 1, 0, 1, 1);
+	gLayout->addWidget(source_render_["external_feed2"], 0, 1, 1, 1);
+	gLayout->addWidget(source_render_["camera_capturer1"], 1, 1, 1, 1);
+	Render_groupbox->setLayout(gLayout);
+	Render_groupbox->setFixedSize(1308, 750);
 
 	main_layout->addWidget(videosource_groupbox);
 	main_layout->addWidget(room_groupbox);
 	main_layout->addWidget(SRS_groupbox);
 	main_layout->addWidget(msg_groupbox);
-#if !defined  __aarch64__
-	main_layout->addWidget(rtc_videorender_, 0, Qt::AlignCenter);
-#endif
+	main_layout->addWidget(Render_groupbox);
 
 	this->setLayout(main_layout);
-	this->setMinimumSize(800, 600);
+	this->setFixedSize(1330, 1100);
 
 	// bind events
 	connect(query_rooms_btn, SIGNAL(clicked()), this, SLOT(QueryRooms()));

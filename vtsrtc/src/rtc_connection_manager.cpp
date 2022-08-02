@@ -1473,18 +1473,30 @@ void RtcConnectionManager::InteractRemotePeer(
 					InitStatsReport();
 				});
 
-				auto rtc_con = rtc_conn;
-
-				auto rtpsenders = rtc_con->peer_conn_->GetSenders();
-				for(auto it: rtpsenders)
+				// get ssrc and sourceid info for statistics
 				{
-					if(external_feed_tracksources_.find(it->id()) != external_feed_tracksources_.end()) {
-						external_feed_tracksources_ssrc_vs_id_[it->ssrc()] = it->id();
-						external_feed_tracksources_id_vs_ssrc_[it->id()] = it->ssrc();
+					auto rtpsenders = rtc_conn->peer_conn_->GetSenders();
+					for (auto it : rtpsenders)
+					{
+						if (external_feed_tracksources_.find(it->id()) != external_feed_tracksources_.end()) {
+							external_feed_tracksources_ssrc_vs_id_[it->ssrc()] = it->id();
+						}
 					}
+					statistics_collector_->SetSendersMediaSsrcVsId(external_feed_tracksources_ssrc_vs_id_);
+
+					auto rtpreceivers = rtc_conn->peer_conn_->GetReceivers();
+					for (auto it : rtpreceivers) {
+						auto encoding_obj = it->GetParameters().encodings;
+						for (auto obj : encoding_obj) {
+							if (obj.ssrc.has_value()) {
+								for (auto stream_id : it->stream_ids()) {
+									receiver_tracksources_id_vs_ssrc_[stream_id] = (unsigned int)(obj.ssrc.value());
+								}
+							}
+						}
+					}
+					statistics_collector_->SetReceiversMediaSsrcVsId(receiver_tracksources_id_vs_ssrc_);
 				}
-				statistics_collector_->SetMediaSsrcVsId(external_feed_tracksources_ssrc_vs_id_, 
-					external_feed_tracksources_id_vs_ssrc_);
 			}
 
 			if (state == vts_rtc::P2PState::Failed) {
