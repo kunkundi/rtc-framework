@@ -307,7 +307,7 @@ void RtcWidget::CreateUI() {
 	source_render_.insert(std::make_pair("external_feed1", new RtcVideoRender()));
 	source_render_.insert(std::make_pair("external_feed2", new RtcVideoRender()));
 	source_render_.insert(std::make_pair("camera_capturer1", new RtcVideoRender()));
-#endif
+
 	QGroupBox* Render_groupbox = new QGroupBox(tr("Render"));
 	QGridLayout* gLayout = new QGridLayout();
 	gLayout->addWidget(source_render_["external_feed"], 0, 0, 1, 1);
@@ -316,12 +316,15 @@ void RtcWidget::CreateUI() {
 	gLayout->addWidget(source_render_["camera_capturer1"], 1, 1, 1, 1);
 	Render_groupbox->setLayout(gLayout);
 	Render_groupbox->setFixedSize(1308, 750);
+#endif
 
 	main_layout->addWidget(videosource_groupbox);
 	main_layout->addWidget(room_groupbox);
 	main_layout->addWidget(SRS_groupbox);
 	main_layout->addWidget(msg_groupbox);
+#if !defined  __aarch64__
 	main_layout->addWidget(Render_groupbox);
+#endif
 
 	this->setLayout(main_layout);
 	this->setFixedSize(1330, 1100);
