@@ -4,7 +4,6 @@
 #include <iostream>
 #include <functional>
 #include <api/peer_connection_interface.h>
-#include <nlohmann/json.hpp>
 
 class PeerConnectionObserver : public webrtc::PeerConnectionObserver {
 	friend class RtcConnectionBase;
