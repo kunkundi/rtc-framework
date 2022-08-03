@@ -39,9 +39,6 @@ protected:
 	virtual void HandleSdpCreateSucceed(const std::string& sdp) const = 0;
 	virtual void HandleDataChannelStateChanged(
 		const std::string& label, RtcDataChannelState state) const = 0;
-	// virtual void HandleNetStatsReport(vts_rtc::MediaChannelType media_type,
-	// 	const vts_rtc::MediaSourceId& media_sourceid, 
-	// 	const vts_rtc::NetStats& net_stats_params) const = 0;
 	virtual void HandleNetStatsReport(
 		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const = 0;
 	virtual void HandleDataChannelMessageReceived(
@@ -145,9 +142,6 @@ protected:
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
 	void HandleDataChannelStateChanged(
 		const std::string& label, RtcDataChannelState state) const override;
-	// void HandleNetStatsReport(vts_rtc::MediaChannelType media_type,
-	// 	const vts_rtc::MediaSourceId& media_sourceid, 
-	// 	const vts_rtc::NetStats& net_stats_params) const override;
 	void HandleNetStatsReport(
 		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const override;
 	void HandleDataChannelMessageReceived(

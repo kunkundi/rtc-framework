@@ -131,11 +131,6 @@ bool RtcConnectionManager::Init() {
 		stats_report_thread_->SetName("stats_report_thread_", nullptr);
 		stats_report_thread_->Start();
 
-		// stats_report_thread_->PostTask(RTC_FROM_HERE,
-		// 	[this]() {
-		// 		InitWebsocket();
-		// 	});
-
 		// notify connecting to signaling server
 		if (serverconnection_state_handler_) {
 			serverconnection_state_handler_(
@@ -373,9 +368,11 @@ void RtcConnectionManager::InitWebsocket() {
 					int sdp_mline_index = msg_json["sdp_mline_index"].get<int>();
 					webrtc::SdpParseError error;
 					auto candidate_object = webrtc::CreateIceCandidate(sdp_mid, sdp_mline_index, candidate, &error);
-					bool flag = rtc_conn->peer_conn_->AddIceCandidate(candidate_object);
-					if (!flag) {
-						LOG_ERROR("Websocket onmessage, rtc connection add ice candidate failed");
+					if (rtc_conn && rtc_conn->peer_conn_) {
+						bool flag = rtc_conn->peer_conn_->AddIceCandidate(candidate_object);
+						if (!flag) {
+							LOG_ERROR("Websocket onmessage, rtc connection add ice candidate failed");
+						}
 					}
 				});
 		}
@@ -967,8 +964,10 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 							return;
 						}
 
-						shared_SRS_conn->peer_conn_->SetRemoteDescription(std::move(remote_sdp),
-							shared_SRS_conn->set_remote_sdp_observer_);
+						if (shared_SRS_conn->peer_conn_) {
+							shared_SRS_conn->peer_conn_->SetRemoteDescription(std::move(remote_sdp),
+								shared_SRS_conn->set_remote_sdp_observer_);
+						}
 					} else {
 						LOG_ERROR("Publish RTC to SRS failed, error code: %d", code);
 						RemoveCurrecntConnection();
@@ -997,7 +996,7 @@ vts_rtc::ErrorCode RtcConnectionManager::UnpublishRtc2SRS(
 		});
 	if (iter != SRS_publish_conns_.end()) {
 		try {
-			LOG_INFO("Unpublish RTC to SRS with streamurl: %s, sessionid: %", streamurl.c_str(), 
+			LOG_INFO("Unpublish RTC to SRS with streamurl: %s, sessionid: %s", streamurl.c_str(), 
 				(*iter)->GetSRSSessionid().c_str());
 
 			json publisher_obj = {
@@ -1178,8 +1177,10 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 							return;
 						}
 
-						shared_SRS_conn->peer_conn_->SetRemoteDescription(std::move(remote_sdp),
-							shared_SRS_conn->set_remote_sdp_observer_);
+						if (shared_SRS_conn->peer_conn_) {
+							shared_SRS_conn->peer_conn_->SetRemoteDescription(std::move(remote_sdp),
+								shared_SRS_conn->set_remote_sdp_observer_);
+						}
 					} else {
 						LOG_ERROR("Play RTC from SRS failed, error code: %d", code);
 						RemoveCurrecntConnection();
@@ -1678,8 +1679,10 @@ void RtcConnectionManager::AckRemotePeerSdp(
 		remotesessionid_rtcconn_map_.erase(remote_sessionid);
 		return;
 	}
-	rtc_conn->peer_conn_->SetRemoteDescription(
-		std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
+	if (rtc_conn && rtc_conn->peer_conn_) {
+		rtc_conn->peer_conn_->SetRemoteDescription(
+			std::move(remote_session_description), rtc_conn->set_remote_sdp_observer_);
+	}
 
 	this->SetRtpSendersPriority();
 }
