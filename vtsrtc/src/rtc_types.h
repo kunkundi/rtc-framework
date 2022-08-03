@@ -21,6 +21,7 @@ using SRSStreamurl = std::string;
 using AudioSourceId = std::string;
 using VideoDevices = std::vector<VideoDevice>;
 using VideoSourceId = std::string;
+using MediaSourceId = std::string;
 enum class MediaSourceType {
 	Rtc = 0,
 	SRS
@@ -62,6 +63,46 @@ enum class SRSResponse {
 	SRSStreamAlreadyExisted,
 };
 
+enum class MediaChannelType {
+	Video = 0,
+	Audio,
+	data
+};
+
+struct AudioNetStats {
+	std::string sourceid = "";
+	unsigned long int bitrate_bps = 0;
+};
+
+struct VideoNetStats {
+	std::string sourceid = "";
+
+	unsigned int width = 0;
+	unsigned int height = 0;
+	unsigned long int bitrate_bps = 0;
+	unsigned int fps = 0;
+	unsigned int loss_rate = 0;
+	unsigned int delay_ms = 0;
+	unsigned int key_frame_count = 0;
+
+	unsigned int fir_count = 0;
+	unsigned int pli_count = 0;
+	unsigned int nack_count = 0;
+
+	unsigned int packets_sent = 0;
+	unsigned int packets_resent = 0;
+	unsigned int packets_received = 0;
+	unsigned int packets_lost = 0;
+
+	std::string codec_name = "";
+};
+
+struct NetStats {
+	bool input = false;
+	AudioNetStats audio_stats;
+	VideoNetStats video_stats;
+};
+
 // RoomOperation, RoomId
 using RoomHandler = std::function<void(enum RoomOperation, const RoomId&)>;
 // user related callback
@@ -89,6 +130,9 @@ using RecvAudioFrameHandler = std::function<void(const AudioSourceId&,
 // VideoSourceId, MediaSourceType, width, height, dimension, video_data
 using RecvFrameHandler = std::function<void(const VideoSourceId&,
 	enum MediaSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
+// VideoSourceId, MediaSourceType, width, height, dimension, video_data
+using ChannelNetworkStatsHandler = std::function<void(const NetStats&)>;
+using ChannelNetworkStatsHandlerUS = std::function<void(const NetStats&)>;
 
 
 struct RtcConfig {
@@ -102,6 +146,9 @@ struct RtcConfig {
 	std::string signaling_server_url;
 	std::string SRS_api_server_url;
 	std::vector<IceServer> ice_servers;
+	std::map<std::string, std::pair<long, long>> resolution_limit;
+	std::map<long, std::vector<long>> strategy;
+	long bitrate_maxmum = 2000000;
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;

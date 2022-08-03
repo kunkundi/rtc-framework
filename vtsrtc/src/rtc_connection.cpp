@@ -14,10 +14,12 @@ RtcConnectionBase::~RtcConnectionBase() {
 	set_remote_sdp_observer_->ResetCallbacks();
 	set_sdp_observer_->ResetCallbacks();
 	create_sdp_observer_->ResetCallbacks();
+	
 	for (const auto& observer : datachannel_observers_) {
 		observer->ResetCallbacks();
 	}
 	peer_conn_observer_.ResetCallbacks();
+	rtc_channel_stats_observer_->ResetCallbacks();
 
 	// reset videosinks and audiosinks callbacks
 	for (const auto& videosink : rtc_pc_videosinks_) {
@@ -147,12 +149,22 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 					return;
 				}
 
+				auto dc_state = datachannel->state();
 				LOG_INFO("[WEBRTC] Data channel (%s) on state change, new state: %s",
 					datachannel->label().c_str(),
-					webrtc::DataChannelInterface::DataStateString(datachannel->state()));
+					webrtc::DataChannelInterface::DataStateString(dc_state));
 
-				HandleDataChannelStateChanged(datachannel->label(),
-					datachannel->state());
+				HandleDataChannelStateChanged(datachannel->label(), dc_state);
+
+				// WebRTC内部不存在DataChannel的重连机制，同时本端和远端的DataChannel状态
+				// 并非完全一致（存在本端DataChannel已关闭，对端1.5分钟才感知到关闭），故暂且
+				// 选择关闭P2P连接来通知上层业务进行重连
+				if (dc_state == RtcDataChannelState::kClosed) {
+					if (peer_conn_) {
+						peer_conn_->Close();
+						peer_conn_ = nullptr;
+					}
+				}
 			});
 	};
 
@@ -392,6 +404,27 @@ void RtcConnectionBase::InitObserverCallbacks() {
 
 	set_remote_sdp_observer_ =
 		new rtc::RefCountedObject<SetRemoteDescriptionObserver>();
+
+	rtc_channel_stats_observer_ = new rtc::RefCountedObject<RtcChannelStatsObserver>();
+	rtc_channel_stats_observer_->on_stats_deliverd_ = 
+		[this, weak_self](const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+		auto self = weak_self.lock();
+		if (!self) {
+			return;
+		}
+
+		logic_thread_->PostTask(RTC_FROM_HERE,
+			[this, weak_self, report]() {
+				auto self = weak_self.lock();
+				if (!self) {
+					LOG_ERROR("[WEBRTC] Report stats failed, "
+						"because rtc connection has been destroyed.");
+					return;
+				}
+
+				HandleNetStatsReport(report);
+			});
+		};
 }
 /////////////////// END RtcConnectionBase ///////////////////
 
@@ -437,6 +470,13 @@ void RtcConnection::HandleDataChannelStateChanged(
 			local_sessionid_, remote_sessionid_, state);
 		on_dc_state_changed_(remote_sessionid_, label,
 			static_cast<vts_rtc::DataChannelState>(state));
+	}
+}
+
+void RtcConnection::HandleNetStatsReport(
+	const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const {
+	if (on_net_stats_report_) {
+		on_net_stats_report_(report);
 	}
 }
 
@@ -504,6 +544,11 @@ void Rtc2SRSConnection::HandleSdpCreateSucceed(const std::string& sdp) const {
 
 void Rtc2SRSConnection::HandleDataChannelStateChanged(
 	const std::string& label, RtcDataChannelState state) const {
+	// TO DO
+}
+
+void Rtc2SRSConnection::HandleNetStatsReport(
+	const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const {
 	// TO DO
 }
 

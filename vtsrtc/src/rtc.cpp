@@ -16,7 +16,8 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const SRSResponseHandler& SRS_response_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
-	const RecvFrameHandler& recv_frame_handler) {
+	const RecvFrameHandler& recv_frame_handler,
+	const ChannelNetworkStatsHandler& channel_network_stats_handler) {
 	LogInst->init();
 
 	// check if content of rtc_config_filepath is valid json format
@@ -75,6 +76,44 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		}
 	}
 
+	if(rtc_cfg_obj.contains("resolution_limit") && rtc_cfg_obj["resolution_limit"].is_array()) {
+		auto resolution_limit_array = rtc_cfg_obj["resolution_limit"].get<json::array_t>();
+		for (const auto& resolution_limit_obj : resolution_limit_array) {
+			for(const auto& item: resolution_limit_obj.items())
+			{
+				if(item.value().is_array())
+				{
+					std::vector<long> resolution;
+					for(const auto& res: item.value())
+						resolution.push_back(res);
+					rtc_config.resolution_limit.insert(std::make_pair(item.key(), std::make_pair(resolution[0], resolution[1])));
+				}
+			}
+		}
+	}
+
+	if(rtc_cfg_obj.contains("strategy") && rtc_cfg_obj["strategy"].is_array()) {
+		auto strategy_array = rtc_cfg_obj["strategy"].get<json::array_t>();
+		for (const auto& sub_strategy_obj : strategy_array) {
+			for(const auto& item: sub_strategy_obj.items()) {
+				if(item.value().is_array()) {
+					std::vector<long> sub_strategy;
+					for(const auto& bitrate: item.value())
+						sub_strategy.push_back(bitrate);
+					std::string res = item.key();
+					long width = 0;
+					long height = 0;
+					sscanf(res.c_str(), "%ld*%ld", &width, &height);
+					rtc_config.strategy.insert(std::make_pair(width * height, sub_strategy));
+				}
+			}
+		}
+	}
+
+	if(rtc_cfg_obj.contains("bitrate_maxmum")) {
+		rtc_config.bitrate_maxmum = rtc_cfg_obj["bitrate_maxmum"].get<long>();
+	}
+
 	if (rtc_cfg_obj.contains("use_NVENC")) {
 		rtc_config.use_NVENC = rtc_cfg_obj["use_NVENC"].get<bool>();
 	}
@@ -107,7 +146,8 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 			SRS_response_handler,
 			recv_msg_handler,
 			recv_audioframe_handler,
-			recv_frame_handler));
+			recv_frame_handler,
+			channel_network_stats_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
@@ -122,7 +162,8 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const SRSResponseHandler& SRS_response_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
-	const RecvFrameHandler& recv_frame_handler) {
+	const RecvFrameHandler& recv_frame_handler,
+	const ChannelNetworkStatsHandler& channel_network_stats_handler) {
 	LogInst->init();
 
 	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
@@ -136,7 +177,8 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		SRS_response_handler,
 		recv_msg_handler,
 		recv_audioframe_handler,
-		recv_frame_handler));
+		recv_frame_handler,
+		channel_network_stats_handler));
 	return rtc_agent->Init() ? rtc_agent : nullptr;
 }
 
@@ -151,7 +193,8 @@ RtcAgent::RtcAgent(
 	const SRSResponseHandler& SRS_response_handler,
 	const RecvMessageHandler& recv_msg_handler,
 	const RecvAudioFrameHandler& recv_audioframe_handler,
-	const RecvFrameHandler& recv_frame_handler) {
+	const RecvFrameHandler& recv_frame_handler,
+	const ChannelNetworkStatsHandler& channel_network_stats_handler) {
 	logic_thread_ = rtc::Thread::Create();
 	logic_thread_->SetName("logic-thread", nullptr);
 	logic_thread_->Start();
@@ -168,7 +211,8 @@ RtcAgent::RtcAgent(
 		&SRS_response_handler,
 		&recv_msg_handler,
 		&recv_audioframe_handler,
-		&recv_frame_handler]() {
+		&recv_frame_handler,
+		&channel_network_stats_handler]() {
 			rtc_device_manager_ = std::make_shared<RtcDeviceManager>();
 			rtc_conn_manager_ = std::make_shared<RtcConnectionManager>(
 				rtc_config,
@@ -182,7 +226,8 @@ RtcAgent::RtcAgent(
 				SRS_response_handler,
 				recv_msg_handler,
 				recv_audioframe_handler,
-				recv_frame_handler);
+				recv_frame_handler,
+				channel_network_stats_handler);
 		});
 }
 

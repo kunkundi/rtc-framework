@@ -39,6 +39,8 @@ protected:
 	virtual void HandleSdpCreateSucceed(const std::string& sdp) const = 0;
 	virtual void HandleDataChannelStateChanged(
 		const std::string& label, RtcDataChannelState state) const = 0;
+	virtual void HandleNetStatsReport(
+		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const = 0;
 	virtual void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const = 0;
 	virtual void HandleAudioFrameReceived(
@@ -72,6 +74,7 @@ private:
 	rtc::scoped_refptr<CreateSessionDescriptionObserver> create_sdp_observer_;
 	rtc::scoped_refptr<SetSessionDescriptionObserver> set_sdp_observer_;
 	rtc::scoped_refptr<SetRemoteDescriptionObserver> set_remote_sdp_observer_;
+	rtc::scoped_refptr<RtcChannelStatsObserver> rtc_channel_stats_observer_;
 };
 
 class RtcConnection : public RtcConnectionBase {
@@ -89,6 +92,11 @@ protected:
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
 	void HandleDataChannelStateChanged(
 		const std::string& label, RtcDataChannelState state) const override;
+	// void HandleNetStatsReport(vts_rtc::MediaChannelType media_type,
+	// 	const vts_rtc::MediaSourceId& media_sourceid, 
+	// 	const vts_rtc::NetStats& net_stats_params) const override;
+	void HandleNetStatsReport(
+		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const override;
 	void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const override;
 	void HandleAudioFrameReceived(const vts_rtc::AudioSourceId& sourceid,
@@ -110,6 +118,7 @@ private:
 	std::function<void(vts_rtc::SessionId, const std::string&)>
 		on_sdp_create_succeed_ = nullptr;
 	vts_rtc::DataChannelStateHandler on_dc_state_changed_ = nullptr;
+	std::function<void(const rtc::scoped_refptr<const webrtc::RTCStatsReport>&)> on_net_stats_report_ = nullptr;
 	vts_rtc::RecvMessageHandler on_dc_message_received_ = nullptr;
 	vts_rtc::RecvAudioFrameHandler on_audioframe_received_ = nullptr;
 	vts_rtc::RecvFrameHandler on_frame_received_ = nullptr;
@@ -133,6 +142,8 @@ protected:
 	void HandleSdpCreateSucceed(const std::string& sdp) const override;
 	void HandleDataChannelStateChanged(
 		const std::string& label, RtcDataChannelState state) const override;
+	void HandleNetStatsReport(
+		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const override;
 	void HandleDataChannelMessageReceived(
 		const std::string& label, const std::string& message) const override;
 	void HandleAudioFrameReceived(const vts_rtc::AudioSourceId& sourceid,

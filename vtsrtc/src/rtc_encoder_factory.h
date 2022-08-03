@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 
+#include "rtc_types.h"
 #include <api/video_codecs/video_encoder_factory.h> // NOLINT
 
 namespace webrtc {
@@ -20,6 +21,13 @@ public:
 	// Creates a VideoEncoder for the specified format.
 	std::unique_ptr<VideoEncoder> CreateVideoEncoder(
 		const SdpVideoFormat& format) override;
+
+	void setConfig(const vts_rtc::RtcConfig& rtc_config){
+		rtc_config_ = rtc_config;
+	}
+
+private:
+    vts_rtc::RtcConfig rtc_config_;
 };
 
 }  // namespace webrtc

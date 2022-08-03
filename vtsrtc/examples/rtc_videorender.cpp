@@ -2,7 +2,8 @@
 #include <iostream>
 
 RtcVideoRender::RtcVideoRender() {
-	this->setMinimumSize(600, 400);
+	this->setMinimumSize(320, 180);
+	this->setFixedSize(640, 360);
 
 	track_label_ = new QLabel(trackid_, this);
 	QFont ft;

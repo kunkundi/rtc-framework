@@ -18,7 +18,8 @@ public:
 		const SRSResponseHandler& SRS_response_handler = nullptr,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
 		const RecvAudioFrameHandler& recv_audioframe_handler = nullptr,
-		const RecvFrameHandler& recv_frame_handler = nullptr);
+		const RecvFrameHandler& recv_frame_handler = nullptr,
+		const ChannelNetworkStatsHandler& channel_network_stats_handler = nullptr);
 	static std::shared_ptr<RtcAgent> Create(
 		const RtcConfig& rtc_config,
 		const RoomHandler& room_handler = nullptr,
@@ -30,7 +31,8 @@ public:
 		const SRSResponseHandler& SRS_response_handler = nullptr,
 		const RecvMessageHandler& recv_msg_handler = nullptr,
 		const RecvAudioFrameHandler& recv_audioframe_handler = nullptr,
-		const RecvFrameHandler& recv_frame_handler = nullptr);
+		const RecvFrameHandler& recv_frame_handler = nullptr,
+		const ChannelNetworkStatsHandler& channel_network_stats_handler = nullptr);
 	~RtcAgent();
 
 	// video devices releated
@@ -103,7 +105,8 @@ private:
 		const SRSResponseHandler& SRS_response_handler,
 		const RecvMessageHandler& recv_msg_handler,
 		const RecvAudioFrameHandler& recv_audioframe_handler,
-		const RecvFrameHandler& recv_frame_handler);
+		const RecvFrameHandler& recv_frame_handler,
+		const ChannelNetworkStatsHandler& channel_network_stats_handler);
 	// Init RtcAgent, mainly for RtcConnectionManager initialization
 	bool Init();
 

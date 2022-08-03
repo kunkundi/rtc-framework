@@ -27,9 +27,11 @@ typedef RtcSessionId* RtcSessionIds;
 typedef const char* RtcDataChannelLabel;
 typedef const char* RtcAudioSourceId;
 typedef const char* RtcVideoSourceId;
+typedef const char* RtcMediaSourceId;
 typedef char* RtcRoomId;
 typedef char* RtcSRSStreamurl;
 typedef char* RtcSRSSessionId;
+typedef bool RtcIsVideoChannel;
 
 typedef enum RtcMediaSourceType {
 	Rtc = 0,
@@ -145,6 +147,41 @@ typedef struct RtcYUV420pFrame {
 	size_t sz_buffer;
 } RtcYUV420pFrame;
 
+typedef enum RtcMediaChannelType {
+	Video = 0,
+	Audio,
+	data
+} RtcMediaChannelType;
+
+typedef struct RtcAudioNetStats {
+	const char* sourceid;			//音频流ID
+	unsigned long int bitrate_bps;	//码率
+} RtcAudioNetStats;
+
+typedef struct RtcVideoNetStats {
+	const char* sourceid;			//视频流ID
+
+	unsigned int width;				//宽
+	unsigned int height;			//高
+	unsigned long int bitrate_bps;	//码率
+	unsigned int fps;				//帧率
+	unsigned int loss_rate;			//丢包率
+	unsigned int delay_ms;			//延时
+	unsigned int key_frame_count;	//关键帧数
+
+	unsigned int fir_count;			//强制I帧请求数
+	unsigned int pli_count;			//丢包I帧请求数
+	unsigned int nack_count;		//重传数
+
+	const char* codec_name;			//编解码器名称
+} RtcVideoNetStats;
+
+typedef struct RtcNetStats {
+	bool input;						//是否是输入媒体流
+	RtcAudioNetStats audio_stats;	//音频流统计
+	RtcVideoNetStats video_stats;	//视频流统计
+} RtcNetStats;
+
 // RtcRoomOperation, roomid
 typedef void(*RoomHandler)(RtcRoomOperation, RtcRoomId);
 // remote sessionId, RtcP2PState
@@ -169,6 +206,8 @@ typedef void(*RecvAudioFrameHandler)(RtcAudioSourceId, RtcMediaSourceType,
 // video_data, video_data_size
 typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, const unsigned char*, size_t);
+// RtcMediaChannelType, RtcMeidaSourceId, RtcNetStats
+typedef void(*ChannelNetworkStatsHandler)(RtcNetStats);
 
 /**
  * @param config_filepath Rtc配置文件
@@ -181,6 +220,7 @@ typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
  * @param recv_msg_handler 收到远端消息的回调函数
  * @param recv_frame_handler 收到远端图像帧的回调函数
  * @param recv_audioframe_handler 收到远端音频帧的回调函数
+ * @param channel_network_stats_handler 媒体通道网络状态的回调函数
  */
 typedef struct RtcInitParams {
 	const char* config_filepath;
@@ -193,6 +233,7 @@ typedef struct RtcInitParams {
 	RecvMessageHandler recv_msg_handler;
 	RecvAudioFrameHandler recv_audioframe_handler;
 	RecvFrameHandler recv_frame_handler;
+	ChannelNetworkStatsHandler channel_network_stats_handler;
 }RtcInitParams;
 
 #ifdef  __cplusplus

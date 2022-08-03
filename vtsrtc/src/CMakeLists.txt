@@ -52,6 +52,8 @@ list(APPEND SOURCE_CODE
 	c_rtc.cpp
 	rtc_encoder_factory.h
 	rtc_encoder_factory.cpp
+	rtc_statistics.h
+	rtc_statistics.cpp
 )
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
