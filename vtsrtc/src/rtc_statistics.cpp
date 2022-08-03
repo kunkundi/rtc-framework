@@ -33,14 +33,14 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 		if (media_stats != NULL) {
             if(*media_stats->media_type == "audio") {
                 net_stats_out.audio_stats.sourceid = ssrc_vs_id.second;
-                net_stats_out.audio_stats.bitrate_bps = (&media_stats->bytes_sent)->is_defined() ? *media_stats->bytes_sent : 0;
+                net_stats_out.audio_stats.bitrate_bps = (&media_stats->bytes_sent)->is_defined() ? *media_stats->bytes_sent * 8 : 0;
             }
 
             if(*media_stats->media_type == "video") {
                 net_stats_out.video_stats.sourceid = ssrc_vs_id.second;
                 net_stats_out.video_stats.width = (&media_stats->frame_width)->is_defined() ? *media_stats->frame_width : 0;
                 net_stats_out.video_stats.height = (&media_stats->frame_height)->is_defined() ? *media_stats->frame_height : 0;
-                net_stats_out.video_stats.bitrate_bps = (&media_stats->bytes_sent)->is_defined() ? *media_stats->bytes_sent - net_stats_[ssrc_vs_id.second].video_stats.bitrate_bps : 0;
+                net_stats_out.video_stats.bitrate_bps = (&media_stats->bytes_sent)->is_defined() ? (*media_stats->bytes_sent - net_stats_[ssrc_vs_id.second].video_stats.bitrate_bps) * 8 : 0;
                 net_stats_[ssrc_vs_id.second].video_stats.bitrate_bps = (&media_stats->bytes_sent)->is_defined() ? *media_stats->bytes_sent : 0;
                 net_stats_out.video_stats.fps = (&media_stats->frames_per_second)->is_defined() ? *media_stats->frames_per_second : 0;
 
@@ -104,12 +104,12 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 			if (*media_stats->kind == "audio") {
 				net_stats_out.audio_stats.sourceid = id_vs_ssrc.first;
 				net_stats_out.audio_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
-				net_stats_[id_vs_ssrc.first].audio_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
+				net_stats_[id_vs_ssrc.first].audio_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received * 8 : 0;
 			}
 
 			if (*media_stats->kind == "video") {
 				net_stats_out.video_stats.sourceid = id_vs_ssrc.first;
-				net_stats_out.video_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received - net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps : 0;
+				net_stats_out.video_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? (*media_stats->bytes_received - net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps) * 8 : 0;
 				net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
 
 				auto packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received - net_stats_[id_vs_ssrc.first].video_stats.packets_received : 0;
