@@ -274,10 +274,10 @@ void RtcConnectionManager::InitWebsocket() {
 
 		// filter heartbeat log info
 		if (command != "take_heartbeat") {
-			LOG_INFO("Websocket onmessage, remote peer: %s:%u, "
-				"receive command [%s], receive message size: %llu",
-				conn->remote_endpoint().address().to_string().c_str(),
-				conn->remote_endpoint().port(), command.c_str(), in_message->size());
+			// LOG_INFO("Websocket onmessage, remote peer: %s:%u, "
+			// 	"receive command [%s], receive message size: %llu",
+			// 	conn->remote_endpoint().address().to_string().c_str(),
+			// 	conn->remote_endpoint().port(), command.c_str(), in_message->size());
 		}
 
 		if (command == "take_heartbeat") {
@@ -1469,10 +1469,12 @@ void RtcConnectionManager::InteractRemotePeer(
 
 			if(state == vts_rtc::P2PState::Connected && current_sessionid_)
 			{
-				stats_report_thread_->PostTask(RTC_FROM_HERE,
-				[this]() {
-					InitStatsReport();
-				});
+				if(rtc_config_.netstats_report) {
+					stats_report_thread_->PostTask(RTC_FROM_HERE,
+					[this]() {
+						InitStatsReport();
+					});
+				}
 
 				// get ssrc and sourceid info for statistics
 				{
@@ -1504,6 +1506,11 @@ void RtcConnectionManager::InteractRemotePeer(
 				// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
 				if (remotesessionid_rtcconn_map_.find(remote_sessionid) !=
 					remotesessionid_rtcconn_map_.cend()) {
+					if(remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_) {
+						remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_->Close();
+						remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_ = nullptr;
+						LOG_WARN("Peer connection <%u> closed", remote_sessionid);
+					}
 					remotesessionid_rtcconn_map_.erase(remote_sessionid);
 				}
 			}

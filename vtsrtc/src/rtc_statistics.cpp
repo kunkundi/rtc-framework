@@ -48,7 +48,7 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 				auto packets_resent = (&media_stats->retransmitted_packets_sent)->is_defined() ? *media_stats->retransmitted_packets_sent - net_stats_[ssrc_vs_id.second].video_stats.packets_resent : 0;
 				net_stats_[ssrc_vs_id.second].video_stats.packets_sent = (&media_stats->packets_sent)->is_defined() ? *media_stats->packets_sent : 0;
 				net_stats_[ssrc_vs_id.second].video_stats.packets_resent = (&media_stats->retransmitted_packets_sent)->is_defined() ? *media_stats->retransmitted_packets_sent : 0;
-				net_stats_out.video_stats.loss_rate = packets_sent ? packets_resent * 100 / packets_sent : 0;
+				net_stats_out.video_stats.loss_rate = packets_sent ? ((packets_resent * 100 / packets_sent) > 100 ? 100 : packets_resent * 100 / packets_sent) : 0;
 
                 net_stats_out.video_stats.key_frame_count = (&media_stats->key_frames_encoded)->is_defined() ? *media_stats->key_frames_encoded : 0;
                 net_stats_out.video_stats.fir_count = (&media_stats->fir_count)->is_defined() ? *media_stats->fir_count : 0;

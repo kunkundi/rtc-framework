@@ -95,8 +95,13 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	if(rtc_cfg_obj.contains("strategy") && rtc_cfg_obj["strategy"].is_array()) {
 		auto strategy_array = rtc_cfg_obj["strategy"].get<json::array_t>();
 		for (const auto& sub_strategy_obj : strategy_array) {
-			for(const auto& item: sub_strategy_obj.items()) {
-				if(item.value().is_array()) {
+			if(sub_strategy_obj.contains("use_strategy")) {
+				rtc_config.use_strategy = sub_strategy_obj["use_strategy"].get<bool>();
+				if(rtc_config.use_strategy) LOG_WARN("Use resolution vs bitrates strategy");
+			}
+			else {
+				for(const auto& item: sub_strategy_obj.items()) {
+					if(item.value().is_array()) {
 					std::vector<long> sub_strategy;
 					for(const auto& bitrate: item.value())
 						sub_strategy.push_back(bitrate);
@@ -105,6 +110,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 					long height = 0;
 					sscanf(res.c_str(), "%ld*%ld", &width, &height);
 					rtc_config.strategy.insert(std::make_pair(width * height, sub_strategy));
+					}
 				}
 			}
 		}
@@ -112,6 +118,10 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 
 	if(rtc_cfg_obj.contains("bitrate_maxmum")) {
 		rtc_config.bitrate_maxmum = rtc_cfg_obj["bitrate_maxmum"].get<long>();
+	}
+
+	if(rtc_cfg_obj.contains("netstats_report")) {
+		rtc_config.netstats_report = rtc_cfg_obj["netstats_report"].get<bool>();
 	}
 
 	if (rtc_cfg_obj.contains("use_NVENC")) {

@@ -147,8 +147,10 @@ struct RtcConfig {
 	std::string SRS_api_server_url;
 	std::vector<IceServer> ice_servers;
 	std::map<std::string, std::pair<long, long>> resolution_limit;
+	bool use_strategy = false;
 	std::map<long, std::vector<long>> strategy;
 	long bitrate_maxmum = 2000000;
+	bool netstats_report = false;
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;
