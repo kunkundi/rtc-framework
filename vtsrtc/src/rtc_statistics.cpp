@@ -16,10 +16,14 @@ void RtcStatistics::SetStatisticsReportCallback(const vts_rtc::ChannelNetworkSta
 }
 
 void RtcStatistics::SetSendersMediaSsrcVsId(std::map<uint32_t, vts_rtc::VideoSourceId>& sender_media_ssrc_vs_id) {
+	sender_media_ssrc_vs_id_.clear();
+	net_stats_.clear();
     sender_media_ssrc_vs_id_.insert(sender_media_ssrc_vs_id.begin(), sender_media_ssrc_vs_id.end());
 }
 
 void RtcStatistics::SetReceiversMediaSsrcVsId(std::map<vts_rtc::VideoSourceId, uint32_t>& receiver_media_id_vs_ssrc) {
+	receiver_media_id_vs_ssrc_.clear();
+	net_stats_.clear();
     receiver_media_id_vs_ssrc_.insert(receiver_media_id_vs_ssrc.begin(), receiver_media_id_vs_ssrc.end());
 }
 
@@ -93,7 +97,6 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 						net_stats_out.video_stats.fps = (&media_stream_track_stats->frames_decoded)->is_defined() ? *media_stream_track_stats->frames_decoded - net_stats_[id_vs_ssrc.first].video_stats.fps : 0;
 						net_stats_[id_vs_ssrc.first].video_stats.fps = (&media_stream_track_stats->frames_decoded)->is_defined() ? *media_stream_track_stats->frames_decoded : 0;
 					}
-					if (stats_report_callback_) { stats_report_callback_(net_stats_out); }
 				}
 			}
 		}
@@ -116,7 +119,7 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 				auto packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost - net_stats_[id_vs_ssrc.first].video_stats.packets_lost : 0;
 				net_stats_[id_vs_ssrc.first].video_stats.packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received : 0;
 				net_stats_[id_vs_ssrc.first].video_stats.packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
-				net_stats_out.video_stats.loss_rate = packets_received ? packets_lost * 100 / packets_received : 0;
+				net_stats_out.video_stats.loss_rate = packets_received ? ((packets_lost * 100 / packets_received) > 100 ? 100 : packets_lost * 100 / packets_received) : 0;
 
 				net_stats_[id_vs_ssrc.first].video_stats.loss_rate = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
 				net_stats_out.video_stats.key_frame_count = (&media_stats->key_frames_decoded)->is_defined() ? *media_stats->key_frames_decoded : 0;
