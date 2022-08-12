@@ -303,17 +303,17 @@ void RtcWidget::CreateUI() {
 	// 渲染
 	rtc_audiorender_ = new RtcAudioRender(this);
 #if !defined  __aarch64__
-	source_render_.insert(std::make_pair("external_feed", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("external_feed1", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("external_feed2", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("camera_capturer1", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("mid_frontview", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("mid_rearview", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("left_frontview", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("left_rearview", new RtcVideoRender()));
 
 	QGroupBox* Render_groupbox = new QGroupBox(tr("Render"));
 	QGridLayout* gLayout = new QGridLayout();
-	gLayout->addWidget(source_render_["external_feed"], 0, 0, 1, 1);
-	gLayout->addWidget(source_render_["external_feed1"], 1, 0, 1, 1);
-	gLayout->addWidget(source_render_["external_feed2"], 0, 1, 1, 1);
-	gLayout->addWidget(source_render_["camera_capturer1"], 1, 1, 1, 1);
+	gLayout->addWidget(source_render_["mid_frontview"], 0, 0, 1, 1);
+	gLayout->addWidget(source_render_["mid_rearview"], 1, 0, 1, 1);
+	gLayout->addWidget(source_render_["left_frontview"], 0, 1, 1, 1);
+	gLayout->addWidget(source_render_["left_rearview"], 1, 1, 1, 1);
 	Render_groupbox->setLayout(gLayout);
 	Render_groupbox->setFixedSize(1308, 750);
 #endif

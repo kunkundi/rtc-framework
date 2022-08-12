@@ -30,11 +30,11 @@ void RtcVideoRender::OnFrame(const char* sourceid, unsigned int sourcetype,
 	// sz_buffer << std::endl;
 
 	trackid_ = QString(sourceid);
-	if (sourcetype == 0) {
-		trackid_ += QString(" [From RTC]");
-	} else if (sourcetype == 1) {
-		trackid_ += QString(" [From SRS]");
-	}
+// 	if (sourcetype == 0) {
+// 		trackid_ += QString(" [From RTC]");
+// 	} else if (sourcetype == 1) {
+// 		trackid_ += QString(" [From SRS]");
+// 	}
 
 	new_width_ = width;
 	new_height_ = height;

@@ -820,6 +820,12 @@ vts_rtc::ErrorCode RtcConnectionManager::LeaveRoom() {
 			status, message.c_str());
 
 		if (status == HttpStatus::OK) {
+			for (const auto &it : remotesessionid_rtcconn_map_) {
+				if (it.second->peer_conn_) {
+					it.second->peer_conn_->Close();
+					it.second->peer_conn_ = nullptr;
+				}
+			}
 			remotesessionid_rtcconn_map_.clear();
 		}
 
@@ -1424,12 +1430,12 @@ void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
         [this, steady_timer](const boost::system::error_code &ec)
         {
 			stats_report_timer_->async_wait([this](const boost::system::error_code& ec) {
-					for(auto rtccon_obj: remotesessionid_rtcconn_map_) {
-						if (rtccon_obj.second->peer_conn_ != nullptr)
-						{
-							rtccon_obj.second->peer_conn_->GetStats(rtccon_obj.second->rtc_channel_stats_observer_);
-						}
+				for (const auto &rtccon_obj : remotesessionid_rtcconn_map_) {
+					if (rtccon_obj.second->peer_conn_ != nullptr)
+					{
+						rtccon_obj.second->peer_conn_->GetStats(rtccon_obj.second->rtc_channel_stats_observer_);
 					}
+				}
 			});
             StatsReport(steady_timer);
         }
@@ -1488,15 +1494,12 @@ void RtcConnectionManager::InteractRemotePeer(
 					statistics_collector_->SetSendersMediaSsrcVsId(external_feed_tracksources_ssrc_vs_id_);
 
 					auto rtpreceivers = rtc_conn->peer_conn_->GetReceivers();
+					receiver_tracksources_id_vs_ssrc_.clear();
 					for (auto it : rtpreceivers) {
+						auto streamids = it->stream_ids();
 						auto encoding_obj = it->GetParameters().encodings;
-						for (auto obj : encoding_obj) {
-							if (obj.ssrc.has_value()) {
-								for (auto stream_id : it->stream_ids()) {
-									receiver_tracksources_id_vs_ssrc_[stream_id] = (unsigned int)(obj.ssrc.value());
-								}
-							}
-						}
+						if(!streamids.empty() && !encoding_obj.empty())
+							receiver_tracksources_id_vs_ssrc_[streamids[0]] = encoding_obj[0].ssrc.value();
 					}
 					statistics_collector_->SetReceiversMediaSsrcVsId(receiver_tracksources_id_vs_ssrc_);
 				}
@@ -1507,6 +1510,7 @@ void RtcConnectionManager::InteractRemotePeer(
 				if (remotesessionid_rtcconn_map_.find(remote_sessionid) !=
 					remotesessionid_rtcconn_map_.cend()) {
 					if(remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_) {
+						stats_report_timer_->cancel();
 						remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_->Close();
 						remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_ = nullptr;
 						LOG_WARN("Peer connection <%u> closed", remote_sessionid);
