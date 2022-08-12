@@ -61,8 +61,6 @@ public:
 	H264PacketizationMode GetH264PacketizationMode() {return packetization_mode_;}
 
 private:
-	// level = 0:INFO 1:ERROR 2:WARN 3:DEBUG
-	void SetV4L2LogLevel(int level);
 
 	// Reports statistics with histograms.
 	void ReportInit();
@@ -92,6 +90,8 @@ private:
 	std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
 	int qp_last_ = 0;
 	unsigned short encoder_id_ = 0;
+	int width_ = 0;
+	int height_ = 0;
 };
 
 }  // namespace webrtc

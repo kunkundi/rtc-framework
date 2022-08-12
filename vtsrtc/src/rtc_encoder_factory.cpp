@@ -20,7 +20,9 @@ std::vector<SdpVideoFormat> RtcEncoderFactory::GetSupportedFormats()
 		CreateH264Format(H264::kProfileBaseline, H264::kLevel3_1, "1"),
 		CreateH264Format(H264::kProfileBaseline, H264::kLevel3_1, "0"),
 		CreateH264Format(H264::kProfileConstrainedBaseline, H264::kLevel3_1, "1"),
-		CreateH264Format(H264::kProfileConstrainedBaseline, H264::kLevel3_1, "0")
+		CreateH264Format(H264::kProfileConstrainedBaseline, H264::kLevel3_1, "0"),
+		CreateH264Format(H264::kProfileHigh, H264::kLevel5_1, "1"),
+		CreateH264Format(H264::kProfileHigh, H264::kLevel5_1, "0")
 	};
 }
 
@@ -37,6 +39,7 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
 	const SdpVideoFormat& format) {
 	if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
 #if defined  __aarch64__
+		enc_pool_.Init();
 		return std::make_unique<JetsonH264EncoderImpl>(cricket::VideoCodec(format), rtc_config_);
 #else
 		return std::make_unique<NvH264EncoderImpl>(cricket::VideoCodec(format));

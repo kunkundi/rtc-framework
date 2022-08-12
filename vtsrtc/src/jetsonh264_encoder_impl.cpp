@@ -9,10 +9,14 @@
 #include "log_manager.h"
 #include "rtc_base/logging.h"
 #include "jetsonh264_encoder_impl.h"
+#include "rtc_codec_pool.h"
+#include <chrono>
+
+using namespace std::chrono;
 
 // QP scaling thresholds.
-static const int kLowH264QpThreshold = 30;
-static const int kHighH264QpThreshold = 40;
+static const int kLowH264QpThreshold = 27;
+static const int kHighH264QpThreshold = 34;
 static int name_count = 0;
 enum class H264EncoderImplEvent {
 	H264EncoderEventInit = 0,
@@ -157,37 +161,41 @@ JetsonH264EncoderImpl::JetsonH264EncoderImpl(const cricket::VideoCodec& codec, c
 		if(!stream_file_->is_open()) LOG_ERROR("Create outfile failed");
 	}
 	
-	SetV4L2LogLevel(0);
-	//rtc::LogMessage::LogToDebug(rtc::LS_INFO);
+	rtc::LogMessage::LogToDebug(rtc::LS_INFO);
 }
 
 JetsonH264EncoderImpl::~JetsonH264EncoderImpl() {
 	LOG_INFO("~JetsonH264EncoderImpl\n");
 	// To do, need to release or not ?
-	// Release();
+	Release();
 }
 
 int32_t JetsonH264EncoderImpl::Release() {
 	LOG_INFO("Release() called for JetsonH264Encoder <%p>", jetsonh264_encoder);
-	if (jetsonh264_encoder) {
-		release_flag_ = true;
-		int ret = 0;
-		ret = jetsonh264_encoder->output_plane.setStreamStatus(false);
-		if(ret < 0) LOG_ERROR("Set output plane status failed");
-    	ret = jetsonh264_encoder->capture_plane.setStreamStatus(false);
-		if(ret < 0) LOG_ERROR("Set capture plane status failed");
-		jetsonh264_encoder->capture_plane.waitForDQThread(-1);
-		buffer_count_ = 0;
+	// if (jetsonh264_encoder) {
+	 	release_flag_ = true;
+	// 	int ret = 0;
+	// 	ret = jetsonh264_encoder->output_plane.setStreamStatus(false);
+	// 	if(ret < 0) LOG_ERROR("Set output plane status failed");
+    // 	ret = jetsonh264_encoder->capture_plane.setStreamStatus(false);
+	// 	if(ret < 0) LOG_ERROR("Set capture plane status failed");
+	// 	jetsonh264_encoder->capture_plane.waitForDQThread(-1);
+	// 	buffer_count_ = 0;
 
-		LOG_INFO("Delete JetsonH264Encoder");
-		delete jetsonh264_encoder;
-	}
+	// 	LOG_INFO("Delete JetsonH264Encoder");
+	// 	delete jetsonh264_encoder;
+	// }
+
+	int ret = CodecPool::ReleaseEncoder(width_, height_, jetsonh264_encoder);
+	if(ret < 0) LOG_ERROR("Release encoder to codec pool failed");
+	jetsonh264_encoder = nullptr;
 
 	return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 	const VideoEncoder::Settings& settings) {
+		
 	LOG_INFO("Init JetsonH264Encoder");
 	release_flag_ = false;
     int32_t ret = 0;
@@ -232,108 +240,115 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 		codec_.simulcastStream[0].height = codec_.height;
 	}
 
-	const auto frame_width = codec_.simulcastStream[0].width;
-	const auto frame_height = codec_.simulcastStream[0].height;
+	width_ = codec_.width;
+	height_= codec_.height;
 
-	std::string name = "enc" + std::to_string(name_count++);
-	jetsonh264_encoder = NvVideoEncoder::createVideoEncoder(name.c_str());
-	LOG_ERROR("JetsonH264Encoder created, address <%p> <%s>", jetsonh264_encoder, name.c_str());
+	jetsonh264_encoder = CodecPool::GetAvailableEncoder(codec_.width, codec_.height);
+	if(!jetsonh264_encoder)
+		LOG_ERROR("No available encoder for resolution:<%dx%d>", codec_.width, codec_.height);
 
-    ret = jetsonh264_encoder->setCapturePlaneFormat(V4L2_PIX_FMT_H264, frame_width,
-                                         frame_height, 2 * 1024 * 1024);
-    if(ret < 0) LOG_ERROR("Could not set capture plane format");
+	// const auto frame_width = codec_.simulcastStream[0].width;
+	// const auto frame_height = codec_.simulcastStream[0].height;
 
-    ret = jetsonh264_encoder->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, frame_width,
-                                        frame_height);
-    if(ret < 0) LOG_ERROR("Could not set output plane format");
+	// std::string name = "enc" + std::to_string(name_count++);
+	// jetsonh264_encoder = NvVideoEncoder::createVideoEncoder(name.c_str());
+	// LOG_ERROR("JetsonH264Encoder created, address <%p> <%s>", jetsonh264_encoder, name.c_str());
 
-	// ret = jetsonh264_encoder->setBitrate(codec_settings->maxBitrate * 1000);
-    // if(ret < 0) LOG_ERROR("Could not set encoder bitrate <%d>", codec_settings->maxBitrate * 1000);
+    // ret = jetsonh264_encoder->setCapturePlaneFormat(V4L2_PIX_FMT_H264, frame_width,
+    //                                      frame_height, 2 * 1024 * 1024);
+    // if(ret < 0) LOG_ERROR("Could not set capture plane format");
 
-    ret = jetsonh264_encoder->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
-    if(ret < 0) LOG_ERROR("Could not set encoder profile");
+    // ret = jetsonh264_encoder->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, frame_width,
+    //                                     frame_height);
+    // if(ret < 0) LOG_ERROR("Could not set output plane format");
 
-    ret = jetsonh264_encoder->setLevel((uint32_t)V4L2_MPEG_VIDEO_H264_LEVEL_5_1);
-    if(ret < 0) LOG_ERROR("Could not set encoder level");
+	// // ret = jetsonh264_encoder->setBitrate(codec_settings->maxBitrate * 1000);
+    // // if(ret < 0) LOG_ERROR("Could not set encoder bitrate <%d>", codec_settings->maxBitrate * 1000);
 
-    /* Set rate control mode for encoder */
-    ret = jetsonh264_encoder->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
-    if(ret < 0) LOG_ERROR("Could not set encoder rate control mode");
-    /* Set peak bitrate value for variable bitrate mode for encoder */
-    // ret = jetsonh264_encoder->setPeakBitrate(10 * 1000 * 1000);
-    // if(ret < 0) LOG_ERROR("Could not set encoder peak bitrate");
+    // ret = jetsonh264_encoder->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
+    // if(ret < 0) LOG_ERROR("Could not set encoder profile");
 
-    /* Set IDR frame interval for encoder */
-    ret = jetsonh264_encoder->setIDRInterval(codec_settings->H264().keyFrameInterval);
-    if(ret < 0) LOG_ERROR("Could not set encoder IDR interval");
+    // ret = jetsonh264_encoder->setLevel((uint32_t)V4L2_MPEG_VIDEO_H264_LEVEL_5_1);
+    // if(ret < 0) LOG_ERROR("Could not set encoder level");
 
-    /* Set I frame interval for encoder */
-    ret = jetsonh264_encoder->setIFrameInterval(30);
-    if(ret < 0) LOG_ERROR("Could not set encoder I-Frame interval");
+    // /* Set rate control mode for encoder */
+    // ret = jetsonh264_encoder->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
+    // if(ret < 0) LOG_ERROR("Could not set encoder rate control mode");
+    // /* Set peak bitrate value for variable bitrate mode for encoder */
+    // // ret = jetsonh264_encoder->setPeakBitrate(10 * 1000 * 1000);
+    // // if(ret < 0) LOG_ERROR("Could not set encoder peak bitrate");
 
-	ret = jetsonh264_encoder->setInsertSpsPpsAtIdrEnabled(true);
-    if(ret < 0) printf("Could not set insertSPSPPSAtIDR\n");
+    // /* Set IDR frame interval for encoder */
+    // ret = jetsonh264_encoder->setIDRInterval(codec_settings->H264().keyFrameInterval);
+    // if(ret < 0) LOG_ERROR("Could not set encoder IDR interval");
 
-    // /* Set framerate for encoder */
-    ret = jetsonh264_encoder->setFrameRate(30, 1);
-    if(ret < 0) LOG_ERROR("Could not set framerate");
+    // /* Set I frame interval for encoder */
+    // ret = jetsonh264_encoder->setIFrameInterval(30);
+    // if(ret < 0) LOG_ERROR("Could not set encoder I-Frame interval");
 
-	ret = jetsonh264_encoder->setHWPresetType(V4L2_ENC_HW_PRESET_ULTRAFAST);
-	if(ret < 0) LOG_ERROR("Could not setHWPresetType");
+	// ret = jetsonh264_encoder->setInsertSpsPpsAtIdrEnabled(true);
+    // if(ret < 0) printf("Could not set insertSPSPPSAtIDR\n");
 
-	ret = jetsonh264_encoder->setMaxPerfMode(1);
-	if(ret < 0) LOG_ERROR("Could not setMaxPerfMode");
+    // // /* Set framerate for encoder */
+    // ret = jetsonh264_encoder->setFrameRate(30, 1);
+    // if(ret < 0) LOG_ERROR("Could not set framerate");
 
-    uint32_t nMinQpI = 20;
-    uint32_t nMaxQpI = 40;
-    uint32_t nMinQpP = 40;
-    uint32_t nMaxQpP = 45;
-    uint32_t nMinQpB = 40;
-    uint32_t nMaxQpB = 45;
-    /* Set Min & Max qp range values for I/P/B-frames to be used by encoder */
-    ret = jetsonh264_encoder->setQpRange(nMinQpI, nMaxQpI, nMinQpP, nMaxQpP, nMinQpB, nMaxQpB);
-    if(ret < 0) LOG_ERROR("Could not set quantization parameters");
+	// ret = jetsonh264_encoder->setHWPresetType(V4L2_ENC_HW_PRESET_ULTRAFAST);
+	// if(ret < 0) LOG_ERROR("Could not setHWPresetType");
 
-	ret = jetsonh264_encoder->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 1, true, false);
-    if(ret < 0) LOG_ERROR("Could not setup capture plane");
-	ret = jetsonh264_encoder->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 1, false, true);
-	if(ret < 0) LOG_ERROR("Could not setup output plane");
+	// ret = jetsonh264_encoder->setMaxPerfMode(1);
+	// if(ret < 0) LOG_ERROR("Could not setMaxPerfMode");
 
-    /* set encoder output plane STREAMON */
-    ret = jetsonh264_encoder->output_plane.setStreamStatus(true);
-    if(ret < 0) LOG_ERROR("Error in output plane streamon");
-    /* set encoder capture plane STREAMON */
-    ret = jetsonh264_encoder->capture_plane.setStreamStatus(true);
-    if(ret < 0) LOG_ERROR("Error in capture plane streamon");
+    // uint32_t nMinQpI = 20;
+    // uint32_t nMaxQpI = 40;
+    // uint32_t nMinQpP = 40;
+    // uint32_t nMaxQpP = 45;
+    // uint32_t nMinQpB = 40;
+    // uint32_t nMaxQpB = 45;
+    // /* Set Min & Max qp range values for I/P/B-frames to be used by encoder */
+    // ret = jetsonh264_encoder->setQpRange(nMinQpI, nMaxQpI, nMinQpP, nMaxQpP, nMinQpB, nMaxQpB);
+    // if(ret < 0) LOG_ERROR("Could not set quantization parameters");
 
+	// ret = jetsonh264_encoder->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 1, true, false);
+    // if(ret < 0) LOG_ERROR("Could not setup capture plane");
+	// ret = jetsonh264_encoder->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 1, false, true);
+	// if(ret < 0) LOG_ERROR("Could not setup output plane");
+
+    // /* set encoder output plane STREAMON */
+    // ret = jetsonh264_encoder->output_plane.setStreamStatus(true);
+    // if(ret < 0) LOG_ERROR("Error in output plane streamon");
+    // /* set encoder capture plane STREAMON */
+    // ret = jetsonh264_encoder->capture_plane.setStreamStatus(true);
+    // if(ret < 0) LOG_ERROR("Error in capture plane streamon");
+
+	// /* Enqueue all the empty capture plane buffers. */
+    // for(uint32_t i = 0; i < jetsonh264_encoder->capture_plane.getNumBuffers(); i++)
+    // {
+    //     struct v4l2_buffer v4l2_buf;
+    //     struct v4l2_plane planes[MAX_PLANES];
+
+    //     memset(&v4l2_buf, 0, sizeof(v4l2_buf));
+    //     memset(planes, 0, MAX_PLANES * sizeof(struct v4l2_plane));
+
+    //     v4l2_buf.index = i;
+    //     v4l2_buf.m.planes = planes;
+
+    //     ret = jetsonh264_encoder->capture_plane.qBuffer(v4l2_buf, NULL);
+    //     if(ret < 0)  LOG_ERROR("Error while queueing buffer at capture plane");
+    // }
 
 	/* Set encoder capture plane dq thread callback for blocking io mode */
     jetsonh264_encoder->capture_plane.setDQThreadCallback(CapturePlaneDqCallback);
 	jetsonh264_encoder->capture_plane.startDQThread(this);
 
-	/* Enqueue all the empty capture plane buffers. */
-    for(uint32_t i = 0; i < jetsonh264_encoder->capture_plane.getNumBuffers(); i++)
-    {
-        struct v4l2_buffer v4l2_buf;
-        struct v4l2_plane planes[MAX_PLANES];
-
-        memset(&v4l2_buf, 0, sizeof(v4l2_buf));
-        memset(planes, 0, MAX_PLANES * sizeof(struct v4l2_plane));
-
-        v4l2_buf.index = i;
-        v4l2_buf.m.planes = planes;
-
-        ret = jetsonh264_encoder->capture_plane.qBuffer(v4l2_buf, NULL);
-        if(ret < 0)  LOG_ERROR("Error while queueing buffer at capture plane");
-    }
-
 	const size_t new_capacity =
-		CalcBufferSize(VideoType::kI420, frame_width, frame_height);
+		CalcBufferSize(VideoType::kI420, codec_.width, codec_.height);
 	encoded_image_.SetEncodedData(EncodedImageBuffer::Create(new_capacity));
 	encoded_image_._completeFrame = true;
-	encoded_image_._encodedWidth = frame_width;
-	encoded_image_._encodedHeight = frame_height;
+	encoded_image_._encodedWidth = codec_.width;
+	encoded_image_._encodedHeight = codec_.height;
 	encoded_image_.set_size(0);
+	
 	return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -509,11 +524,6 @@ void JetsonH264EncoderImpl::OnLossNotification(
 	auto delta = loss_notification.timestamp_of_last_decodable -
 		loss_notification.timestamp_of_last_received;
 	//LOG_INFO("Loss delta: %d", delta);
-}
-
-void JetsonH264EncoderImpl::SetV4L2LogLevel(int level)
-{
-	log_level = level;
 }
 
 void JetsonH264EncoderImpl::ReportInit() {
