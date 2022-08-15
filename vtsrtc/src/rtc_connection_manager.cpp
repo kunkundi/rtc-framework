@@ -223,7 +223,9 @@ void RtcConnectionManager::DestroyPeerConnection() {
 			stats_report_timer_->cancel();
 			it.second->peer_conn_->Close();
 			it.second->peer_conn_ = nullptr;
+#if defined  __aarch64__
 			CodecPool::GetInstance()->Destroy();
+#endif
 		}
 	}
 	remotesessionid_rtcconn_map_.clear();
