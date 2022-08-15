@@ -60,6 +60,8 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	list(APPEND SOURCE_CODE
 		jetsonh264_encoder_impl.h
 		jetsonh264_encoder_impl.cpp
+		rtc_codec_pool.h
+		rtc_codec_pool.cpp
 		/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h
 		/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp
 		/usr/src/jetson_multimedia_api/include/NvV4l2Element.h

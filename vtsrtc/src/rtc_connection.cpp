@@ -38,6 +38,7 @@ RtcConnectionBase::~RtcConnectionBase() {
 	}
 
 	if (peer_conn_) {
+		LOG_WARN("Close peer connection");
 		peer_conn_->Close();
 		peer_conn_ = nullptr;
 	}
@@ -155,16 +156,6 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 					webrtc::DataChannelInterface::DataStateString(dc_state));
 
 				HandleDataChannelStateChanged(datachannel->label(), dc_state);
-
-				// WebRTC内部不存在DataChannel的重连机制，同时本端和远端的DataChannel状态
-				// 并非完全一致（存在本端DataChannel已关闭，对端1.5分钟才感知到关闭），故暂且
-				// 选择关闭P2P连接来通知上层业务进行重连
-				if (dc_state == RtcDataChannelState::kClosed) {
-					if (peer_conn_) {
-						peer_conn_->Close();
-						peer_conn_ = nullptr;
-					}
-				}
 			});
 	};
 

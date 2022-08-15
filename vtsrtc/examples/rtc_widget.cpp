@@ -303,17 +303,17 @@ void RtcWidget::CreateUI() {
 	// 渲染
 	rtc_audiorender_ = new RtcAudioRender(this);
 #if !defined  __aarch64__
-	source_render_.insert(std::make_pair("external_feed", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("external_feed1", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("external_feed2", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("camera_capturer1", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("mid_frontview", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("mid_rearview", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("left_frontview", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("left_rearview", new RtcVideoRender()));
 
 	QGroupBox* Render_groupbox = new QGroupBox(tr("Render"));
 	QGridLayout* gLayout = new QGridLayout();
-	gLayout->addWidget(source_render_["external_feed"], 0, 0, 1, 1);
-	gLayout->addWidget(source_render_["external_feed1"], 1, 0, 1, 1);
-	gLayout->addWidget(source_render_["external_feed2"], 0, 1, 1, 1);
-	gLayout->addWidget(source_render_["camera_capturer1"], 1, 1, 1, 1);
+	gLayout->addWidget(source_render_["mid_frontview"], 0, 0, 1, 1);
+	gLayout->addWidget(source_render_["mid_rearview"], 1, 0, 1, 1);
+	gLayout->addWidget(source_render_["left_frontview"], 0, 1, 1, 1);
+	gLayout->addWidget(source_render_["left_rearview"], 1, 1, 1, 1);
 	Render_groupbox->setLayout(gLayout);
 	Render_groupbox->setFixedSize(1308, 750);
 #endif
@@ -501,35 +501,25 @@ void RtcWidget::SendFrame() {
 		videothread_ = QThread::create([this]() {
 #endif
 			size_t idx = 0;
-			size_t idx1 = 0;
 			bool need_stop = false;
 			while (!need_stop) {
 				if (idx == yuv_frames_.size()) {
 					idx = 0;
 				}
-				if (idx1 == yuv_frames_.size()) {
-					idx1 = 0;
-				}
-				if(send_frame_flag){
-					RtcSendFrame("external_feed", &yuv_frames_[idx++]);
-					idx1++;
-					QThread::msleep(30);
 
-					{
-						std::lock_guard<std::mutex> lg(stop_videothread_mtx_);
-						need_stop = stop_videothread_;
-					}
-				}
-				else{
-					RtcSendFrame("external_feed2", &yuv_frames_[idx1++]);
+				//if(send_frame_flag){
+					RtcSendFrame("mid_frontview", &yuv_frames_[idx]);
+					RtcSendFrame("mid_rearview", &yuv_frames_[idx]);
+					RtcSendFrame("left_frontview", &yuv_frames_[idx]);
+					RtcSendFrame("left_rearview", &yuv_frames_[idx]);
+					RtcSendFrame("right_frontview", &yuv_frames_[idx]);
+					RtcSendFrame("right_rearview", &yuv_frames_[idx]);
 					idx++;
 					QThread::msleep(30);
-
 					{
 						std::lock_guard<std::mutex> lg(stop_videothread_mtx_);
 						need_stop = stop_videothread_;
 					}
-				}
 			}
 			});
 #if defined  __aarch64__
@@ -553,8 +543,12 @@ void RtcWidget::AddVideoSource() {
 	auto current_idx = videosources_combobox_->currentIndex();
 	if (current_idx == videosources_combobox_->count() - 1) {
 		// YUV420p video source
-		auto code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("external_feed2", RtcPriorityType::High);
+		auto code = RtcAddExternalVideoSource("mid_frontview", RtcPriorityType::High);
+		code = RtcAddExternalVideoSource("mid_rearview", RtcPriorityType::High);
+		code = RtcAddExternalVideoSource("left_frontview", RtcPriorityType::High);
+		code = RtcAddExternalVideoSource("left_rearview", RtcPriorityType::High);
+		code = RtcAddExternalVideoSource("right_frontview", RtcPriorityType::High);
+		code = RtcAddExternalVideoSource("right_rearview", RtcPriorityType::High);
 		//CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {

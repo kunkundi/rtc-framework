@@ -15,7 +15,9 @@
 #include <api/video_codecs/builtin_video_decoder_factory.h>
 #include <api/video_codecs/builtin_video_encoder_factory.h>
 #include <rtc_base/thread.h>
-//#include <rtc_base/ssl_adapter.h>
+#if defined  __aarch64__
+#include "rtc_codec_pool.h"
+#endif
 
 using json = nlohmann::json;
 
@@ -113,6 +115,7 @@ public:
 
 private:
 	bool InitPeerConnectionFactory();
+	void DestroyPeerConnection();
 	void InitWebsocket();
 	void SetPingTimeout(const SimpleWeb::error_code& ec);
 	void ReconnectWebsocket();
