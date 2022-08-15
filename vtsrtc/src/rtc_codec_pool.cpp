@@ -2,6 +2,7 @@
 #include "log_manager.h"
 
 static std::multimap<int, std::pair<bool, NvVideoEncoder*>> encoder_pool_;
+CodecPool* CodecPool::instance_ = nullptr;
 
 NvVideoEncoder* CodecPool::GetAvailableEncoder(int width, int height) {
     int resolution = width * height;
@@ -42,23 +43,23 @@ CodecPool::CodecPool() {
 
 }
 
-CodecPool::~CodecPool() {
-    int ret = 0;
-    for(const auto& it:encoder_pool_) {
-        ret = it.second.second->output_plane.setStreamStatus(false);
-        if(ret < 0) LOG_ERROR("Set output plane status failed");
-        ret = it.second.second->capture_plane.setStreamStatus(false);
-        if(ret < 0) LOG_ERROR("Set capture plane status failed");
-        it.second.second->capture_plane.waitForDQThread(-1);
-    }
-}
-
 void CodecPool::Init() {
-    SetV4L2LogLevel(0);
+    SetV4L2LogLevel(1);
     for(auto it: resolution_map_) {
         LOG_INFO("Init encoder <%dx%d>", it.first, it.second);
         InitTargetEncoder(it.first, it.second);
     }
+}
+
+void CodecPool::Destroy() {
+    int ret = 0;
+    for(const auto& it:encoder_pool_) {
+        if(it.second.second) {
+            it.second.second->capture_plane.waitForDQThread(-1);
+            delete it.second.second;
+        }
+    }
+    encoder_pool_.clear();
 }
 
 int CodecPool::InitTargetEncoder(int width, int height) {
@@ -70,7 +71,12 @@ int CodecPool::InitTargetEncoder(int width, int height) {
 
 	std::string name = "enc" + std::to_string(width) + "x" + std::to_string(height);
 	enc = NvVideoEncoder::createVideoEncoder(name.c_str());
-	LOG_WARN("JetsonH264Encoder created, address <%p> <%s>", enc, name.c_str());
+    if(!enc) {
+        LOG_ERROR("Cannot create jetson encoder for <%s>", name.c_str());
+        return -1;
+    }
+    else
+	    LOG_WARN("JetsonH264Encoder created, address <%p> <%s>", enc, name.c_str());
 
     ret = enc->setCapturePlaneFormat(V4L2_PIX_FMT_H264, target_width, target_height, 2 * 1024 * 1024);
     if(ret < 0) LOG_ERROR("Could not set capture plane format");
@@ -125,9 +131,9 @@ int CodecPool::InitTargetEncoder(int width, int height) {
     ret = enc->setQpRange(nMinQpI, nMaxQpI, nMinQpP, nMaxQpP, nMinQpB, nMaxQpB);
     if(ret < 0) LOG_ERROR("Could not set quantization parameters");
 
-	ret = enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 1, true, false);
+	ret = enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 10, true, false);
     if(ret < 0) LOG_ERROR("Could not setup capture plane");
-	ret = enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 1, false, true);
+	ret = enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 10, false, true);
 	if(ret < 0) LOG_ERROR("Could not setup output plane");
 
     /* set encoder output plane STREAMON */
@@ -152,10 +158,6 @@ int CodecPool::InitTargetEncoder(int width, int height) {
         ret = enc->capture_plane.qBuffer(v4l2_buf, NULL);
         if(ret < 0)  LOG_ERROR("Error while queueing buffer at capture plane");
     }
-
-	// /* Set encoder capture plane dq thread callback for blocking io mode */
-    // enc->capture_plane.setDQThreadCallback(callback_);
-	// enc->capture_plane.startDQThread(user_ptr_);
 
     encoder_pool_.insert(std::make_pair(target_width * target_height, std::make_pair(true, enc)));
 

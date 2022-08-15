@@ -31,56 +31,56 @@ bool JetsonH264EncoderImpl::CapturePlaneDqCallback(struct v4l2_buffer *v4l2_buf,
 	
 	JetsonH264EncoderImpl *enc_impl_ptr = (static_cast<JetsonH264EncoderImpl *>(data));
 	NvVideoEncoder *enc = enc_impl_ptr->GetJetsonH264Encoder();
-	EncodedImage *encoded_image = enc_impl_ptr->GetEncodedImage();
+	EncodedImage encoded_image;
+	const size_t new_capacity = CalcBufferSize(VideoType::kI420, enc_impl_ptr->width_, enc_impl_ptr->height_);
+	encoded_image.SetEncodedData(EncodedImageBuffer::Create(new_capacity));
+	encoded_image._completeFrame = true;
+	encoded_image._encodedWidth = enc_impl_ptr->width_;
+	encoded_image._encodedHeight = enc_impl_ptr->height_;
+	encoded_image.set_size(0);
 
-	if(!enc_impl_ptr || !enc || !encoded_image)
+	if(!enc_impl_ptr || !enc)
 	{
-		LOG_ERROR("Invalid ptr <%p><%p><%p>", enc_impl_ptr, enc, encoded_image);
-		return false;
-	}
-
-	if(enc_impl_ptr->release_flag_)
-	{
-		LOG_WARN("JetsonH264Encoder is waiting for release, skip dequeing buffer from capture plane");
+		LOG_ERROR("Invalid ptr <%p><%p>", enc_impl_ptr, enc);
 		return false;
 	}
 
 	if(!buffer)
 	{
-		LOG_ERROR("NvBuffer is null");
+		LOG_ERROR("Encoder<%p> get null NvBuffer", enc);
 		return false;
 	}
 
 	if (v4l2_buf == NULL)
     {
-        LOG_ERROR("Error while dequeing buffer from output plane, v4l2_buf is Null");
+        LOG_ERROR("Encoder<%p> dequeue buffer from output plane failed, v4l2_buf is Null", enc);
         return false;
     }
 
     if (buffer->planes[0].bytesused == 0)
     {
-        LOG_ERROR("Got 0 size buffer in capture");
+        LOG_WARN("Encoder<%p> get 0 size buffer in capture plane, finish encode", enc);
         return false;
     }
 
-	encoded_image->set_size(buffer->planes[0].bytesused);
-	encoded_image->SetTimestamp(v4l2_buf->timestamp.tv_sec);
- 	encoded_image->SetSpatialIndex(0);
+	encoded_image.set_size(buffer->planes[0].bytesused);
+	encoded_image.SetTimestamp(v4l2_buf->timestamp.tv_sec);
+ 	encoded_image.SetSpatialIndex(0);
 
 	// Write to file
 	if(enc_impl_ptr->save_stream_ && enc_impl_ptr->stream_file_->is_open())
 		enc_impl_ptr->stream_file_->write((char *) buffer->planes[0].data, buffer->planes[0].bytesused);
 
-	memcpy(encoded_image->data(), (uint8_t*)buffer->planes[0].data, buffer->planes[0].bytesused);
+	memcpy(encoded_image.data(), (uint8_t*)buffer->planes[0].data, buffer->planes[0].bytesused);
 	
 	if ((buffer->planes[0].data[4] & 0x1f) == 0x07) {
- 		encoded_image->_frameType = VideoFrameType::kVideoFrameKey;
+ 		encoded_image._frameType = VideoFrameType::kVideoFrameKey;
 		//LOG_WARN("Keyframe");
 	} else if ((buffer->planes[0].data[4] & 0x1f) == 0x01) {
- 		encoded_image->_frameType = VideoFrameType::kVideoFrameDelta;
+ 		encoded_image._frameType = VideoFrameType::kVideoFrameDelta;
 		//LOG_ERROR("Deltaframe");
 	} else {
-		encoded_image->_frameType = VideoFrameType::kEmptyFrame;
+		encoded_image._frameType = VideoFrameType::kEmptyFrame;
 		//LOG_ERROR("Emptyframe");
 	}
 
@@ -89,7 +89,8 @@ bool JetsonH264EncoderImpl::CapturePlaneDqCallback(struct v4l2_buffer *v4l2_buf,
 	auto nalu_size = nalu_indices.size();
 
 	if (nalu_size == 0) {
-		return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+		LOG_ERROR("Encoder<%p> get 0 size Nalu", enc);
+		return false;
 	}
 
 	frag_header.VerifyAndAllocateFragmentationHeader(nalu_size);
@@ -101,13 +102,13 @@ bool JetsonH264EncoderImpl::CapturePlaneDqCallback(struct v4l2_buffer *v4l2_buf,
 	if((buffer->planes[0].data[4] & 0x1f) == 0x07)
 	{
 		H264BitstreamParser h264_bitstream_parser_;
-		if (encoded_image->size() > 0) {
+		if (encoded_image.size() > 0) {
 			h264_bitstream_parser_.ParseBitstream(
-				encoded_image->data(), encoded_image->size());
+				encoded_image.data(), encoded_image.size());
 			auto qp = h264_bitstream_parser_.GetLastSliceQp();			
 			if (qp.has_value()) {
-				encoded_image->qp_ = qp.value();
-				LOG_WARN("QP = %d", qp.value());
+				encoded_image.qp_ = qp.value();
+				LOG_WARN("QP = %d <%dx%d>", qp.value(), enc_impl_ptr->width_, enc_impl_ptr->height_);
 			}
 		}
 	}
@@ -116,17 +117,17 @@ bool JetsonH264EncoderImpl::CapturePlaneDqCallback(struct v4l2_buffer *v4l2_buf,
 	codec_specific.codecType = kVideoCodecH264;
 	codec_specific.codecSpecific.H264.packetization_mode = enc_impl_ptr->GetH264PacketizationMode();
 	codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
-	codec_specific.codecSpecific.H264.idr_frame = (encoded_image->_frameType == VideoFrameType::kVideoFrameKey);
+	codec_specific.codecSpecific.H264.idr_frame = (encoded_image._frameType == VideoFrameType::kVideoFrameKey);
 	codec_specific.codecSpecific.H264.base_layer_sync = false;
 
 	/* OUTPUT */
 	enc_impl_ptr->GetEncodedImageCallback()->OnEncodedImage(
-			*encoded_image, &codec_specific, &frag_header);
+			encoded_image, &codec_specific, &frag_header);
 
 	// encoder qbuffer for capture plane
     if(enc->capture_plane.qBuffer(*v4l2_buf, NULL) < 0)
     {
-        LOG_ERROR("Error while Qing buffer at capture plane" );
+        LOG_ERROR("Encoder<%p> queue buffer error at capture plane", enc);
         return false;
     }
 
@@ -136,7 +137,6 @@ bool JetsonH264EncoderImpl::CapturePlaneDqCallback(struct v4l2_buffer *v4l2_buf,
 JetsonH264EncoderImpl::JetsonH264EncoderImpl(const cricket::VideoCodec& codec, const vts_rtc::RtcConfig& rtc_config)
 	: rtc_config_(rtc_config) {
 	RTC_CHECK(absl::EqualsIgnoreCase(codec.name, cricket::kH264CodecName));
-	LOG_INFO("Create JetsonH264Encoder");
 	std::string packetization_mode_string;
 	if (codec.GetParam(cricket::kH264FmtpPacketizationMode,
 		&packetization_mode_string) &&
@@ -160,45 +160,51 @@ JetsonH264EncoderImpl::JetsonH264EncoderImpl(const cricket::VideoCodec& codec, c
 		stream_file_ = new std::ofstream("jetson_video.h264");
 		if(!stream_file_->is_open()) LOG_ERROR("Create outfile failed");
 	}
-	
-	rtc::LogMessage::LogToDebug(rtc::LS_INFO);
 }
 
 JetsonH264EncoderImpl::~JetsonH264EncoderImpl() {
-	LOG_INFO("~JetsonH264EncoderImpl\n");
-	// To do, need to release or not ?
-	Release();
+	LOG_INFO("Destroy JetsonH264Encoder <%p>", this);
 }
 
 int32_t JetsonH264EncoderImpl::Release() {
 	LOG_INFO("Release() called for JetsonH264Encoder <%p>", jetsonh264_encoder);
-	// if (jetsonh264_encoder) {
-	 	release_flag_ = true;
-	// 	int ret = 0;
-	// 	ret = jetsonh264_encoder->output_plane.setStreamStatus(false);
-	// 	if(ret < 0) LOG_ERROR("Set output plane status failed");
-    // 	ret = jetsonh264_encoder->capture_plane.setStreamStatus(false);
-	// 	if(ret < 0) LOG_ERROR("Set capture plane status failed");
-	// 	jetsonh264_encoder->capture_plane.waitForDQThread(-1);
-	// 	buffer_count_ = 0;
 
-	// 	LOG_INFO("Delete JetsonH264Encoder");
-	// 	delete jetsonh264_encoder;
-	// }
+	int ret = 0;
+	// Enqueue empty buffer to notify encoder the process of encoding has been finished
+	{
+		struct v4l2_buffer v4l2_buf;
+		struct v4l2_plane planes[MAX_PLANES];
+		NvBuffer *nvBuffer = jetsonh264_encoder->output_plane.getNthBuffer(0);
+		memset(&v4l2_buf, 0, sizeof(v4l2_buf));
+		memset(planes, 0, sizeof(planes));
 
-	int ret = CodecPool::ReleaseEncoder(width_, height_, jetsonh264_encoder);
+		v4l2_buf.index = 0;
+		v4l2_buf.m.planes = planes;
+
+		for (uint32_t i = 0; i < (*nvBuffer).n_planes; i++)
+		{
+			NvBuffer::NvBufferPlane &plane = (*nvBuffer).planes[i];
+			plane.bytesused = 0;
+			if(i==0) plane.bytesused = 0;
+			if(i==1) plane.bytesused = 0;
+			if(i==2) plane.bytesused = 0;
+		}
+
+		ret = jetsonh264_encoder->output_plane.qBuffer(v4l2_buf, NULL);
+		if(ret < 0) LOG_ERROR("Encoder qBuffer error");
+	}
+
+	ret = CodecPool::GetInstance()->ReleaseEncoder(width_, height_, jetsonh264_encoder);
 	if(ret < 0) LOG_ERROR("Release encoder to codec pool failed");
-	jetsonh264_encoder = nullptr;
 
 	return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 	const VideoEncoder::Settings& settings) {
-		
 	LOG_INFO("Init JetsonH264Encoder");
-	release_flag_ = false;
-    int32_t ret = 0;
+
+    int ret = 0;
 	ReportInit();
 
 	if (!codec_settings || codec_settings->codecType != kVideoCodecH264) {
@@ -216,20 +222,6 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 		return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
 	}
 
-	// // Release necessary in case of re-initializing.
-	// ret = Release();
-	// if (ret != WEBRTC_VIDEO_CODEC_OK) {
-	// 	ReportError();
-	// 	return ret;
-	// }
-
-	// TO DO: support SVC feature
-	// auto num_of_streams =
-	// 	SimulcastUtility::NumberOfSimulcastStreams(*codec_settings);
-	// if (num_of_streams > 1) {
-	// 	return WEBRTC_VIDEO_CODEC_ERR_SIMULCAST_PARAMETERS_NOT_SUPPORTED;
-	// }
-
 	codec_ = *codec_settings;
 	max_payload_size_ = settings.max_payload_size;
 
@@ -243,111 +235,18 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 	width_ = codec_.width;
 	height_= codec_.height;
 
-	jetsonh264_encoder = CodecPool::GetAvailableEncoder(codec_.width, codec_.height);
-	if(!jetsonh264_encoder)
+	jetsonh264_encoder = CodecPool::GetInstance()->GetAvailableEncoder(codec_.width, codec_.height);
+	if(!jetsonh264_encoder) {
 		LOG_ERROR("No available encoder for resolution:<%dx%d>", codec_.width, codec_.height);
-
-	// const auto frame_width = codec_.simulcastStream[0].width;
-	// const auto frame_height = codec_.simulcastStream[0].height;
-
-	// std::string name = "enc" + std::to_string(name_count++);
-	// jetsonh264_encoder = NvVideoEncoder::createVideoEncoder(name.c_str());
-	// LOG_ERROR("JetsonH264Encoder created, address <%p> <%s>", jetsonh264_encoder, name.c_str());
-
-    // ret = jetsonh264_encoder->setCapturePlaneFormat(V4L2_PIX_FMT_H264, frame_width,
-    //                                      frame_height, 2 * 1024 * 1024);
-    // if(ret < 0) LOG_ERROR("Could not set capture plane format");
-
-    // ret = jetsonh264_encoder->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, frame_width,
-    //                                     frame_height);
-    // if(ret < 0) LOG_ERROR("Could not set output plane format");
-
-	// // ret = jetsonh264_encoder->setBitrate(codec_settings->maxBitrate * 1000);
-    // // if(ret < 0) LOG_ERROR("Could not set encoder bitrate <%d>", codec_settings->maxBitrate * 1000);
-
-    // ret = jetsonh264_encoder->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
-    // if(ret < 0) LOG_ERROR("Could not set encoder profile");
-
-    // ret = jetsonh264_encoder->setLevel((uint32_t)V4L2_MPEG_VIDEO_H264_LEVEL_5_1);
-    // if(ret < 0) LOG_ERROR("Could not set encoder level");
-
-    // /* Set rate control mode for encoder */
-    // ret = jetsonh264_encoder->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
-    // if(ret < 0) LOG_ERROR("Could not set encoder rate control mode");
-    // /* Set peak bitrate value for variable bitrate mode for encoder */
-    // // ret = jetsonh264_encoder->setPeakBitrate(10 * 1000 * 1000);
-    // // if(ret < 0) LOG_ERROR("Could not set encoder peak bitrate");
-
-    // /* Set IDR frame interval for encoder */
-    // ret = jetsonh264_encoder->setIDRInterval(codec_settings->H264().keyFrameInterval);
-    // if(ret < 0) LOG_ERROR("Could not set encoder IDR interval");
-
-    // /* Set I frame interval for encoder */
-    // ret = jetsonh264_encoder->setIFrameInterval(30);
-    // if(ret < 0) LOG_ERROR("Could not set encoder I-Frame interval");
-
-	// ret = jetsonh264_encoder->setInsertSpsPpsAtIdrEnabled(true);
-    // if(ret < 0) printf("Could not set insertSPSPPSAtIDR\n");
-
-    // // /* Set framerate for encoder */
-    // ret = jetsonh264_encoder->setFrameRate(30, 1);
-    // if(ret < 0) LOG_ERROR("Could not set framerate");
-
-	// ret = jetsonh264_encoder->setHWPresetType(V4L2_ENC_HW_PRESET_ULTRAFAST);
-	// if(ret < 0) LOG_ERROR("Could not setHWPresetType");
-
-	// ret = jetsonh264_encoder->setMaxPerfMode(1);
-	// if(ret < 0) LOG_ERROR("Could not setMaxPerfMode");
-
-    // uint32_t nMinQpI = 20;
-    // uint32_t nMaxQpI = 40;
-    // uint32_t nMinQpP = 40;
-    // uint32_t nMaxQpP = 45;
-    // uint32_t nMinQpB = 40;
-    // uint32_t nMaxQpB = 45;
-    // /* Set Min & Max qp range values for I/P/B-frames to be used by encoder */
-    // ret = jetsonh264_encoder->setQpRange(nMinQpI, nMaxQpI, nMinQpP, nMaxQpP, nMinQpB, nMaxQpB);
-    // if(ret < 0) LOG_ERROR("Could not set quantization parameters");
-
-	// ret = jetsonh264_encoder->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 1, true, false);
-    // if(ret < 0) LOG_ERROR("Could not setup capture plane");
-	// ret = jetsonh264_encoder->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 1, false, true);
-	// if(ret < 0) LOG_ERROR("Could not setup output plane");
-
-    // /* set encoder output plane STREAMON */
-    // ret = jetsonh264_encoder->output_plane.setStreamStatus(true);
-    // if(ret < 0) LOG_ERROR("Error in output plane streamon");
-    // /* set encoder capture plane STREAMON */
-    // ret = jetsonh264_encoder->capture_plane.setStreamStatus(true);
-    // if(ret < 0) LOG_ERROR("Error in capture plane streamon");
-
-	// /* Enqueue all the empty capture plane buffers. */
-    // for(uint32_t i = 0; i < jetsonh264_encoder->capture_plane.getNumBuffers(); i++)
-    // {
-    //     struct v4l2_buffer v4l2_buf;
-    //     struct v4l2_plane planes[MAX_PLANES];
-
-    //     memset(&v4l2_buf, 0, sizeof(v4l2_buf));
-    //     memset(planes, 0, MAX_PLANES * sizeof(struct v4l2_plane));
-
-    //     v4l2_buf.index = i;
-    //     v4l2_buf.m.planes = planes;
-
-    //     ret = jetsonh264_encoder->capture_plane.qBuffer(v4l2_buf, NULL);
-    //     if(ret < 0)  LOG_ERROR("Error while queueing buffer at capture plane");
-    // }
+		return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+	}
+	else {
+		LOG_WARN("Get encoder for resolution:<%dx%d>", codec_.width, codec_.height);
+	}
 
 	/* Set encoder capture plane dq thread callback for blocking io mode */
     jetsonh264_encoder->capture_plane.setDQThreadCallback(CapturePlaneDqCallback);
 	jetsonh264_encoder->capture_plane.startDQThread(this);
-
-	const size_t new_capacity =
-		CalcBufferSize(VideoType::kI420, codec_.width, codec_.height);
-	encoded_image_.SetEncodedData(EncodedImageBuffer::Create(new_capacity));
-	encoded_image_._completeFrame = true;
-	encoded_image_._encodedWidth = codec_.width;
-	encoded_image_._encodedHeight = codec_.height;
-	encoded_image_.set_size(0);
 	
 	return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -382,9 +281,6 @@ int32_t JetsonH264EncoderImpl::Encode(const VideoFrame& input_frame,
 
 	auto frame_buffer = input_frame.video_frame_buffer()->ToI420();
 
-	RTC_DCHECK_EQ(encoded_image_._encodedWidth, frame_buffer->width());
-	RTC_DCHECK_EQ(encoded_image_._encodedHeight, frame_buffer->height());
-
 	if (frame_types && (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
 		LOG_WARN("Ignore empty frame");
 		return WEBRTC_VIDEO_CODEC_OK;
@@ -399,55 +295,39 @@ int32_t JetsonH264EncoderImpl::Encode(const VideoFrame& input_frame,
 	int32_t ret = 0;
 	struct v4l2_buffer v4l2_buf;
 	struct v4l2_plane planes[MAX_PLANES];
-	NvBuffer *nvBuffer = jetsonh264_encoder->output_plane.getNthBuffer(0);;
+	NvBuffer *nvBuffer = jetsonh264_encoder->output_plane.getNthBuffer(0);
 	memset(&v4l2_buf, 0, sizeof(v4l2_buf));
 	memset(planes, 0, sizeof(planes));
 
 	v4l2_buf.index = 0;
 	v4l2_buf.m.planes = planes;
 
-	char *data;
-
 	for (uint32_t i = 0; i < (*nvBuffer).n_planes; i++)
 	{
-		//LOG_INFO("Go through every plane");
 		NvBuffer::NvBufferPlane &plane = (*nvBuffer).planes[i];
-		//data = (char *) plane.data;
 		plane.bytesused = 0;
-		if(i==0)
-			//for (uint32_t j = 0; j < plane.fmt.height; j++)
-			{
-				std::streamsize bytes_to_read = plane.fmt.bytesperpixel * plane.fmt.width * plane.fmt.height;
-				memcpy(plane.data, frame_buffer->DataY(), bytes_to_read);
-				//plane.data += plane.fmt.stride;
-				plane.bytesused = bytes_to_read;
-				//plane.bytesused = plane.fmt.stride * plane.fmt.width * plane.fmt.height;
-			}
-		if(i==1)
-			//for (uint32_t j = 0; j < plane.fmt.height; j++)
-			{
-				std::streamsize bytes_to_read = plane.fmt.bytesperpixel * plane.fmt.width * plane.fmt.height ;
-				memcpy(plane.data, frame_buffer->DataU(), bytes_to_read);
-				//plane.data += plane.fmt.stride;
-				plane.bytesused = bytes_to_read;
-				//plane.bytesused = plane.fmt.stride * plane.fmt.width * plane.fmt.height;
-			}
-		if(i==2)
-			//for (uint32_t j = 0; j < plane.fmt.height; j++)
-			{
-				std::streamsize bytes_to_read = plane.fmt.bytesperpixel * plane.fmt.width * plane.fmt.height;
-				memcpy(plane.data, frame_buffer->DataV(), bytes_to_read);
-				//plane.data += plane.fmt.stride;
-				plane.bytesused = bytes_to_read;
-				//plane.bytesused = plane.fmt.stride * plane.fmt.width * plane.fmt.height;
-			}
+		if(i==0) {
+			std::streamsize bytes_to_read = plane.fmt.bytesperpixel * plane.fmt.width * plane.fmt.height;
+			memcpy(plane.data, frame_buffer->DataY(), bytes_to_read);
+			plane.bytesused = bytes_to_read;
+		}
+		if(i==1) {
+			std::streamsize bytes_to_read = plane.fmt.bytesperpixel * plane.fmt.width * plane.fmt.height ;
+			memcpy(plane.data, frame_buffer->DataU(), bytes_to_read);
+			plane.bytesused = bytes_to_read;
+		}
+		if(i==2) {
+			std::streamsize bytes_to_read = plane.fmt.bytesperpixel * plane.fmt.width * plane.fmt.height;
+			memcpy(plane.data, frame_buffer->DataV(), bytes_to_read);
+			plane.bytesused = bytes_to_read;
+		}
 	}
 
 	v4l2_buf.flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	v4l2_buf.timestamp.tv_sec = input_frame.timestamp();
 
 	ret = jetsonh264_encoder->output_plane.qBuffer(v4l2_buf, NULL);
-	if(ret < 0) LOG_ERROR("Encoder qBuffer error");
+	if(ret < 0) LOG_ERROR("Encoder qBuffer error <%p>", jetsonh264_encoder);
 
 	ret = jetsonh264_encoder->output_plane.dqBuffer(v4l2_buf, &nvBuffer, NULL, -1);
 	if(ret < 0) LOG_ERROR("Error DQing buffer at output plane");
@@ -500,14 +380,14 @@ void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
 		ret = jetsonh264_encoder->setFrameRate (fps, 1);
 		if(ret < 0) LOG_ERROR("Could not set framerate");
 		fps_ = fps;
-		LOG_INFO("SetRates fps:%u <%p>", fps, this);
+		LOG_INFO("SetRates fps:%u <%dx%d>", fps, width_, height_);
 	}
 	if(bitrate_ != bitrate)
 	{
 		ret = jetsonh264_encoder->setPeakBitrate(bitrate);
     	if(ret < 0) LOG_ERROR("Could not set encoder bitrate");
 		bitrate_ = bitrate;
-		LOG_INFO("SetRates bitrate:%u <%p>", bitrate, this);
+		LOG_INFO("SetRates bitrate:%u <%dx%d>", bitrate, width_, height_);
 	}
 }
 

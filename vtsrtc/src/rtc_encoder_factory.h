@@ -4,7 +4,6 @@
 #include <memory>
 
 #include "rtc_types.h"
-#include "rtc_codec_pool.h"
 #include <api/video_codecs/video_encoder_factory.h> // NOLINT
 
 namespace webrtc {
@@ -29,7 +28,6 @@ public:
 
 private:
     vts_rtc::RtcConfig rtc_config_;
-	CodecPool enc_pool_;
 };
 
 }  // namespace webrtc

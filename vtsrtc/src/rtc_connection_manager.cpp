@@ -216,6 +216,19 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 	return true;
 }
 
+void RtcConnectionManager::DestroyPeerConnection() {
+	for (const auto &it : remotesessionid_rtcconn_map_) {
+		if (it.second->peer_conn_) {
+			LOG_WARN("Close peer connection <%d>", it.first);
+			stats_report_timer_->cancel();
+			it.second->peer_conn_->Close();
+			it.second->peer_conn_ = nullptr;
+			CodecPool::GetInstance()->Destroy();
+		}
+	}
+	remotesessionid_rtcconn_map_.clear();
+}
+
 void RtcConnectionManager::InitWebsocket() {
 	RTC_DCHECK_RUN_ON(ws_client_thread_.get());
 
@@ -449,7 +462,7 @@ void RtcConnectionManager::ReconnectWebsocket() {
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this]() {
 				// remove p2p connections when WebSocket disconnected
-				remotesessionid_rtcconn_map_.clear();
+				DestroyPeerConnection();
 
 				if (serverconnection_state_handler_) {
 					// notify disconnected to signaling server
@@ -820,13 +833,7 @@ vts_rtc::ErrorCode RtcConnectionManager::LeaveRoom() {
 			status, message.c_str());
 
 		if (status == HttpStatus::OK) {
-			for (const auto &it : remotesessionid_rtcconn_map_) {
-				if (it.second->peer_conn_) {
-					it.second->peer_conn_->Close();
-					it.second->peer_conn_ = nullptr;
-				}
-			}
-			remotesessionid_rtcconn_map_.clear();
+			DestroyPeerConnection();
 		}
 
 		return ConvertHttpCode(status_code);
@@ -1359,6 +1366,7 @@ void RtcConnectionManager::AddAudioTrack2PeerConnection(
 void RtcConnectionManager::AddVideoTrack2PeerConnection(
 	rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_conn) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
+	rtpsender_priority_map_.clear();
 
 	// @attention
 	// 由于接收端的MediaStreamTrack的id域是唯一的GUID，并不具有业务含义，
@@ -1507,16 +1515,7 @@ void RtcConnectionManager::InteractRemotePeer(
 
 			if (state == vts_rtc::P2PState::Failed) {
 				// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
-				if (remotesessionid_rtcconn_map_.find(remote_sessionid) !=
-					remotesessionid_rtcconn_map_.cend()) {
-					if(remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_) {
-						stats_report_timer_->cancel();
-						remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_->Close();
-						remotesessionid_rtcconn_map_[remote_sessionid]->peer_conn_ = nullptr;
-						LOG_WARN("Peer connection <%u> closed", remote_sessionid);
-					}
-					remotesessionid_rtcconn_map_.erase(remote_sessionid);
-				}
+				DestroyPeerConnection();
 			}
 	};
 
@@ -1563,7 +1562,18 @@ void RtcConnectionManager::InteractRemotePeer(
 		}
 	};
 
-	rtc_conn->on_dc_state_changed_ = datachannel_state_handler_;
+	//rtc_conn->on_dc_state_changed_ = datachannel_state_handler_;
+	rtc_conn->on_dc_state_changed_ = [this, weak_self](
+		vts_rtc::SessionId sessionId, const std::string& datachannel_label, vts_rtc::DataChannelState state) {
+			// WebRTC内部不存在DataChannel的重连机制，同时本端和远端的DataChannel状态
+			// 并非完全一致（存在本端DataChannel已关闭，对端1.5分钟才感知到关闭），故暂且
+			// 选择关闭P2P连接来通知上层业务进行重连
+			if(state == vts_rtc::DataChannelState::Closed) {
+				DestroyPeerConnection();
+			}
+			datachannel_state_handler_(sessionId, datachannel_label, state);
+	};
+
 	rtc_conn->on_dc_message_received_ = recv_msg_handler_;
 
 	rtc_conn->on_audioframe_received_ = [this, weak_self](
@@ -1687,7 +1697,8 @@ void RtcConnectionManager::AckRemotePeerSdp(
 	if (!remote_session_description) {
 		LOG_ERROR("Ack remote peer SDP, create SDP failed, line: %s, description: %s",
 			error.line.c_str(), error.description.c_str());
-		remotesessionid_rtcconn_map_.erase(remote_sessionid);
+		// remotesessionid_rtcconn_map_.erase(remote_sessionid);
+		DestroyPeerConnection();
 		return;
 	}
 	if (rtc_conn && rtc_conn->peer_conn_) {

@@ -82,7 +82,6 @@ private:
 	bool has_reported_error_ = false;
 	std::ofstream *stream_file_;
 	int buffer_count_ = 0;
-	bool release_flag_ = false;
 	bool save_stream_ = false;
 	uint32_t fps_ = 0;
 	uint32_t bitrate_ = 0;

@@ -6,13 +6,20 @@ typedef bool(*dqThreadCallback) (struct v4l2_buffer * v4l2_buf,
 class CodecPool
 {
 public:
-    CodecPool();
-    ~CodecPool();
+    static CodecPool* GetInstance()
+    { 
+        if(instance_ == nullptr)
+            instance_ = new CodecPool;  
+        return instance_;  
+    }
 
     void Init();
+    void Destroy();
+    NvVideoEncoder* GetAvailableEncoder(int width, int height);
+    int ReleaseEncoder(int width, int height, NvVideoEncoder* enc);
 
-    static NvVideoEncoder* GetAvailableEncoder(int width, int height);
-    static int ReleaseEncoder(int width, int height, NvVideoEncoder* enc);
+private:
+    CodecPool();
 
 private:
     int InitTargetEncoder(int width, int height);
@@ -21,6 +28,8 @@ private:
 	void SetV4L2LogLevel(int level);
 
 private:
+    static CodecPool* instance_;
+
     std::map<int, int> resolution_map_ = {
         {288, 162}, 
         {384, 216}, 
