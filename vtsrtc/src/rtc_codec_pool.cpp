@@ -31,8 +31,8 @@ int CodecPool::ReleaseEncoder(int width, int height, NvVideoEncoder* enc) {
 	{
 		if (low_bound_iter->second.first == false && low_bound_iter->second.second == enc)
 		{
-			 low_bound_iter->second.first = true;
-             return 0;
+			low_bound_iter->second.first = true;
+            return 0;
 		}
 		++low_bound_iter;
 	}
@@ -55,7 +55,6 @@ void CodecPool::Destroy() {
     int ret = 0;
     for(const auto& it:encoder_pool_) {
         if(it.second.second) {
-            it.second.second->capture_plane.waitForDQThread(-1);
             delete it.second.second;
         }
     }
@@ -90,7 +89,7 @@ int CodecPool::InitTargetEncoder(int width, int height) {
     ret = enc->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
     if(ret < 0) LOG_ERROR("Could not set encoder profile");
 
-    ret = enc->setLevel((uint32_t)V4L2_MPEG_VIDEO_H264_LEVEL_5_1);
+    ret = enc->setLevel((uint32_t)V4L2_MPEG_VIDEO_H264_LEVEL_3_1);
     if(ret < 0) LOG_ERROR("Could not set encoder level");
 
     /* Set rate control mode for encoder */
@@ -122,7 +121,7 @@ int CodecPool::InitTargetEncoder(int width, int height) {
 	if(ret < 0) LOG_ERROR("Could not setMaxPerfMode");
 
     uint32_t nMinQpI = 20;
-    uint32_t nMaxQpI = 40;
+    uint32_t nMaxQpI = 45;
     uint32_t nMinQpP = 40;
     uint32_t nMaxQpP = 45;
     uint32_t nMinQpB = 40;
@@ -131,9 +130,9 @@ int CodecPool::InitTargetEncoder(int width, int height) {
     ret = enc->setQpRange(nMinQpI, nMaxQpI, nMinQpP, nMaxQpP, nMinQpB, nMaxQpB);
     if(ret < 0) LOG_ERROR("Could not set quantization parameters");
 
-	ret = enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 10, true, false);
+	ret = enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 1, true, false);
     if(ret < 0) LOG_ERROR("Could not setup capture plane");
-	ret = enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 10, false, true);
+	ret = enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 1, false, true);
 	if(ret < 0) LOG_ERROR("Could not setup output plane");
 
     /* set encoder output plane STREAMON */
