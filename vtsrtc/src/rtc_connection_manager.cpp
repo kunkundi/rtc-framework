@@ -224,7 +224,7 @@ void RtcConnectionManager::DestroyPeerConnection() {
 			it.second->peer_conn_->Close();
 			it.second->peer_conn_ = nullptr;
 #if defined  __aarch64__
-			CodecPool::GetInstance()->Destroy();
+			// CodecPool::GetInstance()->Destroy();
 #endif
 		}
 	}
@@ -1567,6 +1567,12 @@ void RtcConnectionManager::InteractRemotePeer(
 	//rtc_conn->on_dc_state_changed_ = datachannel_state_handler_;
 	rtc_conn->on_dc_state_changed_ = [this, weak_self](
 		vts_rtc::SessionId sessionId, const std::string& datachannel_label, vts_rtc::DataChannelState state) {
+			auto self = weak_self.lock();
+			if (!self) {
+				LOG_ERROR("[WEBRTC] Rtc connection on_dc_state_changed_, "
+					"but rtc connection manager has been destroyed.");
+				return;
+			}
 			// WebRTC内部不存在DataChannel的重连机制，同时本端和远端的DataChannel状态
 			// 并非完全一致（存在本端DataChannel已关闭，对端1.5分钟才感知到关闭），故暂且
 			// 选择关闭P2P连接来通知上层业务进行重连
