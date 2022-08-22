@@ -4,7 +4,7 @@
 #include "rtc_connection.h"
 #include "rtc_audiosource.hpp"
 #include "rtc_device_manager.h"
-#include "rtc_statistics.h"
+#include "statistics/rtc_statistics.h"
 #include <nlohmann/json.hpp>
 #include <client_http.hpp>
 #include <client_ws.hpp>
@@ -15,9 +15,6 @@
 #include <api/video_codecs/builtin_video_decoder_factory.h>
 #include <api/video_codecs/builtin_video_encoder_factory.h>
 #include <rtc_base/thread.h>
-#if defined  __aarch64__
-#include "rtc_codec_pool.h"
-#endif
 
 using json = nlohmann::json;
 

@@ -149,8 +149,9 @@ struct RtcConfig {
 	std::map<std::string, std::pair<long, long>> resolution_limit;
 	bool use_strategy = false;
 	std::map<long, std::vector<long>> strategy;
-	long bitrate_maxmum = 2000000;
+	long bitrate_maxmum = 10000000;
 	bool netstats_report = false;
+	bool use_codec_pool = false;
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;

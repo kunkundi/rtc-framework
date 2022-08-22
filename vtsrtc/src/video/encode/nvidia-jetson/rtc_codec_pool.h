@@ -24,9 +24,6 @@ private:
 private:
     int InitTargetEncoder(int width, int height);
 
-    // level = 0:INFO 1:ERROR 2:WARN 3:DEBUG
-	void SetV4L2LogLevel(int level);
-
 private:
     static CodecPool* instance_;
 

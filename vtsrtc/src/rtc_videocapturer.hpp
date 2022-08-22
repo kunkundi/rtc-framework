@@ -1,6 +1,6 @@
 #pragma once
 
-#include "log_manager.h"
+#include "log/log_manager.h"
 #include "rtc_videosource.hpp"
 #include <modules/video_capture/video_capture_factory.h>
 #include <rtc_base/thread.h>

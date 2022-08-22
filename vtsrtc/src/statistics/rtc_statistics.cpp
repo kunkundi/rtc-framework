@@ -1,5 +1,5 @@
 #include "rtc_statistics.h"
-#include "log_manager.h"
+#include "log/log_manager.h"
 #include "api/stats/rtcstats_objects.h"
 #include "video/call_stats.h"
 
@@ -11,19 +11,21 @@ RtcStatistics::~RtcStatistics() {
     stats_report_callback_ = nullptr;
 }
 
+void RtcStatistics::Reset() {
+    sender_media_ssrc_vs_id_.clear();
+	receiver_media_id_vs_ssrc_.clear();
+	net_stats_.clear();
+}
+
 void RtcStatistics::SetStatisticsReportCallback(const vts_rtc::ChannelNetworkStatsHandler& stats_callback) {
     stats_report_callback_ = stats_callback;
 }
 
 void RtcStatistics::SetSendersMediaSsrcVsId(std::map<uint32_t, vts_rtc::VideoSourceId>& sender_media_ssrc_vs_id) {
-	sender_media_ssrc_vs_id_.clear();
-	net_stats_.clear();
     sender_media_ssrc_vs_id_.insert(sender_media_ssrc_vs_id.begin(), sender_media_ssrc_vs_id.end());
 }
 
 void RtcStatistics::SetReceiversMediaSsrcVsId(std::map<vts_rtc::VideoSourceId, uint32_t>& receiver_media_id_vs_ssrc) {
-	receiver_media_id_vs_ssrc_.clear();
-	net_stats_.clear();
     receiver_media_id_vs_ssrc_.insert(receiver_media_id_vs_ssrc.begin(), receiver_media_id_vs_ssrc.end());
 }
 

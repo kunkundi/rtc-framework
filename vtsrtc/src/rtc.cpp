@@ -1,5 +1,5 @@
 #include "rtc.h"
-#include "log_manager.h"
+#include "log/log_manager.h"
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -122,6 +122,10 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 
 	if(rtc_cfg_obj.contains("netstats_report")) {
 		rtc_config.netstats_report = rtc_cfg_obj["netstats_report"].get<bool>();
+	}
+
+	if(rtc_cfg_obj.contains("use_codec_pool")) {
+		rtc_config.use_codec_pool = rtc_cfg_obj["use_codec_pool"].get<bool>();
 	}
 
 	if (rtc_cfg_obj.contains("use_NVENC")) {

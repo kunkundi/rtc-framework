@@ -2,7 +2,7 @@
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
 #include "log_manager.h"
-#include "nvh264_decoder_impl.h"
+#include "nvidia/nvh264_decoder_impl.h"
 #include "rtc_decoder_factory.h"
 
 namespace webrtc {

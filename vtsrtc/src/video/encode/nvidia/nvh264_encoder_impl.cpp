@@ -11,7 +11,7 @@
 
 #include <string>
 
-#include "log_manager.h"
+#include "log/log_manager.h"
 #include "nvh264_encoder_impl.h"
 
 

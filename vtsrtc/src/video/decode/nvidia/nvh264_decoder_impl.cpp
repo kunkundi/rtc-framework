@@ -7,7 +7,7 @@
 
 #include <limits>
 
-#include "log_manager.h"
+#include "log/log_manager.h"
 #include "nvh264_decoder_impl.h"
 
 namespace webrtc {

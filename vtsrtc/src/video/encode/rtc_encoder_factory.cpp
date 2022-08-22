@@ -1,14 +1,15 @@
 #include <absl/strings/match.h>
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
-#include "log_manager.h"
+#include "log/log_manager.h"
 #include "rtc_encoder_factory.h"
+#include "rtc_base/logging.h"
 
 #if defined  __aarch64__
-#include "rtc_codec_pool.h"
-#include "jetsonh264_encoder_impl.h"
+#include "nvidia-jetson/rtc_codec_pool.h"
+#include "nvidia-jetson/jetsonh264_encoder_impl.h"
 #else
-#include "nvh264_encoder_impl.h"
+#include "nvidia/nvh264_encoder_impl.h"
 #endif
 
 namespace webrtc {
@@ -40,7 +41,10 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
 	const SdpVideoFormat& format) {
 	if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
 #if defined  __aarch64__
-		// CodecPool::GetInstance()->Init();
+		if(rtc_config_.use_codec_pool)
+			CodecPool::GetInstance()->Init();
+		log_level = 0;
+		// rtc::LogMessage::LogToDebug(rtc::LS_VERBOSE);
 		return std::make_unique<JetsonH264EncoderImpl>(cricket::VideoCodec(format), rtc_config_);
 #else
 		return std::make_unique<NvH264EncoderImpl>(cricket::VideoCodec(format));

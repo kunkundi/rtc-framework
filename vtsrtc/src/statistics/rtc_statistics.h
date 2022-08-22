@@ -8,6 +8,7 @@ public:
     RtcStatistics();
     ~RtcStatistics();
 
+    void Reset();
     void SetStatisticsReportCallback(const vts_rtc::ChannelNetworkStatsHandler& stats_callback);
     void SetSendersMediaSsrcVsId(std::map<uint32_t, vts_rtc::VideoSourceId>& sender_media_ssrc_vs_id);
 	void SetReceiversMediaSsrcVsId(std::map<vts_rtc::VideoSourceId, uint32_t>& receiver_media_id_vs_ssrc);

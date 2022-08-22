@@ -1,5 +1,5 @@
 #include "rtc_codec_pool.h"
-#include "log_manager.h"
+#include "log/log_manager.h"
 
 static std::multimap<int, std::pair<bool, NvVideoEncoder*>> encoder_pool_;
 CodecPool* CodecPool::instance_ = nullptr;
@@ -44,7 +44,6 @@ CodecPool::CodecPool() {
 }
 
 void CodecPool::Init() {
-    SetV4L2LogLevel(1);
     for(auto it: resolution_map_) {
         LOG_INFO("Init encoder <%dx%d>", it.first, it.second);
         InitTargetEncoder(it.first, it.second);
@@ -59,6 +58,7 @@ void CodecPool::Destroy() {
         }
     }
     encoder_pool_.clear();
+    LOG_INFO("Destroy codec pool");
 }
 
 int CodecPool::InitTargetEncoder(int width, int height) {
@@ -68,23 +68,20 @@ int CodecPool::InitTargetEncoder(int width, int height) {
 	const auto target_width = width;
 	const auto target_height = height;
 
-	std::string name = "enc" + std::to_string(width) + "x" + std::to_string(height);
-	enc = NvVideoEncoder::createVideoEncoder(name.c_str());
+	enc = NvVideoEncoder::createVideoEncoder("enc0");
     if(!enc) {
-        LOG_ERROR("Cannot create jetson encoder for <%s>", name.c_str());
+        LOG_ERROR("Cannot create jetson encoder");
         return -1;
     }
-    else
-	    LOG_WARN("JetsonH264Encoder created, address <%p> <%s>", enc, name.c_str());
+    else {
+	    LOG_WARN("JetsonH264Encoder created, address <%p>", enc);
+    }
 
     ret = enc->setCapturePlaneFormat(V4L2_PIX_FMT_H264, target_width, target_height, 2 * 1024 * 1024);
     if(ret < 0) LOG_ERROR("Could not set capture plane format");
 
     ret = enc->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, target_width, target_height);
     if(ret < 0) LOG_ERROR("Could not set output plane format");
-
-	// ret = enc->setBitrate(codec_settings->maxBitrate * 1000);
-    // if(ret < 0) LOG_ERROR("Could not set encoder bitrate <%d>", codec_settings->maxBitrate * 1000);
 
     ret = enc->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
     if(ret < 0) LOG_ERROR("Could not set encoder profile");
@@ -95,12 +92,9 @@ int CodecPool::InitTargetEncoder(int width, int height) {
     /* Set rate control mode for encoder */
     ret = enc->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
     if(ret < 0) LOG_ERROR("Could not set encoder rate control mode");
-    /* Set peak bitrate value for variable bitrate mode for encoder */
-    // ret = enc->setPeakBitrate(10 * 1000 * 1000);
-    // if(ret < 0) LOG_ERROR("Could not set encoder peak bitrate");
 
     /* Set IDR frame interval for encoder */
-    ret = enc->setIDRInterval(30);
+    ret = enc->setIDRInterval(3000);
     if(ret < 0) LOG_ERROR("Could not set encoder IDR interval");
 
     /* Set I frame interval for encoder */
@@ -120,50 +114,16 @@ int CodecPool::InitTargetEncoder(int width, int height) {
 	ret = enc->setMaxPerfMode(1);
 	if(ret < 0) LOG_ERROR("Could not setMaxPerfMode");
 
-    uint32_t nMinQpI = 20;
+    uint32_t nMinQpI = 15;
     uint32_t nMaxQpI = 45;
-    uint32_t nMinQpP = 40;
+    uint32_t nMinQpP = 35;
     uint32_t nMaxQpP = 45;
-    uint32_t nMinQpB = 40;
+    uint32_t nMinQpB = 35;
     uint32_t nMaxQpB = 45;
     /* Set Min & Max qp range values for I/P/B-frames to be used by encoder */
     ret = enc->setQpRange(nMinQpI, nMaxQpI, nMinQpP, nMaxQpP, nMinQpB, nMaxQpB);
     if(ret < 0) LOG_ERROR("Could not set quantization parameters");
 
-	ret = enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, 1, true, false);
-    if(ret < 0) LOG_ERROR("Could not setup capture plane");
-	ret = enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, 1, false, true);
-	if(ret < 0) LOG_ERROR("Could not setup output plane");
-
-    /* set encoder output plane STREAMON */
-    ret = enc->output_plane.setStreamStatus(true);
-    if(ret < 0) LOG_ERROR("Error in output plane streamon");
-    /* set encoder capture plane STREAMON */
-    ret = enc->capture_plane.setStreamStatus(true);
-    if(ret < 0) LOG_ERROR("Error in capture plane streamon");
-
-	/* Enqueue all the empty capture plane buffers. */
-    for(uint32_t i = 0; i < enc->capture_plane.getNumBuffers(); i++)
-    {
-        struct v4l2_buffer v4l2_buf;
-        struct v4l2_plane planes[MAX_PLANES];
-
-        memset(&v4l2_buf, 0, sizeof(v4l2_buf));
-        memset(planes, 0, MAX_PLANES * sizeof(struct v4l2_plane));
-
-        v4l2_buf.index = i;
-        v4l2_buf.m.planes = planes;
-
-        ret = enc->capture_plane.qBuffer(v4l2_buf, NULL);
-        if(ret < 0)  LOG_ERROR("Error while queueing buffer at capture plane");
-    }
-
     encoder_pool_.insert(std::make_pair(target_width * target_height, std::make_pair(true, enc)));
-
     return 0;
-}
-
-void CodecPool::SetV4L2LogLevel(int level)
-{
-	log_level = level;
 }

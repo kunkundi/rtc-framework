@@ -61,37 +61,42 @@ public:
 	H264PacketizationMode GetH264PacketizationMode() {return packetization_mode_;}
 
 private:
-	// level = 0:INFO 1:ERROR 2:WARN 3:DEBUG
-	void SetV4L2LogLevel(int level);
 
 	// Reports statistics with histograms.
 	void ReportInit();
 	void ReportError();
 
 	//Encoder capture-plane deque buffer callback function
-	static bool CapturePlaneDqCallback(struct v4l2_buffer *v4l2_buf, 
+	static bool CapturePlaneDqCallbackWithCodecPool(struct v4l2_buffer *v4l2_buf, 
 						NvBuffer * buffer, NvBuffer * shared_buffer, void *data);
+	static bool CapturePlaneDqCallbackWithoutCodecPool(struct v4l2_buffer *v4l2_buf, 
+						NvBuffer * buffer, NvBuffer * shared_buffer, void *data);
+
+	int InitEncodeWithCodecPool(const VideoCodec* codec_settings, const VideoEncoder::Settings& settings);
+	int InitEncodeWithoutCodecPool(const VideoCodec* codec_settings, const VideoEncoder::Settings& settings);
+	int32_t ReleaseWithCodecPool();
+	int32_t ReleaseWithoutCodecPool();
+	int32_t EncodeWithCodecPool(const VideoFrame& frame, const std::vector<VideoFrameType>* frame_types);
+	int32_t EncodeWithoutCodecPool(const VideoFrame& frame, const std::vector<VideoFrameType>* frame_types);
 
 private:
     NvVideoEncoder *jetsonh264_encoder = nullptr;
     EncodedImageCallback* encoded_image_callback_ = nullptr;
     VideoCodec codec_;
-	H264PacketizationMode packetization_mode_ =
-		H264PacketizationMode::NonInterleaved;
+	H264PacketizationMode packetization_mode_ = H264PacketizationMode::NonInterleaved;
 	EncodedImage encoded_image_;
-    size_t max_payload_size_ = 0;
     bool has_reported_init_ = false;
 	bool has_reported_error_ = false;
 	std::ofstream *stream_file_;
-	int buffer_count_ = 0;
-	bool release_flag_ = false;
 	bool save_stream_ = false;
 	uint32_t fps_ = 0;
 	uint32_t bitrate_ = 0;
 	vts_rtc::RtcConfig rtc_config_;
 	std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
-	int qp_last_ = 0;
-	unsigned short encoder_id_ = 0;
+	int width_ = 0;
+	int height_ = 0;
+	bool release_flag_ = false;
+	bool stop_flag_ = true;
 };
 
 }  // namespace webrtc

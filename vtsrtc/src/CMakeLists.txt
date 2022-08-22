@@ -30,8 +30,8 @@ else()
 endif()
 
 list(APPEND SOURCE_CODE
-	log_manager.h
-	log_manager.cpp
+	log/log_manager.h
+	log/log_manager.cpp
 	http_status_code.hpp
 	rtc_types.h
 	rtc_device_manager.h
@@ -50,18 +50,18 @@ list(APPEND SOURCE_CODE
 	rtc.cpp
 	c_rtc.h
 	c_rtc.cpp
-	rtc_encoder_factory.h
-	rtc_encoder_factory.cpp
-	rtc_statistics.h
-	rtc_statistics.cpp
+	video/encode/rtc_encoder_factory.h
+	video/encode/rtc_encoder_factory.cpp
+	statistics/rtc_statistics.h
+	statistics/rtc_statistics.cpp
 )
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	list(APPEND SOURCE_CODE
-		jetsonh264_encoder_impl.h
-		jetsonh264_encoder_impl.cpp
-		rtc_codec_pool.h
-		rtc_codec_pool.cpp
+		video/encode/nvidia-jetson/jetsonh264_encoder_impl.h
+		video/encode/nvidia-jetson/jetsonh264_encoder_impl.cpp
+		video/encode/nvidia-jetson/rtc_codec_pool.h
+		video/encode/nvidia-jetson/rtc_codec_pool.cpp
 		/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h
 		/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp
 		/usr/src/jetson_multimedia_api/include/NvV4l2Element.h
@@ -81,12 +81,12 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	)
 else()
 	list(APPEND SOURCE_CODE
-		rtc_decoder_factory.h
-		rtc_decoder_factory.cpp
-		nvh264_encoder_impl.h
-		nvh264_encoder_impl.cpp
-		nvh264_decoder_impl.h
-		nvh264_decoder_impl.cpp
+		video/decode/rtc_decoder_factory.h
+		video/decode/rtc_decoder_factory.cpp
+		video/encode/nvidia/nvh264_encoder_impl.h
+		video/encode/nvidia/nvh264_encoder_impl.cpp
+		video/decode/nvidia/nvh264_decoder_impl.h
+		video/decode/nvidia/nvh264_decoder_impl.cpp
 		${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoder.cpp
 		${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp
 		${CMAKE_SOURCE_DIR}/third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvDecoder/NvDecoder.cpp

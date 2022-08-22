@@ -59,61 +59,61 @@ void RtcWidget::HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse resp
 
 void RtcWidget::HandleChannelNetStats(RtcNetStats params)
 {
-	{
-		if (!sourceid_list_->contains(params.audio_stats.sourceid))
-		{
-			sourceid_list_->append(params.audio_stats.sourceid);
-			//model_->setVerticalHeaderLabels(*sourceid_list_);
-		}
+// 	{
+// 		if (!sourceid_list_->contains(params.audio_stats.sourceid))
+// 		{
+// 			sourceid_list_->append(params.audio_stats.sourceid);
+// 			//model_->setVerticalHeaderLabels(*sourceid_list_);
+// 		}
 
-		if (!sourceid_list_->contains(params.video_stats.sourceid))
-		{
-			sourceid_list_->append(params.video_stats.sourceid);
-			//model_->setVerticalHeaderLabels(*sourceid_list_);
-		}
-	}
+// 		if (!sourceid_list_->contains(params.video_stats.sourceid))
+// 		{
+// 			sourceid_list_->append(params.video_stats.sourceid);
+// 			//model_->setVerticalHeaderLabels(*sourceid_list_);
+// 		}
+// 	}
 
-	if (params.input)
-	{
-// 		auto audio_id = sourceid_list_->indexOf(params.audio_stats.sourceid);
-// 		model_->setItem(audio_id, 0, new QStandardItem(params.audio_stats.sourceid));
-// 		model_->setItem(audio_id, 1, new QStandardItem(QString::number(params.audio_stats.bitrate_bps)));
+// 	if (params.input)
+// 	{
+// // 		auto audio_id = sourceid_list_->indexOf(params.audio_stats.sourceid);
+// // 		model_->setItem(audio_id, 0, new QStandardItem(params.audio_stats.sourceid));
+// // 		model_->setItem(audio_id, 1, new QStandardItem(QString::number(params.audio_stats.bitrate_bps)));
 
-		auto video_id = sourceid_list_->indexOf(params.video_stats.sourceid);
-		model_->setItem(video_id, 0, new QStandardItem(params.video_stats.sourceid));
-		model_->setItem(video_id, 1, new QStandardItem(QString::number(params.video_stats.bitrate_bps)));
-		model_->setItem(video_id, 2, new QStandardItem(QString::number(params.video_stats.width)));
-		model_->setItem(video_id, 3, new QStandardItem(QString::number(params.video_stats.height)));
-		model_->setItem(video_id, 4, new QStandardItem(QString::number(params.video_stats.fps)));
-		model_->setItem(video_id, 5, new QStandardItem(QString::number(params.video_stats.loss_rate)));
-		model_->setItem(video_id, 6, new QStandardItem(QString::number(params.video_stats.delay_ms)));
-		model_->setItem(video_id, 7, new QStandardItem(QString::number(params.video_stats.key_frame_count)));
-		model_->setItem(video_id, 8, new QStandardItem(QString::number(params.video_stats.fir_count)));
-		model_->setItem(video_id, 9, new QStandardItem(QString::number(params.video_stats.pli_count)));
-		model_->setItem(video_id, 10, new QStandardItem(QString::number(params.video_stats.nack_count)));
-		model_->setItem(video_id, 11, new QStandardItem(params.video_stats.codec_name));
-	}
-	else
-	{
-// 		auto audio_id = sourceid_list_->indexOf(params.audio_stats.sourceid);
-// 		model_->setItem(audio_id, 0, new QStandardItem(params.audio_stats.sourceid));
-// 		model_->setItem(audio_id, 1, new QStandardItem(QString::number(params.audio_stats.bitrate_bps)));
+// 		auto video_id = sourceid_list_->indexOf(params.video_stats.sourceid);
+// 		model_->setItem(video_id, 0, new QStandardItem(params.video_stats.sourceid));
+// 		model_->setItem(video_id, 1, new QStandardItem(QString::number(params.video_stats.bitrate_bps)));
+// 		model_->setItem(video_id, 2, new QStandardItem(QString::number(params.video_stats.width)));
+// 		model_->setItem(video_id, 3, new QStandardItem(QString::number(params.video_stats.height)));
+// 		model_->setItem(video_id, 4, new QStandardItem(QString::number(params.video_stats.fps)));
+// 		model_->setItem(video_id, 5, new QStandardItem(QString::number(params.video_stats.loss_rate)));
+// 		model_->setItem(video_id, 6, new QStandardItem(QString::number(params.video_stats.delay_ms)));
+// 		model_->setItem(video_id, 7, new QStandardItem(QString::number(params.video_stats.key_frame_count)));
+// 		model_->setItem(video_id, 8, new QStandardItem(QString::number(params.video_stats.fir_count)));
+// 		model_->setItem(video_id, 9, new QStandardItem(QString::number(params.video_stats.pli_count)));
+// 		model_->setItem(video_id, 10, new QStandardItem(QString::number(params.video_stats.nack_count)));
+// 		model_->setItem(video_id, 11, new QStandardItem(params.video_stats.codec_name));
+// 	}
+// 	else
+// 	{
+// // 		auto audio_id = sourceid_list_->indexOf(params.audio_stats.sourceid);
+// // 		model_->setItem(audio_id, 0, new QStandardItem(params.audio_stats.sourceid));
+// // 		model_->setItem(audio_id, 1, new QStandardItem(QString::number(params.audio_stats.bitrate_bps)));
 
-		auto video_id = sourceid_list_->indexOf(params.video_stats.sourceid);
-		model_->setItem(video_id, 0, new QStandardItem(params.video_stats.sourceid));
-		model_->setItem(video_id, 1, new QStandardItem(QString::number(params.video_stats.bitrate_bps)));
-		model_->setItem(video_id, 2, new QStandardItem(QString::number(params.video_stats.width)));
-		model_->setItem(video_id, 3, new QStandardItem(QString::number(params.video_stats.height)));
-		model_->setItem(video_id, 4, new QStandardItem(QString::number(params.video_stats.fps)));
-		model_->setItem(video_id, 5, new QStandardItem(QString::number(params.video_stats.loss_rate)));
-		model_->setItem(video_id, 6, new QStandardItem(QString::number(params.video_stats.delay_ms)));
-		model_->setItem(video_id, 7, new QStandardItem(QString::number(params.video_stats.key_frame_count)));
-		model_->setItem(video_id, 8, new QStandardItem(QString::number(params.video_stats.fir_count)));
-		model_->setItem(video_id, 9, new QStandardItem(QString::number(params.video_stats.pli_count)));
-		model_->setItem(video_id, 10, new QStandardItem(QString::number(params.video_stats.nack_count)));
- 		model_->setItem(video_id, 11, new QStandardItem(params.video_stats.codec_name));
- 	}
-	tableView_->viewport()->update();
+// 		auto video_id = sourceid_list_->indexOf(params.video_stats.sourceid);
+// 		model_->setItem(video_id, 0, new QStandardItem(params.video_stats.sourceid));
+// 		model_->setItem(video_id, 1, new QStandardItem(QString::number(params.video_stats.bitrate_bps)));
+// 		model_->setItem(video_id, 2, new QStandardItem(QString::number(params.video_stats.width)));
+// 		model_->setItem(video_id, 3, new QStandardItem(QString::number(params.video_stats.height)));
+// 		model_->setItem(video_id, 4, new QStandardItem(QString::number(params.video_stats.fps)));
+// 		model_->setItem(video_id, 5, new QStandardItem(QString::number(params.video_stats.loss_rate)));
+// 		model_->setItem(video_id, 6, new QStandardItem(QString::number(params.video_stats.delay_ms)));
+// 		model_->setItem(video_id, 7, new QStandardItem(QString::number(params.video_stats.key_frame_count)));
+// 		model_->setItem(video_id, 8, new QStandardItem(QString::number(params.video_stats.fir_count)));
+// 		model_->setItem(video_id, 9, new QStandardItem(QString::number(params.video_stats.pli_count)));
+// 		model_->setItem(video_id, 10, new QStandardItem(QString::number(params.video_stats.nack_count)));
+//  		model_->setItem(video_id, 11, new QStandardItem(params.video_stats.codec_name));
+//  	}
+// 	tableView_->viewport()->update();
 }
 
 void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
@@ -510,10 +510,10 @@ void RtcWidget::SendFrame() {
 				//if(send_frame_flag){
 					RtcSendFrame("mid_frontview", &yuv_frames_[idx]);
 					RtcSendFrame("mid_rearview", &yuv_frames_[idx]);
-					RtcSendFrame("left_frontview", &yuv_frames_[idx]);
-					RtcSendFrame("left_rearview", &yuv_frames_[idx]);
-					RtcSendFrame("right_frontview", &yuv_frames_[idx]);
-					RtcSendFrame("right_rearview", &yuv_frames_[idx]);
+					// RtcSendFrame("left_frontview", &yuv_frames_[idx]);
+					// RtcSendFrame("left_rearview", &yuv_frames_[idx]);
+					// RtcSendFrame("right_frontview", &yuv_frames_[idx]);
+					// RtcSendFrame("right_rearview", &yuv_frames_[idx]);
 					idx++;
 					QThread::msleep(30);
 					{
@@ -545,10 +545,10 @@ void RtcWidget::AddVideoSource() {
 		// YUV420p video source
 		auto code = RtcAddExternalVideoSource("mid_frontview", RtcPriorityType::High);
 		code = RtcAddExternalVideoSource("mid_rearview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("left_frontview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("left_rearview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("right_frontview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("right_rearview", RtcPriorityType::High);
+		// code = RtcAddExternalVideoSource("left_frontview", RtcPriorityType::High);
+		// code = RtcAddExternalVideoSource("left_rearview", RtcPriorityType::High);
+		// code = RtcAddExternalVideoSource("right_frontview", RtcPriorityType::High);
+		// code = RtcAddExternalVideoSource("right_rearview", RtcPriorityType::High);
 		//CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {
@@ -624,7 +624,15 @@ void RtcWidget::JoinRoom() {
 		QMessageBox::warning(nullptr, tr("Warning"), tr("No room is selected"));
 		return;
 	}
+if (!video_source_added_) {
+		this->AddVideoSource();
+		video_source_added_ = true;
+	}
 
+	if (!audio_source_added_) {
+		this->AddAudioSource();
+		audio_source_added_ = true;
+	}
 	QByteArray roomid = rooms_combobox_->currentText().toLocal8Bit();
 	auto code = RtcJoinRoom(roomid.data());
 	CHECK_ERRORCODE

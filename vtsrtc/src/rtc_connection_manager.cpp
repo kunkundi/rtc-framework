@@ -4,10 +4,13 @@
 
 #include "rtc_connection_manager.h"
 #include "http_status_code.hpp"
-#include "rtc_encoder_factory.h"
-#include "rtc_decoder_factory.h"
+#include "video/encode/rtc_encoder_factory.h"
+#include "video/decode/rtc_decoder_factory.h"
+#if defined  __aarch64__
+#include "video/encode/nvidia-jetson/rtc_codec_pool.h"
 #ifdef USE_DEFAULT_JETSON_ENCODER
 #include <modules/video_coding/codecs/nvidia/NvVideoEncoderFactory.h>
+#endif
 #endif
 
 vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
@@ -220,11 +223,14 @@ void RtcConnectionManager::DestroyPeerConnection() {
 	for (const auto &it : remotesessionid_rtcconn_map_) {
 		if (it.second->peer_conn_) {
 			LOG_WARN("Close peer connection <%d>", it.first);
-			stats_report_timer_->cancel();
+			if(stats_report_timer_)
+				stats_report_timer_->cancel();
+			statistics_collector_->Reset();
 			it.second->peer_conn_->Close();
 			it.second->peer_conn_ = nullptr;
 #if defined  __aarch64__
-			// CodecPool::GetInstance()->Destroy();
+			if(rtc_config_.use_codec_pool)
+				CodecPool::GetInstance()->Destroy();
 #endif
 		}
 	}
@@ -1517,7 +1523,7 @@ void RtcConnectionManager::InteractRemotePeer(
 
 			if (state == vts_rtc::P2PState::Failed) {
 				// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
-				DestroyPeerConnection();
+				LeaveRoom();
 			}
 	};
 
@@ -1577,7 +1583,7 @@ void RtcConnectionManager::InteractRemotePeer(
 			// 并非完全一致（存在本端DataChannel已关闭，对端1.5分钟才感知到关闭），故暂且
 			// 选择关闭P2P连接来通知上层业务进行重连
 			if(state == vts_rtc::DataChannelState::Closed) {
-				DestroyPeerConnection();
+				LeaveRoom();
 			}
 			datachannel_state_handler_(sessionId, datachannel_label, state);
 	};
