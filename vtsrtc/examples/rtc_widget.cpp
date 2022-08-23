@@ -239,7 +239,7 @@ void RtcWidget::CreateUI() {
 	videosource_layout->addWidget(videosource_label);
 	videosource_layout->addWidget(videosources_combobox_);
 	videosource_groupbox->setLayout(videosource_layout);
-	videosource_groupbox->setFixedSize(1200, 50);
+	videosource_groupbox->setFixedSize(1200, 65);
 
 	// 房间管理
 	QGroupBox* room_groupbox = new QGroupBox(tr("Room Management"));
@@ -275,7 +275,7 @@ void RtcWidget::CreateUI() {
 	SRS_layout->addWidget(play_from_SRS_btn);
 	SRS_layout->addWidget(unplay_from_SRS_btn);
 	SRS_groupbox->setLayout(SRS_layout);
-	SRS_groupbox->setFixedSize(1200, 50);
+	SRS_groupbox->setFixedSize(1200, 65);
 
 	// 消息管理
 	QGroupBox* msg_groupbox = new QGroupBox(tr("Message Management"));
@@ -334,7 +334,7 @@ void RtcWidget::CreateUI() {
 	main_layout->addWidget(tableView_);
 
 	this->setLayout(main_layout);
-	this->setFixedSize(1220, 1300);
+	this->setFixedSize(1220, 1350);
 
 	// bind events
 	connect(query_rooms_btn, SIGNAL(clicked()), this, SLOT(QueryRooms()));
