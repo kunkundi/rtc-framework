@@ -1,7 +1,7 @@
 #include <absl/strings/match.h>
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
-#include "log_manager.h"
+#include "log/log_manager.h"
 #include "nvidia/nvh264_decoder_impl.h"
 #include "rtc_decoder_factory.h"
 

@@ -57,7 +57,6 @@ private slots:
 	void CloseRoom();
 	void JoinRoom();
 	void LeaveRoom();
-	void StopSendFrame();
 	void PublishToSRS();
 	void UnpublishToSRS();
 	void PlayFromSRS();

@@ -1583,7 +1583,7 @@ void RtcConnectionManager::InteractRemotePeer(
 			// 并非完全一致（存在本端DataChannel已关闭，对端1.5分钟才感知到关闭），故暂且
 			// 选择关闭P2P连接来通知上层业务进行重连
 			if(state == vts_rtc::DataChannelState::Closed) {
-				LeaveRoom();
+				DestroyPeerConnection();
 			}
 			datachannel_state_handler_(sessionId, datachannel_label, state);
 	};

@@ -9,6 +9,7 @@ class RtcVideoRender : public QOpenGLWidget, protected QOpenGLFunctions_2_0 {
 
 public:
 	explicit RtcVideoRender();
+	RtcVideoRender(size_t width, size_t height);
 	~RtcVideoRender();
 
 	void OnFrame(const char* sourceid, unsigned int sourcetype,

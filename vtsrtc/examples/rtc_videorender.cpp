@@ -2,8 +2,19 @@
 #include <iostream>
 
 RtcVideoRender::RtcVideoRender() {
-	this->setMinimumSize(320, 180);
-	this->setFixedSize(640, 360);
+	this->setFixedSize(384, 216);
+
+	track_label_ = new QLabel(trackid_, this);
+	QFont ft;
+	ft.setPointSize(16);
+	track_label_->setFont(ft);
+	QPalette pa;
+	pa.setColor(QPalette::WindowText, Qt::red);
+	track_label_->setPalette(pa);
+}
+
+RtcVideoRender::RtcVideoRender(size_t width, size_t height) {
+	this->setFixedSize(width, height);
 
 	track_label_ = new QLabel(trackid_, this);
 	QFont ft;
@@ -64,7 +75,7 @@ void RtcVideoRender::paintGL() {
 		width_ = new_width_;
 		height_ = new_height_;
 
-		this->setFixedSize(width_, height_);
+		//this->setFixedSize(width_, height_);
 
 		glBindTexture(GL_TEXTURE_2D, texture_);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
