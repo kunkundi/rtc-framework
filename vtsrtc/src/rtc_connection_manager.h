@@ -15,6 +15,7 @@
 #include <api/video_codecs/builtin_video_decoder_factory.h>
 #include <api/video_codecs/builtin_video_encoder_factory.h>
 #include <rtc_base/thread.h>
+#include <mutex>
 
 using json = nlohmann::json;
 
@@ -112,7 +113,8 @@ public:
 
 private:
 	bool InitPeerConnectionFactory();
-	void DestroyPeerConnection();
+	void DestroyAllPeerConnection();
+	void DestroyPeerConnection(vts_rtc::SessionId remote_sessionid);
 	void InitWebsocket();
 	void SetPingTimeout(const SimpleWeb::error_code& ec);
 	void ReconnectWebsocket();
@@ -195,4 +197,5 @@ private:
 		remotesessionid_rtcconn_map_;
 	std::vector<std::shared_ptr<Rtc2SRSConnection>>
 		SRS_publish_conns_, SRS_play_conns_;
+	std::mutex mtx_;
 };

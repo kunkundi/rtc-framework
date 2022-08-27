@@ -219,7 +219,8 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 	return true;
 }
 
-void RtcConnectionManager::DestroyPeerConnection() {
+void RtcConnectionManager::DestroyAllPeerConnection() {
+	mtx_.lock();
 	for (const auto &it : remotesessionid_rtcconn_map_) {
 		if (it.second->peer_conn_) {
 			LOG_WARN("Close peer connection <%d>", it.first);
@@ -235,6 +236,31 @@ void RtcConnectionManager::DestroyPeerConnection() {
 		}
 	}
 	remotesessionid_rtcconn_map_.clear();
+	mtx_.unlock();
+}
+
+void RtcConnectionManager::DestroyPeerConnection(vts_rtc::SessionId remote_sessionid) {
+	mtx_.lock();
+	for (auto it = remotesessionid_rtcconn_map_.begin(); it != remotesessionid_rtcconn_map_.end();) {
+		if (it->first == remote_sessionid) {
+			if (it->second->peer_conn_) {
+				LOG_WARN("Close peer connection <%d><%p>", it->first, it->second->peer_conn_.get());
+				statistics_collector_->RemoveSessionMediaSsrcVsId(remote_sessionid);
+				it->second->peer_conn_->Close();
+				it->second->peer_conn_ = nullptr;
+#if defined  __aarch64__
+				if (rtc_config_.use_codec_pool)
+					CodecPool::GetInstance()->Destroy();
+#endif
+			}
+			remotesessionid_rtcconn_map_.erase(it++);
+		}
+		else
+		{
+			it++;
+		}
+	}
+	mtx_.unlock();
 }
 
 void RtcConnectionManager::InitWebsocket() {
@@ -470,7 +496,7 @@ void RtcConnectionManager::ReconnectWebsocket() {
 		logic_thread_->PostTask(RTC_FROM_HERE,
 			[this]() {
 				// remove p2p connections when WebSocket disconnected
-				DestroyPeerConnection();
+				DestroyAllPeerConnection();
 
 				if (serverconnection_state_handler_) {
 					// notify disconnected to signaling server
@@ -841,7 +867,7 @@ vts_rtc::ErrorCode RtcConnectionManager::LeaveRoom() {
 			status, message.c_str());
 
 		if (status == HttpStatus::OK) {
-			DestroyPeerConnection();
+			DestroyAllPeerConnection();
 		}
 
 		return ConvertHttpCode(status_code);
@@ -1432,8 +1458,8 @@ void RtcConnectionManager::InitStatsReport() {
 		stats_report_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
 		stats_report_io_context_->get_executor(), std::chrono::milliseconds(1000));
 	}
-	LOG_WARN("Start stats_report_timer_");
-	rtc_channel_stats_observer_ = new rtc::RefCountedObject<RtcChannelStatsObserver>();
+	LOG_WARN("Start stats report timer");
+	
 	StatsReport(stats_report_timer_);
 	
 	stats_report_io_context_->run();
@@ -1441,18 +1467,25 @@ void RtcConnectionManager::InitStatsReport() {
 
 void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
 	RTC_DCHECK_RUN_ON(stats_report_thread_.get());
+	std::weak_ptr<RtcConnectionManager> weak_self = shared_from_this();
 	steady_timer->expires_from_now(std::chrono::milliseconds(1000));
     steady_timer->async_wait(
-        [this, steady_timer](const boost::system::error_code &ec)
+        [this, steady_timer, weak_self](const boost::system::error_code &ec)
         {
-			stats_report_timer_->async_wait([this](const boost::system::error_code& ec) {
-				for (const auto &rtccon_obj : remotesessionid_rtcconn_map_) {
-					if (rtccon_obj.second->peer_conn_ != nullptr)
-					{
-						rtccon_obj.second->peer_conn_->GetStats(rtccon_obj.second->rtc_channel_stats_observer_);
-					}
+			auto self = weak_self.lock();
+			if (!self) {
+				LOG_ERROR("[WEBRTC] Rtc connection StatsReport, "
+					"but rtc connection manager has been destroyed.");
+				return;
+			}
+			mtx_.lock();
+			for (const auto &rtccon_obj : remotesessionid_rtcconn_map_) {
+				if (rtccon_obj.second->peer_conn_ != nullptr)
+				{
+					rtccon_obj.second->peer_conn_->GetStats(rtccon_obj.second->rtc_channel_stats_observer_);
 				}
-			});
+			}
+			mtx_.unlock();
             StatsReport(steady_timer);
         }
     );
@@ -1499,15 +1532,14 @@ void RtcConnectionManager::InteractRemotePeer(
 				}
 
 				// get ssrc and sourceid info for statistics
-				{
+				if (rtc_conn->peer_conn_) {
 					auto rtpsenders = rtc_conn->peer_conn_->GetSenders();
 					for (auto it : rtpsenders)
 					{
 						if (external_feed_tracksources_.find(it->id()) != external_feed_tracksources_.end()) {
-							external_feed_tracksources_ssrc_vs_id_[it->ssrc()] = it->id();
+							statistics_collector_->AddSessionSendersMediaSsrcVsId(remote_sessionid, it->ssrc(), it->id());
 						}
 					}
-					statistics_collector_->SetSendersMediaSsrcVsId(external_feed_tracksources_ssrc_vs_id_);
 
 					auto rtpreceivers = rtc_conn->peer_conn_->GetReceivers();
 					receiver_tracksources_id_vs_ssrc_.clear();
@@ -1515,15 +1547,15 @@ void RtcConnectionManager::InteractRemotePeer(
 						auto streamids = it->stream_ids();
 						auto encoding_obj = it->GetParameters().encodings;
 						if(!streamids.empty() && !encoding_obj.empty())
-							receiver_tracksources_id_vs_ssrc_[streamids[0]] = encoding_obj[0].ssrc.value();
+							statistics_collector_->AddSessionReceiversMediaSsrcVsId(remote_sessionid, streamids[0], encoding_obj[0].ssrc.value());
 					}
-					statistics_collector_->SetReceiversMediaSsrcVsId(receiver_tracksources_id_vs_ssrc_);
 				}
 			}
 
 			if (state == vts_rtc::P2PState::Failed) {
 				// @attention: must run in logic thread, otherwise cannot re-create PeerConnection
-				LeaveRoom();
+				LOG_WARN("P2P connection <%u> state Failed", remote_sessionid);
+				DestroyPeerConnection(remote_sessionid);
 			}
 	};
 
@@ -1571,7 +1603,7 @@ void RtcConnectionManager::InteractRemotePeer(
 	};
 
 	//rtc_conn->on_dc_state_changed_ = datachannel_state_handler_;
-	rtc_conn->on_dc_state_changed_ = [this, weak_self](
+	rtc_conn->on_dc_state_changed_ = [this, remote_sessionid, weak_self](
 		vts_rtc::SessionId sessionId, const std::string& datachannel_label, vts_rtc::DataChannelState state) {
 			auto self = weak_self.lock();
 			if (!self) {
@@ -1583,7 +1615,7 @@ void RtcConnectionManager::InteractRemotePeer(
 			// 并非完全一致（存在本端DataChannel已关闭，对端1.5分钟才感知到关闭），故暂且
 			// 选择关闭P2P连接来通知上层业务进行重连
 			if(state == vts_rtc::DataChannelState::Closed) {
-				DestroyPeerConnection();
+				DestroyPeerConnection(remote_sessionid);
 			}
 			datachannel_state_handler_(sessionId, datachannel_label, state);
 	};
@@ -1690,7 +1722,10 @@ void RtcConnectionManager::InteractRemotePeer(
 		this->SetRtpSendersPriority();
 	}
 
+	mtx_.lock();
+	LOG_WARN("Add PeerConnection <%u><%p> to manager map", remote_sessionid, rtc_conn->peer_conn_.get());
 	remotesessionid_rtcconn_map_[remote_sessionid] = rtc_conn;
+	mtx_.unlock();
 }
 
 void RtcConnectionManager::AckRemotePeerSdp(
@@ -1712,7 +1747,7 @@ void RtcConnectionManager::AckRemotePeerSdp(
 		LOG_ERROR("Ack remote peer SDP, create SDP failed, line: %s, description: %s",
 			error.line.c_str(), error.description.c_str());
 		// remotesessionid_rtcconn_map_.erase(remote_sessionid);
-		DestroyPeerConnection();
+		DestroyPeerConnection(remote_sessionid);
 		return;
 	}
 	if (rtc_conn && rtc_conn->peer_conn_) {

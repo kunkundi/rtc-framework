@@ -46,22 +46,22 @@ public:
 
 	void OnAddTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver, 
 		const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>& streams) override {
-		if (receiver) {
-			auto media_track = receiver->track();
-			if (media_track) {
-				LOG_INFO("[WEBRTC] On add track, receiverid: %s, media trackid: %s",
-					receiver->id().c_str(), media_track->id().c_str());
-			}
-			else {
-				LOG_INFO("[WEBRTC] On add track, receiverid: %s", receiver->id().c_str());
-			}
-		}
+// 		if (receiver) {
+// 			auto media_track = receiver->track();
+// 			if (media_track) {
+// 				LOG_INFO("[WEBRTC] On add track, receiverid: %s, media trackid: %s",
+// 					receiver->id().c_str(), media_track->id().c_str());
+// 			}
+// 			else {
+// 				LOG_INFO("[WEBRTC] On add track, receiverid: %s", receiver->id().c_str());
+// 			}
+// 		}
 		
 		if (on_addtrack_) { on_addtrack_(receiver, streams); }
 	}
 
 	void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override {
-		LOG_INFO("[WEBRTC] On track");
+//		LOG_INFO("[WEBRTC] On track");
 	}
 
 	void OnRemoveTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override {
@@ -257,7 +257,9 @@ public:
 		on_stats_deliverd_ = nullptr;
 	}
 	void OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override{
-		if(on_stats_deliverd_) { on_stats_deliverd_(report); }
+		if(on_stats_deliverd_) { 
+			on_stats_deliverd_(report); 
+		}
 	}
 
 private:
