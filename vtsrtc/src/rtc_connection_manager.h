@@ -181,6 +181,7 @@ private:
 	std::unique_ptr<rtc::Thread> stats_report_thread_ = nullptr;
 	SteadyTimer stats_report_timer_ = nullptr;
 	std::shared_ptr<SimpleWeb::io_context> stats_report_io_context_ = nullptr;
+	bool stats_report_inited_ = false;
 
 	std::map<vts_rtc::AudioSourceId, rtc::scoped_refptr<RtcAudioSource>>
 		external_audiosources_;

@@ -52,7 +52,7 @@ public:
 	// Called when a loss notification is received.
 	void OnLossNotification(const LossNotification& loss_notification) override;
 
-	NvVideoEncoder *GetJetsonH264Encoder() {return jetsonh264_encoder;}
+	NvVideoEncoder *GetJetsonH264Encoder() {return jetsonh264_encoder_;}
 
 	EncodedImageCallback *GetEncodedImageCallback() {return encoded_image_callback_;}
 
@@ -76,11 +76,9 @@ private:
 	int InitEncodeWithoutCodecPool(const VideoCodec* codec_settings, const VideoEncoder::Settings& settings);
 	int32_t ReleaseWithCodecPool();
 	int32_t ReleaseWithoutCodecPool();
-	int32_t EncodeWithCodecPool(const VideoFrame& frame, const std::vector<VideoFrameType>* frame_types);
-	int32_t EncodeWithoutCodecPool(const VideoFrame& frame, const std::vector<VideoFrameType>* frame_types);
 
 private:
-    NvVideoEncoder *jetsonh264_encoder = nullptr;
+    NvVideoEncoder *jetsonh264_encoder_ = nullptr;
     EncodedImageCallback* encoded_image_callback_ = nullptr;
     VideoCodec codec_;
 	H264PacketizationMode packetization_mode_ = H264PacketizationMode::NonInterleaved;

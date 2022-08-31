@@ -131,7 +131,7 @@ bool RtcConnectionManager::Init() {
 			});
 
 		stats_report_thread_ = rtc::Thread::Create();
-		stats_report_thread_->SetName("stats_report_thread_", nullptr);
+		stats_report_thread_->SetName("StatsReportThread", nullptr);
 		stats_report_thread_->Start();
 
 		// notify connecting to signaling server
@@ -224,8 +224,12 @@ void RtcConnectionManager::DestroyAllPeerConnection() {
 	for (const auto &it : remotesessionid_rtcconn_map_) {
 		if (it.second->peer_conn_) {
 			LOG_WARN("Close peer connection <%d>", it.first);
-			if(stats_report_timer_)
-				stats_report_timer_->cancel();
+			if (rtc_config_.netstats_report) {
+				stats_report_thread_->PostTask(RTC_FROM_HERE, [this]() {
+					if (stats_report_timer_)
+						stats_report_timer_->cancel();
+				});
+			}
 			statistics_collector_->Reset();
 			it.second->peer_conn_->Close();
 			it.second->peer_conn_ = nullptr;
@@ -245,6 +249,12 @@ void RtcConnectionManager::DestroyPeerConnection(vts_rtc::SessionId remote_sessi
 		if (it->first == remote_sessionid) {
 			if (it->second->peer_conn_) {
 				LOG_WARN("Close peer connection <%d><%p>", it->first, it->second->peer_conn_.get());
+				if (rtc_config_.netstats_report) {
+					stats_report_thread_->PostTask(RTC_FROM_HERE, [this]() {
+						if (stats_report_timer_)
+							stats_report_timer_->cancel();
+					});
+				}
 				statistics_collector_->RemoveSessionMediaSsrcVsId(remote_sessionid);
 				it->second->peer_conn_->Close();
 				it->second->peer_conn_ = nullptr;
@@ -1453,15 +1463,14 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 }
 
 void RtcConnectionManager::InitStatsReport() {
-	RTC_DCHECK_RUN_ON(stats_report_thread_.get());
 	if (!stats_report_timer_) {
 		stats_report_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
 		stats_report_io_context_->get_executor(), std::chrono::milliseconds(1000));
 	}
 	LOG_WARN("Start stats report timer");
-	
+
 	StatsReport(stats_report_timer_);
-	
+
 	stats_report_io_context_->run();
 }
 
@@ -1474,8 +1483,6 @@ void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
         {
 			auto self = weak_self.lock();
 			if (!self) {
-				LOG_ERROR("[WEBRTC] Rtc connection StatsReport, "
-					"but rtc connection manager has been destroyed.");
 				return;
 			}
 			mtx_.lock();
@@ -1524,11 +1531,12 @@ void RtcConnectionManager::InteractRemotePeer(
 
 			if(state == vts_rtc::P2PState::Connected && current_sessionid_)
 			{
-				if(rtc_config_.netstats_report) {
+				if (rtc_config_.netstats_report && !stats_report_inited_) {
 					stats_report_thread_->PostTask(RTC_FROM_HERE,
-					[this]() {
-						InitStatsReport();
-					});
+						[this]() {
+							InitStatsReport();
+						});
+					stats_report_inited_ = true;
 				}
 
 				// get ssrc and sourceid info for statistics
