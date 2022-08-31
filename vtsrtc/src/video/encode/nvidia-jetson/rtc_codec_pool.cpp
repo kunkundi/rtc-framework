@@ -61,6 +61,7 @@ void CodecPool::Init() {
     codecpool_thread_ = rtc::Thread::Create();
 	codecpool_thread_->SetName("codecpool", nullptr);
 	codecpool_thread_->Start();
+    stop_ = false;
 
     for(auto it: resolution_map_) {
         LOG_INFO("Init encoder <%dx%d>", it.first, it.second);
@@ -79,6 +80,7 @@ void CodecPool::Destroy() {
             }
         }
     encoder_pool_.clear();
+    inited_ = false;
     LOG_INFO("Destroy codec pool");
     }
 }
