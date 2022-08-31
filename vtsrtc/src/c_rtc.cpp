@@ -307,6 +307,7 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 
 void RtcDestoryAgent() {
 	if (rtc_agent) {
+		RtcLeaveRoom();
 		rtc_agent = nullptr;
 	}
 }
