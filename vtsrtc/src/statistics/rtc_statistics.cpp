@@ -160,29 +160,6 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 				net_stats_[id_vs_ssrc.first].video_stats.codec_name = "";
 			}
 
-			auto media_stream_id = "RTCMediaStream_" + id_vs_ssrc.first;
-			const webrtc::RTCMediaStreamStats* media_stream_stats = (const webrtc::RTCMediaStreamStats*)(report->Get(media_stream_id));
-			if (media_stream_stats != NULL) {
-				if (media_stream_stats->track_ids->size()) {
-					auto media_stream_trackid = (*media_stream_stats->track_ids)[0];
-					const webrtc::RTCMediaStreamTrackStats* media_stream_track_stats = (const webrtc::RTCMediaStreamTrackStats*)(report->Get(media_stream_trackid));
-					if (media_stream_track_stats != NULL)
-					{
-						if(*media_stream_track_stats->kind == "audio") {
-							net_stats_out.audio_stats.sourceid = id_vs_ssrc.first;
-						}
-                    
-						if (*media_stream_track_stats->kind == "video") {
-							net_stats_out.video_stats.sourceid = id_vs_ssrc.first;
-							net_stats_out.video_stats.width = (&media_stream_track_stats->frame_width)->is_defined() ? *media_stream_track_stats->frame_width : 0;
-							net_stats_out.video_stats.height = (&media_stream_track_stats->frame_height)->is_defined() ? *media_stream_track_stats->frame_height : 0;
-							net_stats_out.video_stats.fps = (&media_stream_track_stats->frames_decoded)->is_defined() ? *media_stream_track_stats->frames_decoded - net_stats_[id_vs_ssrc.first].video_stats.fps : 0;
-							net_stats_[id_vs_ssrc.first].video_stats.fps = (&media_stream_track_stats->frames_decoded)->is_defined() ? *media_stream_track_stats->frames_decoded : 0;
-						}
-					}
-				}
-			}
-
 			std::string inbound_str = "RTCInboundRTPVideoStream_" + std::to_string(id_vs_ssrc.second);
 			const webrtc::RTCInboundRTPStreamStats* media_stats = (const webrtc::RTCInboundRTPStreamStats*)(report->Get(inbound_str));
 			if (media_stats != NULL) {
@@ -194,16 +171,38 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 
 				if (*media_stats->kind == "video") {
 					net_stats_out.video_stats.sourceid = id_vs_ssrc.first;
-					net_stats_out.video_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? (*media_stats->bytes_received - net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps) * 8 : 0;
-					net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
 
-					auto packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received - net_stats_[id_vs_ssrc.first].video_stats.packets_received : 0;
-					auto packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost - net_stats_[id_vs_ssrc.first].video_stats.packets_lost : 0;
-					net_stats_[id_vs_ssrc.first].video_stats.packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received : 0;
-					net_stats_[id_vs_ssrc.first].video_stats.packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
-					net_stats_out.video_stats.loss_rate = packets_received ? ((packets_lost * 100 / packets_received) > 100 ? 100 : packets_lost * 100 / packets_received) : 0;
+					auto bytes_received = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
 
-					net_stats_[id_vs_ssrc.first].video_stats.loss_rate = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
+					if (bytes_received == 0)
+						continue;
+
+					if (bytes_received > net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps) {
+						net_stats_out.video_stats.bitrate_bps = (bytes_received - net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps) * 8;
+						net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps = bytes_received;
+					}
+
+					auto frames_decoded = (&media_stats->frames_decoded)->is_defined() ? *media_stats->frames_decoded : 0;
+
+					if (frames_decoded == 0)
+						continue;
+
+					if (frames_decoded > net_stats_[id_vs_ssrc.first].video_stats.fps) {
+						net_stats_out.video_stats.fps = frames_decoded - net_stats_[id_vs_ssrc.first].video_stats.fps;
+						net_stats_[id_vs_ssrc.first].video_stats.fps = frames_decoded;
+					}
+
+					auto total_packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received : 0;
+					auto total_packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
+					auto packets_received = total_packets_received - net_stats_[id_vs_ssrc.first].video_stats.packets_received;
+					auto packets_lost = total_packets_lost - net_stats_[id_vs_ssrc.first].video_stats.packets_lost;
+					if (total_packets_received > 0 && total_packets_lost > 0) {
+						net_stats_[id_vs_ssrc.first].video_stats.packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received : 0;
+						net_stats_[id_vs_ssrc.first].video_stats.packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
+						net_stats_out.video_stats.loss_rate = packets_received ? ((packets_lost * 100 / packets_received) > 100 ? 100 : packets_lost * 100 / packets_received) : 0;
+						net_stats_[id_vs_ssrc.first].video_stats.loss_rate = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
+					}
+
 					net_stats_out.video_stats.key_frame_count = (&media_stats->key_frames_decoded)->is_defined() ? *media_stats->key_frames_decoded : 0;
 					net_stats_out.video_stats.fir_count = (&media_stats->fir_count)->is_defined() ? *media_stats->fir_count : 0;
 					net_stats_out.video_stats.pli_count = (&media_stats->pli_count)->is_defined() ? *media_stats->pli_count : 0;
@@ -218,6 +217,27 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 					const webrtc::RTCIceCandidatePairStats* candidate_stats = (const webrtc::RTCIceCandidatePairStats*)(report->Get(selected_candidate_pair_id));
 					if (candidate_stats != NULL) {
 						net_stats_out.video_stats.delay_ms = (&candidate_stats->current_round_trip_time)->is_defined() ? *candidate_stats->current_round_trip_time / 2 * 1000 : 0;
+					}
+				}
+
+				auto media_stream_id = "RTCMediaStream_" + id_vs_ssrc.first;
+				const webrtc::RTCMediaStreamStats* media_stream_stats = (const webrtc::RTCMediaStreamStats*)(report->Get(media_stream_id));
+				if (media_stream_stats != NULL) {
+					if (media_stream_stats->track_ids->size()) {
+						auto media_stream_trackid = (*media_stream_stats->track_ids)[0];
+						const webrtc::RTCMediaStreamTrackStats* media_stream_track_stats = (const webrtc::RTCMediaStreamTrackStats*)(report->Get(media_stream_trackid));
+						if (media_stream_track_stats != NULL)
+						{
+							if (*media_stream_track_stats->kind == "audio") {
+								net_stats_out.audio_stats.sourceid = id_vs_ssrc.first;
+							}
+
+							if (*media_stream_track_stats->kind == "video") {
+								net_stats_out.video_stats.sourceid = id_vs_ssrc.first;
+								net_stats_out.video_stats.width = (&media_stream_track_stats->frame_width)->is_defined() ? *media_stream_track_stats->frame_width : 0;
+								net_stats_out.video_stats.height = (&media_stream_track_stats->frame_height)->is_defined() ? *media_stream_track_stats->frame_height : 0;
+							}
+						}
 					}
 				}
 
