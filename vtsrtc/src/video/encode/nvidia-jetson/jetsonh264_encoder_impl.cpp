@@ -605,6 +605,7 @@ VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
 	info.is_hardware_accelerated = true;
 	info.has_internal_source = false;
 	info.supports_simulcast = false;
+	info.scaling_settings.min_pixels_per_frame = 432 * 243;
 	if(rtc_config_.use_strategy) {
 		info.resolution_bitrate_limits = resolution_bitrate_limits_;
 	}

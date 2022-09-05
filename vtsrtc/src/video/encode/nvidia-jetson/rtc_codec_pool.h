@@ -34,8 +34,6 @@ private:
     static CodecPool* instance_;
 
     std::map<int, int> resolution_map_ = {
-        {288, 162}, 
-        {384, 216}, 
         {432, 243}, 
         {576, 324}, 
         {864, 486},
