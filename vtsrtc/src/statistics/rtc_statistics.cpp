@@ -194,9 +194,14 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 
 					auto total_packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received : 0;
 					auto total_packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
-					auto packets_received = total_packets_received - net_stats_[id_vs_ssrc.first].video_stats.packets_received;
-					auto packets_lost = total_packets_lost - net_stats_[id_vs_ssrc.first].video_stats.packets_lost;
-					if (total_packets_received > 0 && total_packets_lost > 0) {
+
+					if (total_packets_received <= 0 || total_packets_lost <= 0)
+						continue;
+					
+					if(total_packets_received > net_stats_[id_vs_ssrc.first].video_stats.packets_received &&
+						total_packets_lost > net_stats_[id_vs_ssrc.first].video_stats.packets_lost) {
+						auto packets_received = total_packets_received - net_stats_[id_vs_ssrc.first].video_stats.packets_received;
+						auto packets_lost = total_packets_lost - net_stats_[id_vs_ssrc.first].video_stats.packets_lost;
 						net_stats_[id_vs_ssrc.first].video_stats.packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received : 0;
 						net_stats_[id_vs_ssrc.first].video_stats.packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
 						net_stats_out.video_stats.loss_rate = packets_received ? ((packets_lost * 100 / packets_received) > 100 ? 100 : packets_lost * 100 / packets_received) : 0;
