@@ -351,7 +351,7 @@ int JetsonH264EncoderImpl::InitEncodeWithCodecPool(const VideoCodec* codec_setti
 
 	jetsonh264_encoder_ = CodecPool::GetInstance()->GetAvailableEncoder(codec_.width, codec_.height);
 	if(!jetsonh264_encoder_) {
-		LOG_ERROR("No available encoder for resolution:<%ux%u>", codec_.width, codec_.height);
+		LOG_ERROR("No available encoder for resolution:<%ux%u> <%p>", codec_.width, codec_.height, this);
 		return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 	}
 
@@ -379,7 +379,7 @@ int JetsonH264EncoderImpl::InitEncodeWithCodecPool(const VideoCodec* codec_setti
 	encoded_image_._encodedHeight = height_;
 	encoded_image_.set_size(0);
 
-	LOG_INFO("Init JetsonH264Encoder<%p><%ux%u> finish", jetsonh264_encoder_, width_, height_);
+	LOG_INFO("<%p> Init JetsonH264Encoder<%p><%ux%u> finish", this, jetsonh264_encoder_, width_, height_);
 	
 	release_flag_ = false;
 
@@ -529,7 +529,7 @@ int32_t JetsonH264EncoderImpl::Encode(const VideoFrame& input_frame,
 	if(!jetsonh264_encoder_)
 	{
 		ReportError();
-		LOG_ERROR("jetsonh264_encoder is null");
+		LOG_ERROR("jetsonh264_encoder is null for <%ux%u> <%p>", width_, height_, this);
 		return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 	}
 

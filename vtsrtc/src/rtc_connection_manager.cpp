@@ -1454,6 +1454,7 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 			if (rtpsender) {
 				rtpsender_priority_map_[rtpsender] = track_source->priority_;
 			}
+			LOG_INFO("[WEBRTC] Add track (%s) success", tracklabel.c_str());
 		}
 		else {
 			LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s",
