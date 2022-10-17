@@ -113,6 +113,12 @@ bool RtcConnectionBase::SendData(const std::string& channel_label,
 		return false;
 	}
 
+	if (msg.size() > 256 * 1024) {
+		LOG_ERROR("Datachannel [%s] send data failed, msg size is larger than 256KiB",
+			channel_label.c_str());
+		return false;
+	}
+
 	return datachannel->Send(webrtc::DataBuffer(msg));
 }
 
