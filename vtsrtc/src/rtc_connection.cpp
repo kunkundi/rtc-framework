@@ -113,6 +113,12 @@ bool RtcConnectionBase::SendData(const std::string& channel_label,
 		return false;
 	}
 
+	if (msg.size() > 256 * 1024) {
+		LOG_ERROR("Datachannel [%s] send data failed, msg size is larger than 256KiB",
+			channel_label.c_str());
+		return false;
+	}
+
 	return datachannel->Send(webrtc::DataBuffer(msg));
 }
 
@@ -151,9 +157,9 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 				}
 
 				auto dc_state = datachannel->state();
-				LOG_INFO("[WEBRTC] Data channel (%s) on state change, new state: %s",
+				LOG_INFO("[WEBRTC] Data channel (%s) on state change, new state: %s, error msg: %s",
 					datachannel->label().c_str(),
-					webrtc::DataChannelInterface::DataStateString(dc_state));
+					webrtc::DataChannelInterface::DataStateString(dc_state), datachannel->error().message());
 
 				HandleDataChannelStateChanged(datachannel->label(), dc_state);
 			});
