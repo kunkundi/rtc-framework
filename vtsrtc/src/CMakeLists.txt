@@ -197,7 +197,6 @@ install(FILES "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${target})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	install(FILES
-		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/libcurl.dll"
 		"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll"
 		DESTINATION "${target}/bin/$<CONFIG>"
 	)
