@@ -28,32 +28,34 @@ namespace vts
 {
 namespace log
 {
-	enum LOG_LEVEL {
-	LEVEL_INFO,
-	LEVEL_WARN,
-	LEVEL_ERROR,
+	enum LOG_LEVEL 
+	{
+		LEVEL_INFO,
+		LEVEL_WARN,
+		LEVEL_ERROR,
 	};
 	enum UPLOAD_TYPE
-{
-	TCP,
+	{
+		TCP,
 		FTP,
+		HTTP,
 	};
+
 
 class logimpl;
 class LOG_API vtslog {
 	public:
 		vtslog();
 		~vtslog();
-		 void  InitLog( const bool bstdout, const LOG_LEVEL stdoutLevel );
+		 void  InitLog( const bool bstdout, const LOG_LEVEL stdoutLevel, const std::string &dir="" );
 		 int  CrtFile( const std::string& casename );
 		 int  ClsFile( const std::string& casename );
 		 int  StartUpLoad( const UPLOAD_TYPE uploadtype, const std::string& addr, const std::string& usrpwd );
 		 int  Log( LOG_LEVEL level, const std::string& filename, const int line,
-			const int topicnum, const std::string topic[],
-			const char* szFmt, ... );
+				const int topicnum, const std::string topic[],
+				const char* szFmt, ... );
 	private:
 		logimpl* impl_;
-
 
 };
 }
