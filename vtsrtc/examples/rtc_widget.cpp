@@ -9,6 +9,7 @@
 #include <QThread>
 #include <QDebug>
 #include <QHeaderView>
+#include <fstream>
 #if defined  __aarch64__
 #include <iostream>
 #include <thread>
@@ -119,8 +120,8 @@ void RtcWidget::HandleChannelNetStats(RtcNetStats params)
 void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
 	const char* channel_label, const char* msg, size_t msg_size) {
 	if (recv_msg_listwgt_) {
-		QString item_text = QString("%1 [from sessionid: %2, channel label: %3]")
-			.arg(QString::fromLocal8Bit(msg, msg_size))
+		QString item_text = QString("Receive size: %1 byte [from sessionid: %2, channel label: %3]")
+			.arg(msg_size)
 			.arg(remote_sessionid)
 			.arg(QString::fromLocal8Bit(channel_label));
 		recv_msg_listwgt_->insertItem(0, item_text);
@@ -197,12 +198,12 @@ RtcWidget::RtcWidget(const std::string& rtc_config_filepath,
 	code = RtcGetVideoDevices(&video_devices, &sz_video_devices);
 	CHECK_ERRORCODE
 
+	videosources_combobox_->addItem("Local YUV420p");
+
 	for (size_t i = 0; i < sz_video_devices; ++i) {
 		videosources_combobox_->addItem(QString::fromLocal8Bit(video_devices[i].device_name));
 	}
 	RtcDestoryVideoDevices(video_devices, sz_video_devices);
-
-	videosources_combobox_->addItem("Local YUV420p");
 }
 
 RtcWidget::~RtcWidget() {
@@ -284,12 +285,17 @@ void RtcWidget::CreateUI() {
 	recv_msg_listwgt_ = new QListWidget;
 	send_msg_edit_ = new QLineEdit("hello world");
 	QPushButton* send_msg_btn = new QPushButton(tr("Send Message"));
+	QPushButton* send_filemsg_btn = new QPushButton(tr("Send Message from file"));
+	file_combobox_ = new QComboBox();
+	file_combobox_->addItem("messagefile.txt");
 	msg_layout->addWidget(recv_msg_albel, 0, 0, 1, 1);
 	msg_layout->addWidget(recv_msg_listwgt_, 0, 1, 1, 3);
 	msg_layout->addWidget(send_msg_edit_, 1, 0, 1, 3);
 	msg_layout->addWidget(send_msg_btn, 1, 3, 1, 1);
+	msg_layout->addWidget(file_combobox_, 2, 0, 1, 3);
+	msg_layout->addWidget(send_filemsg_btn, 2, 3, 1, 1);
 	msg_groupbox->setLayout(msg_layout);
-	msg_groupbox->setFixedSize(1200, 100);
+	msg_groupbox->setFixedSize(1200, 140);
 
 	// 媒体统计
 	tableView_ = new QTableView;
@@ -334,7 +340,7 @@ void RtcWidget::CreateUI() {
 	main_layout->addWidget(tableView_);
 
 	this->setLayout(main_layout);
-	this->setFixedSize(1220, 1350);
+	this->setFixedSize(1220, 1400);
 
 	// bind events
 	connect(query_rooms_btn, SIGNAL(clicked()), this, SLOT(QueryRooms()));
@@ -347,6 +353,7 @@ void RtcWidget::CreateUI() {
 	connect(play_from_SRS_btn, SIGNAL(clicked()), this, SLOT(PlayFromSRS()));
 	connect(unplay_from_SRS_btn, SIGNAL(clicked()), this, SLOT(UnplayFromSRS()));
 	connect(send_msg_btn, SIGNAL(clicked()), this, SLOT(SendMessage()));
+	connect(send_filemsg_btn, SIGNAL(clicked()), this, SLOT(SendMessageFromFile()));
 }
 
 void RtcWidget::LoadPCMData() {
@@ -514,11 +521,11 @@ void RtcWidget::SendFrame() {
 				}
 
 				RtcSendFrame("mid_frontview", &yuv_frames_[idx]);
-				RtcSendFrame("mid_rearview", &yuv_frames_[idx]);
-				RtcSendFrame("left_frontview", &yuv_frames_[idx]);
-				RtcSendFrame("left_rearview", &yuv_frames_[idx]);
-				RtcSendFrame("right_frontview", &yuv_frames_[idx]);
-				RtcSendFrame("right_rearview", &yuv_frames_[idx]);
+// 				RtcSendFrame("mid_rearview", &yuv_frames_[idx]);
+// 				RtcSendFrame("left_frontview", &yuv_frames_[idx]);
+// 				RtcSendFrame("left_rearview", &yuv_frames_[idx]);
+// 				RtcSendFrame("right_frontview", &yuv_frames_[idx]);
+// 				RtcSendFrame("right_rearview", &yuv_frames_[idx]);
 				idx++;
 				QThread::msleep(30);
 				{
@@ -546,14 +553,14 @@ void RtcWidget::AddAudioSource() {
 
 void RtcWidget::AddVideoSource() {
 	auto current_idx = videosources_combobox_->currentIndex();
-	if (current_idx == videosources_combobox_->count() - 1) {
+	if (current_idx == 0) {
 		// YUV420p video source
 		auto code = RtcAddExternalVideoSource("mid_frontview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("mid_rearview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("left_frontview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("left_rearview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("right_frontview", RtcPriorityType::High);
-		code = RtcAddExternalVideoSource("right_rearview", RtcPriorityType::High);
+// 		code = RtcAddExternalVideoSource("mid_rearview", RtcPriorityType::High);
+// 		code = RtcAddExternalVideoSource("left_frontview", RtcPriorityType::High);
+// 		code = RtcAddExternalVideoSource("left_rearview", RtcPriorityType::High);
+// 		code = RtcAddExternalVideoSource("right_frontview", RtcPriorityType::High);
+// 		code = RtcAddExternalVideoSource("right_rearview", RtcPriorityType::High);
 		CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {
@@ -688,5 +695,18 @@ void RtcWidget::SendMessage() {
 
 	QByteArray msg = send_msg_edit_->text().toLocal8Bit();
 	auto code = RtcBroadcastData("datachannel", msg.data(), msg.size());
+	CHECK_ERRORCODE
+}
+
+void RtcWidget::SendMessageFromFile() {
+	std::ifstream fin;
+	fin.open("messagefile.txt", std::ios::in | std::ios::binary);
+	fin.seekg(0, std::ios::end);
+	unsigned int file_size = fin.tellg();
+	fin.seekg(0, std::ios::beg);
+	char* file_msg = (char*)malloc(file_size);
+	fin.read(file_msg, file_size);
+	fin.close();
+	auto code = RtcBroadcastData("datachannel", file_msg, file_size);
 	CHECK_ERRORCODE
 }

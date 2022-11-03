@@ -62,6 +62,7 @@ private slots:
 	void PlayFromSRS();
 	void UnplayFromSRS();
 	void SendMessage();
+	void SendMessageFromFile();
 
 private:
 	bool audio_source_added_ = false,
@@ -77,6 +78,7 @@ private:
 	QComboBox* videosources_combobox_;
 	QLineEdit* open_room_edit_;
 	QComboBox* rooms_combobox_;
+	QComboBox* file_combobox_;
 	QLineEdit* SRS_streamurl_edit_;
 	static QListWidget* recv_msg_listwgt_;
 	QLineEdit* send_msg_edit_;
