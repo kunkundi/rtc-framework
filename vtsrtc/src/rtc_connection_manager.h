@@ -15,6 +15,7 @@
 #include <api/video_codecs/builtin_video_decoder_factory.h>
 #include <api/video_codecs/builtin_video_encoder_factory.h>
 #include <rtc_base/thread.h>
+#include "log/log_webrtc_hook.h"
 #include <mutex>
 
 using json = nlohmann::json;
@@ -199,4 +200,6 @@ private:
 	std::vector<std::shared_ptr<Rtc2SRSConnection>>
 		SRS_publish_conns_, SRS_play_conns_;
 	std::mutex mtx_;
+
+	FileLog* webrtc_log_hook_ = nullptr;
 };

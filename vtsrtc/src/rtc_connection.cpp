@@ -1,5 +1,6 @@
 #include "rtc_connection.h"
-
+#include "api/data_channel_interface.h"
+#include "pc/data_channel.h"
 #include <utility>
 
 /////////////////// BEGIN RtcConnectionBase ///////////////////
@@ -37,6 +38,8 @@ RtcConnectionBase::~RtcConnectionBase() {
 		}
 	}
 
+	PackDestory();
+
 	if (peer_conn_) {
 		LOG_WARN("Close peer connection");
 		peer_conn_->Close();
@@ -47,6 +50,13 @@ RtcConnectionBase::~RtcConnectionBase() {
 	rtc_pc_audiosinks_.clear();
 	datachannel_observers_.clear();
 	label_datachannel_map_.clear();
+	
+	for (auto iter = label_ztchannel_map_.begin(); iter != label_ztchannel_map_.end();)
+	{
+		free(iter->second);
+		label_ztchannel_map_.erase(iter++);
+	}
+	label_ztchannel_map_.clear();
 }
 
 RtcConnectionBase::PeerConnState RtcConnectionBase::GetPeerConnectionState()
@@ -96,6 +106,32 @@ bool RtcConnectionBase::AddDataChannel(const std::string& label,
 	return true;
 }
 
+void RtcConnectionBase::PacketsCallback(char* packet, unsigned int size, PackUserParams* params)
+{
+	auto datachannel = rtc::scoped_refptr<webrtc::DataChannelInterface>((webrtc::DataChannel*)params->ptr1);
+
+	if (datachannel->buffered_amount() + size >= 16 * 1024 * 1024)
+	{
+		PackResend(packet, size, params);
+		((RtcConnectionBase*)(params->ptr2))->resend_times_++;
+	}
+	else
+	{
+		datachannel->Send(webrtc::DataBuffer(std::string(packet, size)));
+		if (((RtcConnectionBase*)(params->ptr2))->resend_times_)
+		{
+			LOG_INFO("datachannel[%s] in congestion, resend successfully after retry %d times", datachannel->label().c_str(), ((RtcConnectionBase*)(params->ptr2))->resend_times_);
+			((RtcConnectionBase*)(params->ptr2))->resend_times_ = 0;
+		}
+	}
+}
+
+void RtcConnectionBase::DataCallback(char* data, unsigned int size, PackUserParams* params)
+{
+	static_cast<RtcConnection*>(params->ptr2)->HandleDataChannelMessageReceived(rtc::scoped_refptr<webrtc::DataChannelInterface>((webrtc::DataChannel*)params->ptr1)->label(),
+		std::string(data, size));
+}
+
 bool RtcConnectionBase::SendData(const std::string& channel_label,
 	const std::string& msg) {
 	RTC_DCHECK_RUN_ON(logic_thread_);
@@ -113,13 +149,8 @@ bool RtcConnectionBase::SendData(const std::string& channel_label,
 		return false;
 	}
 
-	if (msg.size() > 256 * 1024) {
-		LOG_ERROR("Datachannel [%s] send data failed, msg size is larger than 256KiB",
-			channel_label.c_str());
-		return false;
-	}
-
-	return datachannel->Send(webrtc::DataBuffer(msg));
+	auto ret = PackSend(msg.c_str(), msg.length(), label_ztchannel_map_[channel_label]);
+	return ret == PACK_OK ? true : false;
 }
 
 void RtcConnectionBase::InitDataChannelObserverCallbacks(
@@ -133,6 +164,14 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 	auto observer = std::make_shared<DataChannelObserver>();
 	datachannel_observers_.emplace_back(observer);
 	datachannel->RegisterObserver(observer.get());
+
+	PackInit();
+
+	label_ztchannel_map_[datachannel->label().c_str()] = (PackUserParams*)malloc(sizeof(PackUserParams));
+	label_ztchannel_map_[datachannel->label().c_str()]->packet_cb = PacketsCallback;
+	label_ztchannel_map_[datachannel->label().c_str()]->data_cb = DataCallback;
+	label_ztchannel_map_[datachannel->label().c_str()]->ptr1 = (void*)datachannel;
+	label_ztchannel_map_[datachannel->label().c_str()]->ptr2 = (void*)this;
 
 	std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
 	// 注意：lambda的捕获是立刻发生的，而不是等到函数调用的时候
@@ -184,8 +223,7 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 					return;
 				}
 
-				HandleDataChannelMessageReceived(datachannel->label(),
-					std::string(buffer.data.data<char>(), buffer.data.size()));
+				PackReceive((char*)buffer.data.data<char>(), buffer.data.size(), label_ztchannel_map_[datachannel->label().c_str()]);
 			});
 	};
 }

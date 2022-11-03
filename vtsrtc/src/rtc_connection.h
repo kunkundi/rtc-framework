@@ -12,6 +12,7 @@
 #include "observer.hpp"
 #include "rtc_audiosink.hpp"
 #include "rtc_videosink.hpp"
+#include "packet/pack.h"
 
 class RtcConnectionBase : public std::enable_shared_from_this<RtcConnectionBase> {
 	friend class RtcConnectionManager;
@@ -31,6 +32,9 @@ public:
 	bool AddDataChannel(const std::string& label,
 		const webrtc::DataChannelInit& datachannelinit);
 	bool SendData(const std::string& channel_label, const std::string& msg);
+
+	static void PacketsCallback(char* packet, unsigned int size, PackUserParams* params);
+	static void DataCallback(char* data, unsigned int size, PackUserParams* params);
 
 protected:
 	virtual void HandleP2PStateChanged(PeerConnState state) const = 0;
@@ -66,6 +70,10 @@ private:
 
 	std::map<std::string, rtc::scoped_refptr<webrtc::DataChannelInterface>>
 		label_datachannel_map_;
+	std::map<std::string, PackUserParams*>
+		label_ztchannel_map_;
+	unsigned int resend_times_ = 0;
+
 	std::vector<std::unique_ptr<RtcVideoSink>> rtc_pc_videosinks_;
 	std::vector<std::unique_ptr<RtcAudioSink>> rtc_pc_audiosinks_;
 
@@ -85,6 +93,9 @@ public:
 		vts_rtc::SessionId local_sessionid, vts_rtc::SessionId remote_sessionid);
 	virtual ~RtcConnection();
 
+	void HandleDataChannelMessageReceived(
+		const std::string& label, const std::string& message) const override;
+
 protected:
 	void HandleP2PStateChanged(PeerConnState state) const override;
 	void HandleIceCandidateReceived(const std::string& candidate,
@@ -97,8 +108,6 @@ protected:
 	// 	const vts_rtc::NetStats& net_stats_params) const override;
 	void HandleNetStatsReport(
 		const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const override;
-	void HandleDataChannelMessageReceived(
-		const std::string& label, const std::string& message) const override;
 	void HandleAudioFrameReceived(const vts_rtc::AudioSourceId& sourceid,
 		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels,
 		size_t number_of_frames, const void* audio_data) const override;

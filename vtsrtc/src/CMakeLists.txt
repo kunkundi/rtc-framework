@@ -32,6 +32,8 @@ endif()
 list(APPEND SOURCE_CODE
 	log/log_manager.h
 	log/log_manager.cpp
+	log/log_webrtc_hook.h
+	log/log_webrtc_hook.cpp
 	http_status_code.hpp
 	rtc_types.h
 	rtc_device_manager.h
@@ -54,6 +56,17 @@ list(APPEND SOURCE_CODE
 	video/encode/rtc_encoder_factory.cpp
 	statistics/rtc_statistics.h
 	statistics/rtc_statistics.cpp
+	packet/pack.h
+	packet/pack.cpp
+	packet/packtype.h
+	packet/semaphore.h
+	packet/squeue.h
+	packet/buffer.h
+	packet/packetizer.h
+	packet/packetizer.cpp
+	packet/depacketizer.h
+	packet/depacketizer.cpp
+
 )
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")

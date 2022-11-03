@@ -161,6 +161,11 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 	signaling_thread_->SetName("signaling", nullptr);
 	signaling_thread_->Start();
 
+#if 0
+	webrtc_log_hook_ = new FileLog("logs");
+	rtc::LogMessage::AddLogToStream(webrtc_log_hook_, rtc::LS_INFO);
+#endif
+
 	// To be improved
 	// create dummy AudioDeviceModule for fixing initialization crash of VTS apollo docker
 	// @attention: invoke method will block the current thread until execution is complete
@@ -231,6 +236,13 @@ void RtcConnectionManager::DestroyAllPeerConnection() {
 				});
 			}
 			statistics_collector_->Reset();
+
+			if (webrtc_log_hook_)
+			{
+				delete webrtc_log_hook_;
+				webrtc_log_hook_ = nullptr;
+			}
+
 			it.second->peer_conn_->Close();
 			it.second->peer_conn_ = nullptr;
 #if defined  __aarch64__
@@ -256,6 +268,13 @@ void RtcConnectionManager::DestroyPeerConnection(vts_rtc::SessionId remote_sessi
 					});
 				}
 				statistics_collector_->RemoveSessionMediaSsrcVsId(remote_sessionid);
+
+				if (webrtc_log_hook_)
+				{
+					delete webrtc_log_hook_;
+					webrtc_log_hook_ = nullptr;
+				}
+
 				it->second->peer_conn_->Close();
 				it->second->peer_conn_ = nullptr;
 #if defined  __aarch64__
