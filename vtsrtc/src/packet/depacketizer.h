@@ -41,7 +41,6 @@ private:
     unsigned short total_sub_packet_numb_ = 0x00;
     unsigned short sub_packet_seq_ = 0x00;
     unsigned short payload_size_ = 0x00;
-    unsigned short last_packet_payload_size_ = 0xFF;
 
     std::map<unsigned int, std::map<unsigned int, Buffer>> incomplete_packet_;
 

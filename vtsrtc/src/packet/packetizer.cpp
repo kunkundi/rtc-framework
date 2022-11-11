@@ -148,6 +148,7 @@ void Packetizer::Process()
 {
 	while (!stop_)
 	{
+		// Resend queue have higher priority than msg queue
 		if (packetizer_queue_.Empty() && resend_queue_.Empty())
 		{
 			sem_.wait();
@@ -187,6 +188,7 @@ int Packetizer::SendPacket()
 		return PACK_INPUT_EMPTY_BUFFER;
 	}
 
+	// Get total sub packet number
 	total_sub_packet_numb_ = len % kMaxDataLen ? (len / kMaxDataLen + 1) : len / kMaxDataLen;
 	total_payload_size_ = len;
 
@@ -245,7 +247,9 @@ int Packetizer::SendPacket()
 			}
 			free(slice);
 
+			// move data pointer to next packet position
 			data += kMaxDataLen;
+			// unpacked length
 			len -= kMaxDataLen;
 			sub_packet_seq_++;
 		}
@@ -278,7 +282,14 @@ int Packetizer::ResendPacket()
 		return PACK_INPUT_EMPTY_BUFFER;
 	}
 
-	params->packet_cb(data, len, params);
+	if (params->packet_cb == nullptr)
+	{
+		LOG_ERROR("Invalid packet callback");
+	}
+	else
+	{
+		params->packet_cb(data, len, params);
+	}
 
 	return PACK_OK;
 }

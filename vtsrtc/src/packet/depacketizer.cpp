@@ -6,6 +6,7 @@
 #include <string.h>
 #include <functional>
 
+// Turn on this macro to save received message into file
 #define LOG_RECEIVE_DATA 0
 /*                           Protocol
  0                   1                   2                   3
@@ -132,9 +133,6 @@ Buffer Depacketizer::DoDepacketize(const char* packet, unsigned int size, PackUs
 
 	payload_size_ = first_bit & (0xFFFF >> 2);
 
-	if (payload_size_ < last_packet_payload_size_)
-		last_packet_payload_size_ = payload_size_;
-
 	// total sub packet number: 2bytes
 	value = (char*)&total_sub_packet_numb_;
 	value[1] = *packet++;
@@ -191,6 +189,8 @@ void Depacketizer::Process()
 #if LOG_RECEIVE_DATA
 			debug_file_.open("carinfo_receive.data", std::ios::out | std::ios::binary);
 #endif
+			// Get original message length, GetTotalPayloadSize() method only gets total sub packets size which is not real
+			// original message length, because the last sub packet payload size is usually less than kMaxDataLen
 			unsigned int total_payload_size_real = GetTotalPayloadSize() - kMaxDataLen + 
 				incomplete_packet_[main_packet_seq_][incomplete_packet_[main_packet_seq_].size() - 1].GetBufferSize();
 			
