@@ -9,7 +9,7 @@ LogManager::~LogManager() {
 
 int LogManager::init() {
 #if defined  __aarch64__
-	log_.InitLog(false, vts::log::LEVEL_INFO, "/data/log/");
+	log_.InitLog(false, vts::log::LEVEL_INFO, "/apollo/data/log/");
 #else
 	log_.InitLog(false, vts::log::LEVEL_INFO);
 #endif
