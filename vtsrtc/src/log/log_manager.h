@@ -16,7 +16,7 @@ public:
 		return &instance;
 	}
 
-	int init();
+	int init(std::string log_path);
 	vts::log::vtslog log_;
 	std::string topic[1] = { "rtc_agent" };
 

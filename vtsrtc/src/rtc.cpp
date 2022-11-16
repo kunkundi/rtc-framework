@@ -18,7 +18,6 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler,
 	const ChannelNetworkStatsHandler& channel_network_stats_handler) {
-	LogInst->init();
 
 	// check if content of rtc_config_filepath is valid json format
 	nlohmann::json rtc_cfg_obj;
@@ -27,8 +26,17 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		ifs >> rtc_cfg_obj;
 	}
 	catch (const nlohmann::json::parse_error& exp) {
-		LOG_ERROR("Create rtc agent failed, config file (%s) is not valid json", rtc_config_filepath.c_str());
+		printf("Create rtc agent failed, config file (%s) is not valid json", rtc_config_filepath.c_str());
 		return nullptr;
+	}
+
+	if (!rtc_cfg_obj.contains("log_path")) {
+		LogInst->init("");
+	}
+	else
+	{
+		std::string log_path = rtc_cfg_obj["log_path"].get<std::string>();
+		LogInst->init(log_path);
 	}
 
 	// convert json object to RtcConfig variable
@@ -178,7 +186,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const RecvAudioFrameHandler& recv_audioframe_handler,
 	const RecvFrameHandler& recv_frame_handler,
 	const ChannelNetworkStatsHandler& channel_network_stats_handler) {
-	LogInst->init();
+	LogInst->init("");
 
 	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
 		rtc_config,
