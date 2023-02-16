@@ -1685,7 +1685,12 @@ void RtcConnectionManager::InteractRemotePeer(
 		webrtc_ice_server.password = ice_server.password;
 		peer_conn_config.servers.emplace_back(webrtc_ice_server);
 	}
+
+	peer_conn_config.continual_gathering_policy = webrtc::PeerConnectionInterface::GATHER_CONTINUALLY;
+	peer_conn_config.disable_ipv6 = true;
+	peer_conn_config.tcp_candidate_policy = webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
 	peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+
 	webrtc::PeerConnectionDependencies depends(&rtc_conn->peer_conn_observer_);
 	rtc_conn->peer_conn_ = peer_conn_factory_->CreatePeerConnection(peer_conn_config, std::move(depends));
 	if (!rtc_conn->peer_conn_) {
