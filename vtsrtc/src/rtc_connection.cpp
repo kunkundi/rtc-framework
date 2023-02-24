@@ -149,8 +149,19 @@ bool RtcConnectionBase::SendData(const std::string& channel_label,
 		return false;
 	}
 
-	auto ret = PackSend(msg.c_str(), msg.length(), label_ztchannel_map_[channel_label]);
-	return ret == PACK_OK ? true : false;
+	if (bPacked_) {
+		auto ret = PackSend(msg.c_str(), msg.length(), label_ztchannel_map_[channel_label]);
+		return ret == PACK_OK ? true : false;
+	}
+	else {
+		if (msg.size() > 256 * 1024) {
+			LOG_ERROR("Datachannel [%s] send data failed, msg size is larger than 256KiB",
+				channel_label.c_str());
+			return false;
+		}
+
+		return datachannel->Send(webrtc::DataBuffer(msg));
+	}
 }
 
 void RtcConnectionBase::InitDataChannelObserverCallbacks(
@@ -223,7 +234,14 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 					return;
 				}
 
-				PackReceive((char*)buffer.data.data<char>(), buffer.data.size(), label_ztchannel_map_[datachannel->label().c_str()]);
+				if (bPacked_) {
+					PackReceive((char*)buffer.data.data<char>(), buffer.data.size(), 
+						label_ztchannel_map_[datachannel->label().c_str()]);
+				}
+				else {
+					HandleDataChannelMessageReceived(datachannel->label(),
+						std::string(buffer.data.data<char>(), buffer.data.size()));
+				}
 			});
 	};
 }

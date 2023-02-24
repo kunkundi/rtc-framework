@@ -73,6 +73,7 @@ private:
 	std::map<std::string, PackUserParams*>
 		label_ztchannel_map_;
 	unsigned int resend_times_ = 0;
+	bool bPacked_ = false;
 
 	std::vector<std::unique_ptr<RtcVideoSink>> rtc_pc_videosinks_;
 	std::vector<std::unique_ptr<RtcAudioSink>> rtc_pc_audiosinks_;
