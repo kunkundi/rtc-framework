@@ -240,7 +240,7 @@ void RtcWidget::CreateUI() {
 	videosource_layout->addWidget(videosource_label);
 	videosource_layout->addWidget(videosources_combobox_);
 	videosource_groupbox->setLayout(videosource_layout);
-	videosource_groupbox->setFixedSize(660, 50);
+	videosource_groupbox->setFixedSize(660, 65);
 
 	// 房间管理
 	QGroupBox* room_groupbox = new QGroupBox(tr("Room Management"));
@@ -260,7 +260,7 @@ void RtcWidget::CreateUI() {
 	room_layout->addWidget(join_room_btn, 1, 3, 1, 1);
 	room_layout->addWidget(leave_room_btn, 1, 4, 1, 1);
 	room_groupbox->setLayout(room_layout);
-	room_groupbox->setFixedSize(660, 80);
+	room_groupbox->setFixedSize(660, 100);
 
 	// SRS管理
 	QGroupBox* SRS_groupbox = new QGroupBox(tr("SRS Management"));
@@ -323,13 +323,16 @@ void RtcWidget::CreateUI() {
 	main_layout->addWidget(room_groupbox);
 	main_layout->addWidget(SRS_groupbox);
 	main_layout->addWidget(msg_groupbox);
-#if !defined  __aarch64__
+#if defined  __aarch64__
+	QGroupBox* temp_groupbox = new QGroupBox(tr("Render"));
+	main_layout->addWidget(temp_groupbox);
+#else
 	main_layout->addWidget(Render_groupbox);
 #endif
 	main_layout->addWidget(tableView_);
 
 	this->setLayout(main_layout);
-	this->setFixedSize(680, 900);
+	this->setFixedSize(680, 950);
 
 	// bind events
 	connect(query_rooms_btn, SIGNAL(clicked()), this, SLOT(QueryRooms()));
