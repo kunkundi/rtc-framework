@@ -240,7 +240,7 @@ void RtcWidget::CreateUI() {
 	videosource_layout->addWidget(videosource_label);
 	videosource_layout->addWidget(videosources_combobox_);
 	videosource_groupbox->setLayout(videosource_layout);
-	videosource_groupbox->setFixedSize(1200, 65);
+	videosource_groupbox->setFixedSize(660, 50);
 
 	// 房间管理
 	QGroupBox* room_groupbox = new QGroupBox(tr("Room Management"));
@@ -260,7 +260,7 @@ void RtcWidget::CreateUI() {
 	room_layout->addWidget(join_room_btn, 1, 3, 1, 1);
 	room_layout->addWidget(leave_room_btn, 1, 4, 1, 1);
 	room_groupbox->setLayout(room_layout);
-	room_groupbox->setFixedSize(1200, 100);
+	room_groupbox->setFixedSize(660, 80);
 
 	// SRS管理
 	QGroupBox* SRS_groupbox = new QGroupBox(tr("SRS Management"));
@@ -276,7 +276,7 @@ void RtcWidget::CreateUI() {
 	SRS_layout->addWidget(play_from_SRS_btn);
 	SRS_layout->addWidget(unplay_from_SRS_btn);
 	SRS_groupbox->setLayout(SRS_layout);
-	SRS_groupbox->setFixedSize(1200, 65);
+	SRS_groupbox->setFixedSize(660, 65);
 
 	// 消息管理
 	QGroupBox* msg_groupbox = new QGroupBox(tr("Message Management"));
@@ -295,7 +295,7 @@ void RtcWidget::CreateUI() {
 	msg_layout->addWidget(file_combobox_, 2, 0, 1, 3);
 	msg_layout->addWidget(send_filemsg_btn, 2, 3, 1, 1);
 	msg_groupbox->setLayout(msg_layout);
-	msg_groupbox->setFixedSize(1200, 140);
+	msg_groupbox->setFixedSize(660, 140);
 
 	// 媒体统计
 	tableView_ = new QTableView;
@@ -305,29 +305,18 @@ void RtcWidget::CreateUI() {
 	model_->setVerticalHeaderLabels(*sourceid_list_);
 	tableView_->setModel(model_);
 	tableView_->verticalHeader()->setVisible(false);
-	tableView_->setFixedSize(1200, 250);
-	tableView_->setColumnWidth(0, 95);
+	tableView_->setFixedSize(660, 120);
 
 	// 渲染
 	rtc_audiorender_ = new RtcAudioRender(this);
 #if !defined  __aarch64__
-	source_render_.insert(std::make_pair("mid_frontview", new RtcVideoRender(780, 440)));
-	source_render_.insert(std::make_pair("mid_rearview", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("left_frontview", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("left_rearview", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("right_frontview", new RtcVideoRender()));
-	source_render_.insert(std::make_pair("right_rearview", new RtcVideoRender()));
+	source_render_.insert(std::make_pair("merged_image", new RtcVideoRender(640, 360)));
 
 	QGroupBox* Render_groupbox = new QGroupBox(tr("Render"));
 	QGridLayout* gLayout = new QGridLayout();
-	gLayout->addWidget(source_render_["mid_frontview"], 0, 0, 2, 2);
-	gLayout->addWidget(source_render_["mid_rearview"], 2, 2, 1, 1);
-	gLayout->addWidget(source_render_["left_frontview"], 0, 2, 1, 1);
-	gLayout->addWidget(source_render_["left_rearview"], 1, 2, 1, 1);
-	gLayout->addWidget(source_render_["right_frontview"], 2, 0, 1, 1);
-	gLayout->addWidget(source_render_["right_rearview"], 2, 1, 1, 1);
+	gLayout->addWidget(source_render_["merged_image"], 0, 0, 4, 4);
 	Render_groupbox->setLayout(gLayout);
-	Render_groupbox->setFixedSize(1200, 700);
+	Render_groupbox->setFixedSize(660, 390);
 #endif
 
 	main_layout->addWidget(videosource_groupbox);
@@ -340,7 +329,7 @@ void RtcWidget::CreateUI() {
 	main_layout->addWidget(tableView_);
 
 	this->setLayout(main_layout);
-	this->setFixedSize(1220, 1400);
+	this->setFixedSize(680, 900);
 
 	// bind events
 	connect(query_rooms_btn, SIGNAL(clicked()), this, SLOT(QueryRooms()));
@@ -520,12 +509,7 @@ void RtcWidget::SendFrame() {
 					idx = 0;
 				}
 
-				RtcSendFrame("mid_frontview", &yuv_frames_[idx]);
-// 				RtcSendFrame("mid_rearview", &yuv_frames_[idx]);
-// 				RtcSendFrame("left_frontview", &yuv_frames_[idx]);
-// 				RtcSendFrame("left_rearview", &yuv_frames_[idx]);
-// 				RtcSendFrame("right_frontview", &yuv_frames_[idx]);
-// 				RtcSendFrame("right_rearview", &yuv_frames_[idx]);
+				RtcSendFrame("merged_image", &yuv_frames_[idx]);
 				idx++;
 				QThread::msleep(30);
 				{
@@ -555,12 +539,7 @@ void RtcWidget::AddVideoSource() {
 	auto current_idx = videosources_combobox_->currentIndex();
 	if (current_idx == 0) {
 		// YUV420p video source
-		auto code = RtcAddExternalVideoSource("mid_frontview", RtcPriorityType::High);
-// 		code = RtcAddExternalVideoSource("mid_rearview", RtcPriorityType::High);
-// 		code = RtcAddExternalVideoSource("left_frontview", RtcPriorityType::High);
-// 		code = RtcAddExternalVideoSource("left_rearview", RtcPriorityType::High);
-// 		code = RtcAddExternalVideoSource("right_frontview", RtcPriorityType::High);
-// 		code = RtcAddExternalVideoSource("right_rearview", RtcPriorityType::High);
+		auto code = RtcAddExternalVideoSource("merged_image", RtcPriorityType::High);
 		CHECK_ERRORCODE
 
 		if (!external_feed_inited_) {
