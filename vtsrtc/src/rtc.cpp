@@ -124,16 +124,25 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		}
 	}
 
+	if(rtc_cfg_obj.contains("use_codec_pool")) {
+		rtc_config.use_codec_pool = rtc_cfg_obj["use_codec_pool"].get<bool>();
+	}
+
+	if(rtc_cfg_obj.contains("codecs") && rtc_cfg_obj["codecs"].is_array()) {
+		auto codec_array = rtc_cfg_obj["codecs"].get<json::array_t>();
+		std::vector<unsigned int> codecs;
+		for (const auto& codec_obj : codec_array) {
+			auto val = codec_obj.get<unsigned int>();
+			rtc_config.codecs.push_back(val);
+		}
+	}
+
 	if(rtc_cfg_obj.contains("bitrate_maxmum")) {
 		rtc_config.bitrate_maxmum = rtc_cfg_obj["bitrate_maxmum"].get<long>();
 	}
 
 	if(rtc_cfg_obj.contains("netstats_report")) {
 		rtc_config.netstats_report = rtc_cfg_obj["netstats_report"].get<bool>();
-	}
-
-	if(rtc_cfg_obj.contains("use_codec_pool")) {
-		rtc_config.use_codec_pool = rtc_cfg_obj["use_codec_pool"].get<bool>();
 	}
 
 	if (rtc_cfg_obj.contains("use_NVENC")) {

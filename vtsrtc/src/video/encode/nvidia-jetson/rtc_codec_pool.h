@@ -2,6 +2,7 @@
 #include <api/task_queue/default_task_queue_factory.h>
 #include <api/create_peerconnection_factory.h>
 #include <rtc_base/thread.h>
+#include "rtc_types.h"
 #include <mutex>
 
 typedef bool(*dqThreadCallback) (struct v4l2_buffer * v4l2_buf,
@@ -17,7 +18,7 @@ public:
         return instance_;  
     }
 
-    void Init();
+    void Init(const vts_rtc::RtcConfig& rtc_config);
     void Destroy();
     NvVideoEncoder* GetAvailableEncoder(int width, int height);
     void ReleaseEncoder(int width, int height, NvVideoEncoder* enc);
@@ -34,11 +35,15 @@ private:
     static CodecPool* instance_;
 
     std::map<int, int> resolution_map_ = {
-        {432, 243}, 
-        {576, 324},
-        // {648, 363},
-        {864, 486},
-        {1152, 648}
+        // {432, 243}, 
+        // {576, 324},
+        // {864, 486},
+        // {1152, 648},
+        {320, 180}, 
+        {480, 270}, 
+        {640, 360},
+        {960, 540},
+        {1280, 720}
     };
 
     std::unique_ptr<rtc::Thread> codecpool_thread_;
@@ -49,4 +54,5 @@ private:
     std::mutex codecpool_mtx_;
     bool stop_ = false;
     bool inited_ = false;
+    vts_rtc::RtcConfig rtc_config_;
 };

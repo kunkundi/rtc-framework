@@ -1466,6 +1466,8 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 		auto tracklabel = track_source->label_;
 		auto video_track = peer_conn_factory_->CreateVideoTrack(
 			tracklabel, track_source.get());
+		// 帧率优先
+		video_track->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
 		auto rtpsender_error = peer_conn->AddTrack(
 			video_track, { tracklabel });
 		if (rtpsender_error.ok()) {

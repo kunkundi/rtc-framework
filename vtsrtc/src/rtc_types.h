@@ -152,6 +152,7 @@ struct RtcConfig {
 	long bitrate_maxmum = 10000000;
 	bool netstats_report = false;
 	bool use_codec_pool = false;
+	std::vector<unsigned int> codecs;
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;

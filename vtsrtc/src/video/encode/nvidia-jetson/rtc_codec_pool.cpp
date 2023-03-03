@@ -57,15 +57,21 @@ void CodecPool::StopCreateEncoder() {
 CodecPool::CodecPool() {
 }
 
-void CodecPool::Init() {
+void CodecPool::Init(const vts_rtc::RtcConfig& rtc_config) {
     codecpool_thread_ = rtc::Thread::Create();
 	codecpool_thread_->SetName("codecpool", nullptr);
 	codecpool_thread_->Start();
     stop_ = false;
+    rtc_config_ = rtc_config;
 
-    for(auto it: resolution_map_) {
-        LOG_INFO("Init encoder <%dx%d>", it.first, it.second);
-        InitTargetEncoder(it.first, it.second);
+    LOG_INFO("Load codecs config: ");
+    for(auto& codec: rtc_config_.codecs)
+    {
+        unsigned int width = codec/0.5625;
+        unsigned int height = codec;
+
+        LOG_INFO("Init encoder <%dx%d>", width, height);
+        InitTargetEncoder(width, height);
     }
 
     inited_ = true;
