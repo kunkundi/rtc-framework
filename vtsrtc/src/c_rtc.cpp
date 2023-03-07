@@ -77,6 +77,7 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 	vts_rtc::RecvAudioFrameHandler audioframe_handler = nullptr;
 	if (recv_audioframe_handler) {
 		audioframe_handler = [recv_audioframe_handler](
+			const vts_rtc::SessionId session_id,
 			const vts_rtc::AudioSourceId& audio_sourceid,
 			vts_rtc::MediaSourceType audio_sourcetype,
 			size_t bits_per_sample,
@@ -86,7 +87,8 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 			const void* audio_data) {
 			size_t audio_data_size = bits_per_sample * number_of_channels *
 				number_of_frames / 8;
-			recv_audioframe_handler(audio_sourceid.c_str(),
+			recv_audioframe_handler(session_id,
+				audio_sourceid.c_str(),
 				static_cast<RtcMediaSourceType>(audio_sourcetype),
 				bits_per_sample, sample_rate, number_of_channels,
 				number_of_frames, audio_data, audio_data_size);
@@ -96,13 +98,15 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 	vts_rtc::RecvFrameHandler frame_handler = nullptr;
 	if (recv_frame_handler) {
 		frame_handler = [recv_frame_handler](
+			const vts_rtc::SessionId session_id,
 			const vts_rtc::VideoSourceId& video_sourceid,
 			vts_rtc::MediaSourceType video_sourcetype,
 			size_t width,
 			size_t height,
 			size_t dimension,
 			const std::vector<unsigned char>& framebuffer) {
-			recv_frame_handler(video_sourceid.c_str(),
+			recv_frame_handler(session_id,
+				video_sourceid.c_str(),
 				static_cast<RtcMediaSourceType>(video_sourcetype),
 				width, height, dimension, framebuffer.data(),
 				framebuffer.size());
@@ -111,7 +115,9 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 
 	vts_rtc::ChannelNetworkStatsHandler channel_network_stats_handler = nullptr;
 	if (gst_params.channel_network_stats_handler) {
-		channel_network_stats_handler = [](const vts_rtc::NetStats& net_stats) {
+		channel_network_stats_handler = [](
+			const vts_rtc::SessionId session_id, 
+			const vts_rtc::NetStats& net_stats) {
 			RtcNetStats rtc_net_stats;
 			rtc_net_stats.input = net_stats.input;
 
@@ -131,7 +137,7 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 			rtc_net_stats.video_stats.nack_count = net_stats.video_stats.nack_count;
 			rtc_net_stats.video_stats.codec_name = net_stats.video_stats.codec_name.c_str();
 
-			gst_params.channel_network_stats_handler(rtc_net_stats);
+			gst_params.channel_network_stats_handler(session_id, rtc_net_stats);
 		};
 	}
 
@@ -230,6 +236,7 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 	vts_rtc::RecvAudioFrameHandler audioframe_handler = nullptr;
 	if (gst_params.recv_audioframe_handler) {
 		audioframe_handler = [](
+			vts_rtc::SessionId session_id,
 			const vts_rtc::AudioSourceId& audio_sourceid,
 			vts_rtc::MediaSourceType audio_sourcetype,
 			size_t bits_per_sample,
@@ -239,7 +246,8 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 			const void* audio_data) {
 			size_t audio_data_size = bits_per_sample * number_of_channels *
 				number_of_frames / 8;
-			gst_params.recv_audioframe_handler(audio_sourceid.c_str(),
+			gst_params.recv_audioframe_handler(session_id,
+				audio_sourceid.c_str(),
 				static_cast<RtcMediaSourceType>(audio_sourcetype),
 				bits_per_sample, sample_rate, number_of_channels,
 				number_of_frames, audio_data, audio_data_size);
@@ -249,13 +257,15 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 	vts_rtc::RecvFrameHandler frame_handler = nullptr;
 	if (gst_params.recv_frame_handler) {
 		frame_handler = [](
+			vts_rtc::SessionId session_id,
 			const vts_rtc::VideoSourceId& video_sourceid,
 			vts_rtc::MediaSourceType video_sourcetype,
 			size_t width,
 			size_t height,
 			size_t dimension,
 			const std::vector<unsigned char>& framebuffer) {
-			gst_params.recv_frame_handler(video_sourceid.c_str(),
+			gst_params.recv_frame_handler(session_id,
+				video_sourceid.c_str(),
 				static_cast<RtcMediaSourceType>(video_sourcetype),
 				width, height, dimension, framebuffer.data(),
 				framebuffer.size());
@@ -264,7 +274,9 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 
 	vts_rtc::ChannelNetworkStatsHandler channel_network_stats_handler = nullptr;
 	if (gst_params.channel_network_stats_handler) {
-		channel_network_stats_handler = [](const vts_rtc::NetStats& net_stats) {
+		channel_network_stats_handler = [](
+			const vts_rtc::SessionId session_id,
+			const vts_rtc::NetStats& net_stats) {
 			RtcNetStats rtc_net_stats;
 			rtc_net_stats.input = net_stats.input;
 
@@ -284,7 +296,7 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 			rtc_net_stats.video_stats.nack_count = net_stats.video_stats.nack_count;
 			rtc_net_stats.video_stats.codec_name = net_stats.video_stats.codec_name.c_str();
 
-			gst_params.channel_network_stats_handler(rtc_net_stats);
+			gst_params.channel_network_stats_handler(session_id, rtc_net_stats);
 		};
 	}
 

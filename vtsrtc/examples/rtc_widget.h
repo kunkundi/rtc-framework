@@ -30,16 +30,18 @@ private:
 	static void HandleServerConnectionState(RtcServerConnectionState state);
 	static void HandleSRSState(RtcSRSStreamurl streamurl, RtcP2PState state);
 	static void HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse response);
-	static void HandleChannelNetStats(RtcNetStats params);
+	static void HandleChannelNetStats(RtcSessionId remote_sessionid, RtcNetStats params);
 
 	static void HandleMessage(RtcSessionId remote_sessionid,
 		const char* channel_label, const char* msg, size_t msg_size);
-	static void HandleAudioFrame(RtcAudioSourceId sourceid,
+	static void HandleAudioFrame(RtcSessionId remote_sessionid,
+		RtcAudioSourceId sourceid,
 		RtcMediaSourceType sourcetype,
 		size_t bits_per_sample, size_t sample_rate,
 		size_t number_of_channels, size_t number_of_frames,
 		const void* audio_data, size_t sz_audio_data);
-	static void HandleFrame(RtcVideoSourceId sourceid,
+	static void HandleFrame(RtcSessionId remote_sessionid,
+		RtcVideoSourceId sourceid,
 		RtcMediaSourceType sourcetype,
 		size_t width, size_t height, size_t dimension,
 		const unsigned char* buffer, size_t sz_buffer);

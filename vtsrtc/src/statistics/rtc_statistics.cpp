@@ -62,7 +62,7 @@ void RtcStatistics::ResetHistoryNetStats(vts_rtc::VideoSourceId sourceid) {
 	}
 }
 
-void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+void RtcStatistics::OnStatisticsReport(const vts_rtc::SessionId session_id, const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
 	for(auto& it: session_sender_media_ssrc_vs_id_)
 		for (auto& ssrc_vs_id : it.second) {
 			vts_rtc::NetStats net_stats_out;
@@ -129,7 +129,7 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 					}
 				}
 
-				if (stats_report_callback_) { stats_report_callback_(net_stats_out); }
+				if (stats_report_callback_) { stats_report_callback_(session_id, net_stats_out); }
 			}
 		}
 
@@ -246,7 +246,7 @@ void RtcStatistics::OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RT
 					}
 				}
 
-				if (stats_report_callback_) { stats_report_callback_(net_stats_out); }
+				if (stats_report_callback_) { stats_report_callback_(session_id, net_stats_out); }
 			}
 		}
 }

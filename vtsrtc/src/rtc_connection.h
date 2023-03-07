@@ -139,7 +139,10 @@ class Rtc2SRSConnection : public RtcConnectionBase {
 	friend class RtcConnectionManager;
 
 public:
-	explicit Rtc2SRSConnection(const vts_rtc::SRSStreamurl& SRS_streamurl);
+	explicit Rtc2SRSConnection(
+		const vts_rtc::SRSStreamurl& SRS_streamurl,
+		vts_rtc::SessionId local_sessionid,
+		vts_rtc::SessionId remote_sessionid);
 	virtual ~Rtc2SRSConnection();
 
 	void SetSRSSessionid(const vts_rtc::SRSSessionId& SRS_sessionid);
@@ -165,7 +168,10 @@ protected:
 
 private:
 	vts_rtc::SRSSessionId SRS_sessionid_ = std::string("");
-	vts_rtc::SRSStreamurl SRS_streamurl_ = std::string("");;
+	vts_rtc::SRSStreamurl SRS_streamurl_ = std::string("");
+
+	const vts_rtc::SessionId local_sessionid_;
+	const vts_rtc::SessionId remote_sessionid_;
 
 	std::function<void(const vts_rtc::SRSStreamurl&, vts_rtc::P2PState)>
 		on_P2P_state_changed_ = nullptr;

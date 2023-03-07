@@ -545,7 +545,7 @@ void RtcConnection::HandleAudioFrameReceived(
 	size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
 	const void* audio_data) const {
 	if (on_audioframe_received_) {
-		on_audioframe_received_(sourceid, vts_rtc::MediaSourceType::Rtc,
+		on_audioframe_received_(remote_sessionid_, sourceid, vts_rtc::MediaSourceType::Rtc,
 			bits_per_sample, sample_rate, number_of_channels, number_of_frames,
 			audio_data);
 	}
@@ -555,7 +555,7 @@ void RtcConnection::HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 	size_t width, size_t height, size_t dimension,
 	const std::vector<unsigned char>& buffer) const {
 	if (on_frame_received_) {
-		on_frame_received_(sourceid, vts_rtc::MediaSourceType::Rtc,
+		on_frame_received_(remote_sessionid_, sourceid, vts_rtc::MediaSourceType::Rtc,
 			width, height, dimension, buffer);
 	}
 }
@@ -564,8 +564,12 @@ void RtcConnection::HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 
 /////////////////// BEGIN Rtc2SRSConnection ///////////////////
 Rtc2SRSConnection::Rtc2SRSConnection(
-	const vts_rtc::SRSStreamurl& SRS_streamurl) :
-	SRS_streamurl_(SRS_streamurl) {
+	const vts_rtc::SRSStreamurl& SRS_streamurl,
+	vts_rtc::SessionId local_sessionid, 
+	vts_rtc::SessionId remote_sessionid) :
+	SRS_streamurl_(SRS_streamurl), 
+	local_sessionid_(local_sessionid), 
+	remote_sessionid_(remote_sessionid) {
 }
 
 Rtc2SRSConnection::~Rtc2SRSConnection() {
@@ -615,7 +619,7 @@ void Rtc2SRSConnection::HandleAudioFrameReceived(
 	size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
 	const void* audio_data) const {
 	if (on_audioframe_received_) {
-		on_audioframe_received_(sourceid, vts_rtc::MediaSourceType::SRS,
+		on_audioframe_received_(remote_sessionid_, sourceid, vts_rtc::MediaSourceType::SRS,
 			bits_per_sample, sample_rate, number_of_channels, number_of_frames,
 			audio_data);
 	}
@@ -626,7 +630,7 @@ void Rtc2SRSConnection::HandleFrameReceived(
 	size_t width, size_t height, size_t dimension,
 	const std::vector<unsigned char>& buffer) const {
 	if (on_frame_received_) {
-		on_frame_received_(sourceid, vts_rtc::MediaSourceType::SRS,
+		on_frame_received_(remote_sessionid_, sourceid, vts_rtc::MediaSourceType::SRS,
 			width, height, dimension, buffer);
 	}
 }

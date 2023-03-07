@@ -58,7 +58,7 @@ void RtcWidget::HandleSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse resp
 	qDebug() << "-----> HandleSRSResponse, streamurl: " << streamurl << ", state: " << response;
 }
 
-void RtcWidget::HandleChannelNetStats(RtcNetStats params)
+void RtcWidget::HandleChannelNetStats(RtcSessionId remote_sessionid, RtcNetStats params)
 {
 	{
 		if (!sourceid_list_->contains(params.audio_stats.sourceid))
@@ -128,7 +128,7 @@ void RtcWidget::HandleMessage(RtcSessionId remote_sessionid,
 	}
 }
 
-void RtcWidget::HandleAudioFrame(RtcAudioSourceId sourceid,
+void RtcWidget::HandleAudioFrame(RtcSessionId remote_sessionid, RtcAudioSourceId sourceid,
 	RtcMediaSourceType sourcetype,
 	size_t bits_per_sample, size_t sample_rate,
 	size_t number_of_channels, size_t number_of_frames,
@@ -141,7 +141,7 @@ void RtcWidget::HandleAudioFrame(RtcAudioSourceId sourceid,
 	}
 }
 
-void RtcWidget::HandleFrame(RtcVideoSourceId sourceid,
+void RtcWidget::HandleFrame(RtcSessionId remote_sessionid, RtcVideoSourceId sourceid,
 	RtcMediaSourceType sourcetype,
 	size_t width, size_t height, size_t dimension,
 	const unsigned char* buffer, size_t sz_buffer) {

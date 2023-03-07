@@ -125,15 +125,23 @@ using RecvMessageHandler = std::function<void(SessionId, const std::string&,
 	const std::string&)>;
 // AudioSourceId, MediaSourceType, bits_per_sample, sample_rate,
 // number_of_channels, number_of_frames, audio_data
-using RecvAudioFrameHandler = std::function<void(const AudioSourceId&,
-	enum MediaSourceType, size_t, size_t, size_t, size_t, const void*)>;
+using RecvAudioFrameHandler = std::function<void(const SessionId,
+	const AudioSourceId&, enum MediaSourceType, size_t, size_t, size_t, size_t, const void*)>;
 // VideoSourceId, MediaSourceType, width, height, dimension, video_data
-using RecvFrameHandler = std::function<void(const VideoSourceId&,
-	enum MediaSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
+using RecvFrameHandler = std::function<void(const SessionId,
+	const VideoSourceId&, enum MediaSourceType, size_t, size_t, size_t, const std::vector<unsigned char>&)>;
 // VideoSourceId, MediaSourceType, width, height, dimension, video_data
-using ChannelNetworkStatsHandler = std::function<void(const NetStats&)>;
-using ChannelNetworkStatsHandlerUS = std::function<void(const NetStats&)>;
+using ChannelNetworkStatsHandler = std::function<void(const SessionId, const NetStats&)>;
 
+struct EncodeParamsConfig {
+	bool use_codec_pool = false;
+	std::vector<unsigned int> codecs;
+	std::pair<unsigned int, unsigned int> qp_range;
+	std::pair<unsigned int, unsigned int> qp_threshold;
+	unsigned int I_frame_interval = 3000;
+	std::string bitrate_mode = "cbr";
+	unsigned int bitrate_maxmum = 100000000;
+};
 
 struct RtcConfig {
 	struct IceServer {
@@ -149,9 +157,10 @@ struct RtcConfig {
 	std::map<std::string, std::pair<long, long>> resolution_limit;
 	bool use_strategy = false;
 	std::map<long, std::vector<long>> strategy;
-	long bitrate_maxmum = 10000000;
+	EncodeParamsConfig encode_params;
 	bool netstats_report = false;
 	bool use_codec_pool = false;
+	std::vector<unsigned int> codecs;
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;

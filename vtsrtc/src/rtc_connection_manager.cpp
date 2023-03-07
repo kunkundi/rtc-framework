@@ -278,7 +278,7 @@ void RtcConnectionManager::DestroyPeerConnection(vts_rtc::SessionId remote_sessi
 				it->second->peer_conn_->Close();
 				it->second->peer_conn_ = nullptr;
 #if defined  __aarch64__
-				if (rtc_config_.use_codec_pool)
+				if (rtc_config_.encode_params.use_codec_pool)
 					CodecPool::GetInstance()->Destroy();
 #endif
 			}
@@ -915,7 +915,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS (
 		return vts_rtc::ErrorCode::InternalError;
 	}
 
-	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl);
+	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl, 0, 0);
 	SRS_conn->InitObserverCallbacks();
 
 	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
@@ -1118,7 +1118,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 		return vts_rtc::ErrorCode::InternalError;
 	}
 
-	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl);
+	auto SRS_conn = std::make_shared<Rtc2SRSConnection>(streamurl, 0, 0);
 	SRS_conn->InitObserverCallbacks();
 
 	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
@@ -1146,6 +1146,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 
 	std::weak_ptr<RtcConnectionManager> weak_self = shared_from_this();
 	SRS_conn->on_audioframe_received_ = [this, weak_self](
+		const vts_rtc::SessionId,
 		const vts_rtc::AudioSourceId& sourceid, enum vts_rtc::MediaSourceType type,
 		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
 		const void* audio_data) {
@@ -1156,10 +1157,11 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 				return;
 			}
 
-			recv_audioframe_handler_(sourceid, type,
+			recv_audioframe_handler_(0, sourceid, type,
 				bits_per_sample, sample_rate, number_of_channels, number_of_frames, audio_data);
 	};
 	SRS_conn->on_frame_received_ = [this, weak_self](
+		const vts_rtc::SessionId,
 		const vts_rtc::VideoSourceId& sourceid, enum vts_rtc::MediaSourceType type,
 		size_t width, size_t height, size_t dimension, const std::vector<unsigned char>& buffer) {
 			auto self = weak_self.lock();
@@ -1169,7 +1171,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
 				return;
 			}
 
-			recv_frame_handler_(sourceid, type, width, height, dimension, buffer);
+			recv_frame_handler_(0, sourceid, type, width, height, dimension, buffer);
 	};
 
 	SRS_conn->on_P2P_state_changed_ = [this](
@@ -1588,8 +1590,8 @@ void RtcConnectionManager::InteractRemotePeer(
 	};
 
 	rtc_conn->on_net_stats_report_ = 
-		[this, weak_self](const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
-			statistics_collector_->OnStatisticsReport(report);
+		[this, remote_sessionid, weak_self](const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+			statistics_collector_->OnStatisticsReport(remote_sessionid, report);
 	};
 
 	rtc_conn->on_sdp_create_succeed_ =
@@ -1650,7 +1652,8 @@ void RtcConnectionManager::InteractRemotePeer(
 
 	rtc_conn->on_dc_message_received_ = recv_msg_handler_;
 
-	rtc_conn->on_audioframe_received_ = [this, weak_self](
+	rtc_conn->on_audioframe_received_ = [this, remote_sessionid, weak_self](
+		const vts_rtc::SessionId,
 		const vts_rtc::AudioSourceId& sourceid, enum vts_rtc::MediaSourceType type,
 		size_t bits_per_sample, size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
 		const void* audio_data) {
@@ -1661,10 +1664,11 @@ void RtcConnectionManager::InteractRemotePeer(
 			return;
 		}
 
-		recv_audioframe_handler_(sourceid, type,
+		recv_audioframe_handler_(remote_sessionid, sourceid, type,
 			bits_per_sample, sample_rate, number_of_channels, number_of_frames, audio_data);
 	};
-	rtc_conn->on_frame_received_ = [this, weak_self](
+	rtc_conn->on_frame_received_ = [this, remote_sessionid, weak_self](
+		const vts_rtc::SessionId,
 		const vts_rtc::VideoSourceId& sourceid, enum vts_rtc::MediaSourceType type,
 		size_t width, size_t height, size_t dimension, const std::vector<unsigned char>& buffer) {
 		auto self = weak_self.lock();
@@ -1674,7 +1678,7 @@ void RtcConnectionManager::InteractRemotePeer(
 			return;
 		}
 
-		recv_frame_handler_(sourceid, type, width, height, dimension, buffer);
+		recv_frame_handler_(remote_sessionid, sourceid, type, width, height, dimension, buffer);
 	};
 
 	webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;

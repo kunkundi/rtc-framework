@@ -200,14 +200,14 @@ typedef void(*RecvMessageHandler)(RtcSessionId, RtcDataChannelLabel,
 	const char*, size_t);
 // RtcAudioSourceId, RtcMediaSourceType, bits_per_sample, sample_rate,
 // number_of_channels, number_of_frames, audio_data, audio_data_size
-typedef void(*RecvAudioFrameHandler)(RtcAudioSourceId, RtcMediaSourceType,
+typedef void(*RecvAudioFrameHandler)(RtcSessionId, RtcAudioSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, size_t, const void*, size_t);
 // RtcVideoSourceId, RtcMediaSourceType, width, height, dimension,
 // video_data, video_data_size
-typedef void(*RecvFrameHandler)(RtcVideoSourceId, RtcMediaSourceType,
+typedef void(*RecvFrameHandler)(RtcSessionId, RtcVideoSourceId, RtcMediaSourceType,
 	size_t, size_t, size_t, const unsigned char*, size_t);
 // RtcMediaChannelType, RtcMeidaSourceId, RtcNetStats
-typedef void(*ChannelNetworkStatsHandler)(RtcNetStats);
+typedef void(*ChannelNetworkStatsHandler)(RtcSessionId, RtcNetStats);
 
 /**
  * @param config_filepath Rtc配置文件

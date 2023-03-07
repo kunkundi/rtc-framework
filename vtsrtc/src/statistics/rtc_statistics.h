@@ -16,7 +16,7 @@ public:
 
 	void RemoveSessionMediaSsrcVsId(vts_rtc::SessionId remote_sessionid);
 
-    void OnStatisticsReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+    void OnStatisticsReport(const vts_rtc::SessionId session_id, const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
 
 private:
     void ResetHistoryNetStats(vts_rtc::VideoSourceId sourceid);
