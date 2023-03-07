@@ -246,7 +246,7 @@ void RtcConnectionManager::DestroyAllPeerConnection() {
 			it.second->peer_conn_->Close();
 			it.second->peer_conn_ = nullptr;
 #if defined  __aarch64__
-			if(rtc_config_.use_codec_pool)
+			if(rtc_config_.encode_params.use_codec_pool)
 				CodecPool::GetInstance()->Destroy();
 #endif
 		}
@@ -1468,6 +1468,8 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 		auto tracklabel = track_source->label_;
 		auto video_track = peer_conn_factory_->CreateVideoTrack(
 			tracklabel, track_source.get());
+		// 帧率优先
+		video_track->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
 		auto rtpsender_error = peer_conn->AddTrack(
 			video_track, { tracklabel });
 		if (rtpsender_error.ok()) {
@@ -1704,7 +1706,7 @@ void RtcConnectionManager::InteractRemotePeer(
 	}
 
 	webrtc::BitrateSettings bitratelimit;
-	bitratelimit.max_bitrate_bps = rtc_config_.bitrate_maxmum;
+	bitratelimit.max_bitrate_bps = rtc_config_.encode_params.bitrate_maxmum;
 	rtc_conn->peer_conn_->SetBitrate(bitratelimit);
 
 	this->AddAudioTrack2PeerConnection(rtc_conn->peer_conn_);

@@ -41,8 +41,8 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
 	const SdpVideoFormat& format) {
 	if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
 #if defined  __aarch64__
-		if(rtc_config_.use_codec_pool)
-			CodecPool::GetInstance()->Init();
+		if(rtc_config_.encode_params.use_codec_pool)
+			CodecPool::GetInstance()->Init(rtc_config_);
 		log_level = 0;
 		// rtc::LogMessage::LogToDebug(rtc::LS_VERBOSE);
 		return std::make_unique<JetsonH264EncoderImpl>(cricket::VideoCodec(format), rtc_config_);
