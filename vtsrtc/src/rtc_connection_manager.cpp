@@ -246,7 +246,7 @@ void RtcConnectionManager::DestroyAllPeerConnection() {
 			it.second->peer_conn_->Close();
 			it.second->peer_conn_ = nullptr;
 #if defined  __aarch64__
-			if(rtc_config_.use_codec_pool)
+			if(rtc_config_.encode_params.use_codec_pool)
 				CodecPool::GetInstance()->Destroy();
 #endif
 		}
@@ -278,7 +278,7 @@ void RtcConnectionManager::DestroyPeerConnection(vts_rtc::SessionId remote_sessi
 				it->second->peer_conn_->Close();
 				it->second->peer_conn_ = nullptr;
 #if defined  __aarch64__
-				if (rtc_config_.use_codec_pool)
+				if (rtc_config_.encode_params.use_codec_pool)
 					CodecPool::GetInstance()->Destroy();
 #endif
 			}
@@ -1702,7 +1702,7 @@ void RtcConnectionManager::InteractRemotePeer(
 	}
 
 	webrtc::BitrateSettings bitratelimit;
-	bitratelimit.max_bitrate_bps = rtc_config_.bitrate_maxmum;
+	bitratelimit.max_bitrate_bps = rtc_config_.encode_params.bitrate_maxmum;
 	rtc_conn->peer_conn_->SetBitrate(bitratelimit);
 
 	this->AddAudioTrack2PeerConnection(rtc_conn->peer_conn_);

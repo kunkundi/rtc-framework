@@ -33,19 +33,6 @@ private:
 
 private:
     static CodecPool* instance_;
-
-    std::map<int, int> resolution_map_ = {
-        // {432, 243}, 
-        // {576, 324},
-        // {864, 486},
-        // {1152, 648},
-        {320, 180}, 
-        {480, 270}, 
-        {640, 360},
-        {960, 540},
-        {1280, 720}
-    };
-
     std::unique_ptr<rtc::Thread> codecpool_thread_;
     dqThreadCallback callback_ = nullptr;
     void* user_ptr_ = nullptr;

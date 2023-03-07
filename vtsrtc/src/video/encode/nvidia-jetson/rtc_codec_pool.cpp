@@ -65,7 +65,7 @@ void CodecPool::Init(const vts_rtc::RtcConfig& rtc_config) {
     rtc_config_ = rtc_config;
 
     LOG_INFO("Load codecs config: ");
-    for(auto& codec: rtc_config_.codecs)
+    for(auto& codec: rtc_config_.encode_params.codecs)
     {
         unsigned int width = codec/0.5625;
         unsigned int height = codec;

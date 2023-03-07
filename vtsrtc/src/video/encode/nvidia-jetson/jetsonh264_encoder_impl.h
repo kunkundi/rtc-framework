@@ -89,12 +89,17 @@ private:
 	bool save_stream_ = false;
 	uint32_t fps_ = 0;
 	uint32_t bitrate_ = 0;
-	vts_rtc::RtcConfig rtc_config_;
-	std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
 	int width_ = 0;
 	int height_ = 0;
 	bool release_flag_ = false;
 	bool stop_flag_ = true;
+	std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
+
+	vts_rtc::RtcConfig rtc_config_;
+	std::pair<unsigned int, unsigned int> qp_range_;
+	std::pair<unsigned int, unsigned int> qp_threshold_;
+	unsigned int I_frame_interval_ = 3000;
+	std::string bitrate_mode_ = "cbr";
 };
 
 }  // namespace webrtc

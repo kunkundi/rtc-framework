@@ -100,6 +100,46 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		}
 	}
 
+	if(rtc_cfg_obj.contains("encode_params") && rtc_cfg_obj["encode_params"].is_array()) {
+		auto encode_params_array = rtc_cfg_obj["encode_params"].get<json::array_t>();
+		for (const auto& encode_params_obj : encode_params_array) {
+			if(encode_params_obj.contains("use_codec_pool")) {
+				rtc_config.encode_params.use_codec_pool = encode_params_obj["use_codec_pool"].get<bool>();
+			}
+			if(encode_params_obj.contains("codecs") && encode_params_obj["codecs"].is_array()) {
+				for(const auto& codec_obj: encode_params_obj["codecs"].get<json::array_t>()) {
+					auto val = codec_obj.get<unsigned int>();
+					rtc_config.encode_params.codecs.push_back(val);
+				}
+			}
+			if(encode_params_obj.contains("qp_range") && encode_params_obj["qp_range"].is_array()) {
+				std::vector<unsigned int> qp_range;
+				for(const auto& qp_range_obj: encode_params_obj["qp_range"].get<json::array_t>()) {
+					auto val = qp_range_obj.get<unsigned int>();
+					qp_range.push_back(val);
+				}
+				rtc_config.encode_params.qp_range = std::make_pair(qp_range[0], qp_range[1]);
+			}
+			if(encode_params_obj.contains("qp_threshold") && encode_params_obj["qp_threshold"].is_array()) {
+				std::vector<unsigned int> qp_threshold;
+				for(const auto& qp_threshold_obj: encode_params_obj["qp_threshold"].get<json::array_t>()) {
+					auto val = qp_threshold_obj.get<unsigned int>();
+					qp_threshold.push_back(val);
+				}
+				rtc_config.encode_params.qp_threshold = std::make_pair(qp_threshold[0], qp_threshold[1]);
+			}
+			if(encode_params_obj.contains("I_frame_interval")) {
+				rtc_config.encode_params.I_frame_interval = encode_params_obj["I_frame_interval"].get<unsigned int>();
+			}
+			if(encode_params_obj.contains("bitrate_mode")) {
+				rtc_config.encode_params.bitrate_mode = encode_params_obj["bitrate_mode"].get<std::string>();
+			}
+			if(encode_params_obj.contains("bitrate_maxmum")) {
+				rtc_config.encode_params.bitrate_maxmum = encode_params_obj["bitrate_maxmum"].get<unsigned int>();
+			}
+		}
+	}
+
 	if(rtc_cfg_obj.contains("strategy") && rtc_cfg_obj["strategy"].is_array()) {
 		auto strategy_array = rtc_cfg_obj["strategy"].get<json::array_t>();
 		for (const auto& sub_strategy_obj : strategy_array) {
@@ -122,23 +162,6 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 				}
 			}
 		}
-	}
-
-	if(rtc_cfg_obj.contains("use_codec_pool")) {
-		rtc_config.use_codec_pool = rtc_cfg_obj["use_codec_pool"].get<bool>();
-	}
-
-	if(rtc_cfg_obj.contains("codecs") && rtc_cfg_obj["codecs"].is_array()) {
-		auto codec_array = rtc_cfg_obj["codecs"].get<json::array_t>();
-		std::vector<unsigned int> codecs;
-		for (const auto& codec_obj : codec_array) {
-			auto val = codec_obj.get<unsigned int>();
-			rtc_config.codecs.push_back(val);
-		}
-	}
-
-	if(rtc_cfg_obj.contains("bitrate_maxmum")) {
-		rtc_config.bitrate_maxmum = rtc_cfg_obj["bitrate_maxmum"].get<long>();
 	}
 
 	if(rtc_cfg_obj.contains("netstats_report")) {
