@@ -93,10 +93,10 @@ void RtcStatistics::OnStatisticsReport(const vts_rtc::SessionId session_id, cons
 			std::string outbound_str = "RTCOutboundRTPVideoStream_" + std::to_string(ssrc_vs_id.first);
 			const webrtc::RTCOutboundRTPStreamStats* media_stats = (const webrtc::RTCOutboundRTPStreamStats*)(report->Get(outbound_str));
 			if (media_stats != NULL) {
-				if (*media_stats->media_type == "audio") {
-					net_stats_out.audio_stats.sourceid = ssrc_vs_id.second;
-					net_stats_out.audio_stats.bitrate_bps = (&media_stats->bytes_sent)->is_defined() ? *media_stats->bytes_sent * 8 : 0;
-				}
+// 				if (*media_stats->media_type == "audio") {
+// 					net_stats_out.audio_stats.sourceid = ssrc_vs_id.second;
+// 					net_stats_out.audio_stats.bitrate_bps = (&media_stats->bytes_sent)->is_defined() ? *media_stats->bytes_sent * 8 : 0;
+// 				}
 
 				if (*media_stats->media_type == "video") {
 					net_stats_out.video_stats.sourceid = ssrc_vs_id.second;
@@ -163,19 +163,16 @@ void RtcStatistics::OnStatisticsReport(const vts_rtc::SessionId session_id, cons
 			std::string inbound_str = "RTCInboundRTPVideoStream_" + std::to_string(id_vs_ssrc.second);
 			const webrtc::RTCInboundRTPStreamStats* media_stats = (const webrtc::RTCInboundRTPStreamStats*)(report->Get(inbound_str));
 			if (media_stats != NULL) {
-				if (*media_stats->kind == "audio") {
-					net_stats_out.audio_stats.sourceid = id_vs_ssrc.first;
-					net_stats_out.audio_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
-					net_stats_[id_vs_ssrc.first].audio_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received * 8 : 0;
-				}
+// 				if (*media_stats->kind == "audio") {
+// 					net_stats_out.audio_stats.sourceid = id_vs_ssrc.first;
+// 					net_stats_out.audio_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
+// 					net_stats_[id_vs_ssrc.first].audio_stats.bitrate_bps = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received * 8 : 0;
+// 				}
 
 				if (*media_stats->kind == "video") {
 					net_stats_out.video_stats.sourceid = id_vs_ssrc.first;
 
 					auto bytes_received = (&media_stats->bytes_received)->is_defined() ? *media_stats->bytes_received : 0;
-
-					if (bytes_received == 0)
-						continue;
 
 					if (bytes_received > net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps) {
 						net_stats_out.video_stats.bitrate_bps = (bytes_received - net_stats_[id_vs_ssrc.first].video_stats.bitrate_bps) * 8;
@@ -184,9 +181,6 @@ void RtcStatistics::OnStatisticsReport(const vts_rtc::SessionId session_id, cons
 
 					auto frames_decoded = (&media_stats->frames_decoded)->is_defined() ? *media_stats->frames_decoded : 0;
 
-					if (frames_decoded == 0)
-						continue;
-
 					if (frames_decoded > net_stats_[id_vs_ssrc.first].video_stats.fps) {
 						net_stats_out.video_stats.fps = frames_decoded - net_stats_[id_vs_ssrc.first].video_stats.fps;
 						net_stats_[id_vs_ssrc.first].video_stats.fps = frames_decoded;
@@ -194,9 +188,6 @@ void RtcStatistics::OnStatisticsReport(const vts_rtc::SessionId session_id, cons
 
 					auto total_packets_received = (&media_stats->packets_received)->is_defined() ? *media_stats->packets_received : 0;
 					auto total_packets_lost = (&media_stats->packets_lost)->is_defined() ? *media_stats->packets_lost : 0;
-
-					if (total_packets_received <= 0 || total_packets_lost <= 0)
-						continue;
 					
 					if(total_packets_received > net_stats_[id_vs_ssrc.first].video_stats.packets_received &&
 						total_packets_lost > net_stats_[id_vs_ssrc.first].video_stats.packets_lost) {
@@ -233,9 +224,9 @@ void RtcStatistics::OnStatisticsReport(const vts_rtc::SessionId session_id, cons
 						const webrtc::RTCMediaStreamTrackStats* media_stream_track_stats = (const webrtc::RTCMediaStreamTrackStats*)(report->Get(media_stream_trackid));
 						if (media_stream_track_stats != NULL)
 						{
-							if (*media_stream_track_stats->kind == "audio") {
-								net_stats_out.audio_stats.sourceid = id_vs_ssrc.first;
-							}
+// 							if (*media_stream_track_stats->kind == "audio") {
+// 								net_stats_out.audio_stats.sourceid = id_vs_ssrc.first;
+// 							}
 
 							if (*media_stream_track_stats->kind == "video") {
 								net_stats_out.video_stats.sourceid = id_vs_ssrc.first;
