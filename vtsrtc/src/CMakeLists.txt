@@ -73,8 +73,10 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	list(APPEND SOURCE_CODE
 		video/encode/nvidia-jetson/jetsonh264_encoder_impl.h
 		video/encode/nvidia-jetson/jetsonh264_encoder_impl.cpp
-		video/encode/nvidia-jetson/rtc_codec_pool.h
-		video/encode/nvidia-jetson/rtc_codec_pool.cpp
+		video/encode/nvidia-jetson/nvmpi.h
+		video/encode/nvidia-jetson/nvmpi_enc.cpp
+		# video/encode/nvidia-jetson/rtc_codec_pool.h
+		# video/encode/nvidia-jetson/rtc_codec_pool.cpp
 		/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h
 		/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp
 		/usr/src/jetson_multimedia_api/include/NvV4l2Element.h
