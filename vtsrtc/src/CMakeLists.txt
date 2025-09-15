@@ -92,7 +92,6 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		/usr/src/jetson_multimedia_api/include/NvLogging.h
 		/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp
 		/usr/src/jetson_multimedia_api/include/libv4l2.h
-		/usr/src/jetson_multimedia_api/include/nvbuf_utils.h
 	)
 else()
 	list(APPEND SOURCE_CODE
@@ -175,7 +174,8 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		nlohmann_json::nlohmann_json
 		${WEBRTC_LIBRARY}
 		v4l2
-		nvbuf_utils
+		nvbufsurface
+		nvbufsurftransform
 		X11
 		-L"/usr/lib/aarch64-linux-gnu/tegra/"
 	)

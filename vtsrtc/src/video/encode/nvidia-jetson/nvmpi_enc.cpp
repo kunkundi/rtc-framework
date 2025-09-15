@@ -6,7 +6,8 @@
 #include <vector>
 
 #include "/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h"
-#include "/usr/src/jetson_multimedia_api/include/nvbuf_utils.h"
+#include "/usr/src/jetson_multimedia_api/include/nvbufsurface.h"
+#include "/usr/src/jetson_multimedia_api/include/nvbufsurftransform.h"
 #include "log/log_manager.h"
 #include "nvmpi.h"
 
@@ -384,26 +385,28 @@ int nvmpi_encoder_put_frame(nvmpictx *ctx, nvFrame *frame) {
     ret = ctx->enc->output_plane.dqBuffer(v4l2_buf, &nvBuffer, NULL, -1);
     if (ret < 0) {
       cout << "Error DQing buffer at output plane" << std::endl;
-      return false;
+      return -1;
     }
   }
 
-  memcpy(nvBuffer->planes[0].data, frame->payload[0], frame->payload_size[0]);
-  memcpy(nvBuffer->planes[1].data, frame->payload[1], frame->payload_size[1]);
-  memcpy(nvBuffer->planes[2].data, frame->payload[2], frame->payload_size[2]);
-  nvBuffer->planes[0].bytesused = frame->payload_size[0];
-  nvBuffer->planes[1].bytesused = frame->payload_size[1];
-  nvBuffer->planes[2].bytesused = frame->payload_size[2];
+  NvBufSurface *nvbuf_surf = nullptr;
+  ret = NvBufSurfaceFromFd(nvBuffer->planes[0].fd, (void**)(&nvbuf_surf));
+  if (ret < 0) return -1;
+ 
+  memcpy(nvbuf_surf->surfaceList[0].dataPtr, frame->payload[0], frame->payload_size[0]);
+  memcpy(nvbuf_surf->surfaceList[1].dataPtr, frame->payload[1], frame->payload_size[1]);
+  memcpy(nvbuf_surf->surfaceList[2].dataPtr, frame->payload[2], frame->payload_size[2]);
+
+  NvBufSurfaceSyncForDevice(nvbuf_surf, -1, -1);
 
   v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
   v4l2_buf.timestamp.tv_usec = frame->timestamp % 1000000;
   v4l2_buf.timestamp.tv_sec = frame->timestamp / 1000000;
 
   ret = ctx->enc->output_plane.qBuffer(v4l2_buf, NULL);
-  TEST_ERROR(ret < 0, "Error while queueing buffer at output plane", ret);
-
-  return 0;
+  return (ret < 0) ? -1 : 0;
 }
+
 
 int nvmpi_encoder_get_packet(nvmpictx *ctx, nvPacket *packet) {
   int ret, packet_index;

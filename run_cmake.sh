@@ -13,9 +13,8 @@ export CC=/usr/bin/clang
 export CXX=/usr/bin/clang++
 
 cmake -G "$CMAKE_GENERATOR" \
-    -DCMAKE_CXX_FLAGS=-stdlib=libstdc++ \
-    -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libstdc++ \
-    -DQTDIR="/home/zhujian/Qt5.12.7/5.12.7/gcc_64" \
+    -DCMAKE_CXX_FLAGS=-stdlib=libstdc++ \
+    -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libstdc++ \
     -DBoost_USE_STATIC_LIBS=ON \
     -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$CMAKE_BUILD_DIR/runtime" \
     -DCMAKE_INSTALL_PREFIX="$CMAKE_INSTALL_DIR" \
