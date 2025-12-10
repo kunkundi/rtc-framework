@@ -9,6 +9,7 @@
 #include <string>
 
 #include "jetsonh264_encoder_impl.h"
+#include "jetson_encoder.h"
 #include "log/log_manager.h"
 
 namespace webrtc {
@@ -59,11 +60,7 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
   }
 
   // Release necessary in case of re-initializing.
-  // int32_t ret = Release();
-  // if (ret != WEBRTC_VIDEO_CODEC_OK) {
-  //   ReportError();
-  //   return ret;
-  // }
+  encoder_.reset();
 
   // TO DO: support SVC feature
   auto num_of_streams =
@@ -85,28 +82,8 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
   const auto frame_width = codec_.simulcastStream[0].width;
   const auto frame_height = codec_.simulcastStream[0].height;
 
-  // Create JetsonEncoder
-  param_ = new nvEncParam();
-  param_->width = codec_settings->width;
-  param_->height = codec_settings->height;
-  param_->profile = 66;
-  param_->level = 31;
-  param_->bitrate = bitrate_;
-  param_->peak_bitrate = bitrate_;
-  // param_->mode_vbr;
-  param_->insert_spspps_idr = 1;
-  param_->iframe_interval = 30 * 5;
-  param_->idr_interval = 30 * 5;
-  param_->fps_n = 1;
-  param_->fps_d = 30;
-  param_->capture_num = 1;
-  param_->max_b_frames = 0;
-  // param_->refs;
-  param_->qmax = 40;
-  param_->qmin = 20;
-  param_->hw_preset_type = 1;
-
-  ctx_ = nvmpi_create_encoder(NV_VIDEO_CodingH264, param_);
+  width_ = frame_width;
+  height_ = frame_height;
 
   const size_t new_capacity =
       CalcBufferSize(VideoType::kI420, frame_width, frame_height);
@@ -126,10 +103,7 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 }
 
 int32_t JetsonH264EncoderImpl::Release() {
-  if (ctx_) {
-    nvmpi_encoder_close(ctx_);
-  }
-  encoded_packets_.clear();
+  encoder_.reset();
   encoded_image_.ClearEncodedData();
 
   return WEBRTC_VIDEO_CODEC_OK;
@@ -143,13 +117,6 @@ int32_t JetsonH264EncoderImpl::RegisterEncodeCompleteCallback(
 }
 
 void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
-  int32_t ret = 0;
-
-  if (!ctx_) {
-    LOG_ERROR("ctx_ is Null");
-    return;
-  }
-
   auto fps = static_cast<uint32_t>(parameters.framerate_fps);
   codec_.maxFramerate = fps;
 
@@ -161,30 +128,18 @@ void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
     return;
   }
 
-  if (fps_ != fps) {
-    ret = nvmpi_encoder_set_fps(ctx_, fps);
-    if (ret < 0) LOG_ERROR("Could not set framerate");
-    fps_ = fps;
-    // LOG_INFO("SetRates<%p> fps:%u <%dx%d>", jetsonh264_encoder_, fps, width_,
-    // height_);
-  }
-  if (bitrate_ != bitrate) {
-    ret = nvmpi_encoder_set_bitrate(ctx_, bitrate);
-    if (ret < 0) LOG_ERROR("Could not set encoder bitrate");
-    bitrate_ = bitrate;
-    // LOG_INFO("SetRates<%p> bitrate:%u <%dx%d>", jetsonh264_encoder_, bitrate,
-    // width_, height_);
+  fps_ = fps;
+  bitrate_ = bitrate;
+
+  if (encoder_) {
+    encoder_->SetFps(fps);
+    encoder_->SetBitrate(bitrate);
   }
 }
 
 int32_t JetsonH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
-  if (!ctx_) {
-    ReportError();
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
-  }
-
   if (!encoded_image_callback_) {
     LOG_ERROR(
         "InitEncode() has been called, but a callback function "
@@ -193,119 +148,117 @@ int32_t JetsonH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  // TO DO
-  // 	if (codec_.maxFramerate < 1 || codec_.maxBitrate < 1) {
-  // 	}
+  if (frame_types && (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
 
   auto frame_buffer = input_frame.video_frame_buffer()->ToI420();
 
   RTC_DCHECK_EQ(encoded_image_._encodedWidth, frame_buffer->width());
   RTC_DCHECK_EQ(encoded_image_._encodedHeight, frame_buffer->height());
 
-  if (frame_types && (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
-    return WEBRTC_VIDEO_CODEC_OK;
+  // Create encoder if not exists
+  if (!encoder_) {
+    encoder_ = JetsonEncoder::Create(width_, height_, V4L2_PIX_FMT_H264, false);
+    if (!encoder_) {
+      ReportError();
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
+    encoder_->SetFps(fps_);
+    encoder_->SetBitrate(bitrate_);
   }
 
   // Request Key frame
   if (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
-    nvmpi_encoder_force_idr(ctx_);
+    encoder_->ForceKeyFrame();
   }
 
-  nvFrame frame;
-
-  frame.payload[0] = (unsigned char*)frame_buffer->DataY();
-  frame.payload[1] = (unsigned char*)frame_buffer->DataU();
-  frame.payload[2] = (unsigned char*)frame_buffer->DataV();
-
-  frame.payload_size[0] = frame_buffer->width() * frame_buffer->height();
-  frame.payload_size[1] =
-      frame_buffer->width() * frame_buffer->height() * 1 / 4;
-  frame.payload_size[2] =
-      frame_buffer->width() * frame_buffer->height() * 1 / 4;
-  frame.width = frame_buffer->width();
-  frame.height = frame_buffer->height();
-  frame.timestamp = input_frame.timestamp();
-  frame.flags = 1;
-
-  int ret = 0;
-  ret = nvmpi_encoder_put_frame(ctx_, &frame);
-  nvPacket packet;
-  ret = nvmpi_encoder_get_packet(ctx_, &packet);
-  // OnEncodedImage(packet.payload, packet.payload_size, capture_timestamp);
-
-  if (ret < 0) {
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  {
-    encoded_image_.set_size(packet.payload_size);
-    // TO TEST: not tested yet
-    // encoded_image_.playout_delay_ = { 0, 0 };
-    encoded_image_.SetTimestamp(input_frame.timestamp());
-    encoded_image_.ntp_time_ms_ = input_frame.ntp_time_ms();
-    encoded_image_.capture_time_ms_ = input_frame.render_time_ms();
-    encoded_image_.rotation_ = input_frame.rotation();
-    encoded_image_.SetColorSpace(input_frame.color_space());
-    encoded_image_.content_type_ = codec_.mode == VideoCodecMode::kScreensharing
-                                       ? VideoContentType::SCREENSHARE
-                                       : VideoContentType::UNSPECIFIED;
-    encoded_image_.SetSpatialIndex(0);
-    if ((packet.payload[4] & 0x1f) == 0x07) {
-      encoded_image_._frameType = VideoFrameType::kVideoFrameKey;
-    } else if ((packet.payload[4] & 0x1f) == 0x01) {
-      encoded_image_._frameType = VideoFrameType::kVideoFrameDelta;
-    } else {
-      encoded_image_._frameType = VideoFrameType::kEmptyFrame;
-    }
-
-    memcpy(encoded_image_.data(), packet.payload, packet.payload_size);
-
-    RTPFragmentationHeader frag_header;
-    auto nalu_indices =
-        H264::FindNaluIndices(packet.payload, packet.payload_size);
-    auto nalu_size = nalu_indices.size();
-
-    if (nalu_size == 0) {
-      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
-    }
-
-    frag_header.VerifyAndAllocateFragmentationHeader(nalu_size);
-    for (auto i = 0; i < nalu_size; ++i) {
-      frag_header.fragmentationOffset[i] = nalu_indices[i].payload_start_offset;
-      frag_header.fragmentationLength[i] = nalu_indices[i].payload_size;
-    }
-
-    // && (encoded_image_.data()[4] & 0x1f) == 0x07
-    if (encoded_image_.size() > 0) {
-      h264_bitstream_parser_.ParseBitstream(encoded_image_.data(),
-                                            encoded_image_.size());
-      auto qp = h264_bitstream_parser_.GetLastSliceQp();
-      if (qp.has_value()) {
-        encoded_image_.qp_ = qp.value();
-        LOG_WARN("QP = %d <%ux%u>", qp.value(), frame_buffer->width(),
-                 frame_buffer->height());
-      }
-    }
-
-    CodecSpecificInfo codec_specific;
-    codec_specific.codecType = kVideoCodecH264;
-    codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
-    codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
-    codec_specific.codecSpecific.H264.idr_frame =
-        (encoded_image_._frameType == VideoFrameType::kVideoFrameKey);
-    codec_specific.codecSpecific.H264.base_layer_sync = false;
-
-    encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_specific,
-                                            &frag_header);
-  }
+  // Encode frame using callback mechanism
+  encoder_->EmplaceBuffer(
+      frame_buffer,
+      [this, input_frame](const uint8_t* data, size_t size, bool is_keyframe,
+                          uint64_t timestamp) {
+        SendFrame(input_frame, data, size, is_keyframe);
+      });
 
   return WEBRTC_VIDEO_CODEC_OK;
+}
+
+void JetsonH264EncoderImpl::SendFrame(const VideoFrame& frame,
+                                       const uint8_t* data, size_t size,
+                                       bool is_keyframe) {
+  if (size == 0) {
+    return;
+  }
+
+  // Check for NAL units
+  auto nalu_indices = H264::FindNaluIndices(data, size);
+  if (nalu_indices.empty()) {
+    return;
+  }
+
+  // Determine frame type
+  VideoFrameType frame_type = VideoFrameType::kVideoFrameDelta;
+  if (is_keyframe) {
+    frame_type = VideoFrameType::kVideoFrameKey;
+  } else if (size > 4 && (data[4] & 0x1f) == 0x07) {
+    frame_type = VideoFrameType::kVideoFrameKey;
+  } else if (size > 4 && (data[4] & 0x1f) == 0x01) {
+    frame_type = VideoFrameType::kVideoFrameDelta;
+  }
+
+  // Prepare encoded image
+  encoded_image_.set_size(size);
+  encoded_image_.SetTimestamp(frame.timestamp());
+  encoded_image_.ntp_time_ms_ = frame.ntp_time_ms();
+  encoded_image_.capture_time_ms_ = frame.render_time_ms();
+  encoded_image_.rotation_ = frame.rotation();
+  encoded_image_.SetColorSpace(frame.color_space());
+  encoded_image_.content_type_ = codec_.mode == VideoCodecMode::kScreensharing
+                                     ? VideoContentType::SCREENSHARE
+                                     : VideoContentType::UNSPECIFIED;
+  encoded_image_.SetSpatialIndex(0);
+  encoded_image_._frameType = frame_type;
+
+  // Copy encoded data
+  memcpy(encoded_image_.data(), data, size);
+
+  // Parse bitstream for QP
+  if (size > 0) {
+    h264_bitstream_parser_.ParseBitstream(encoded_image_.data(),
+                                          encoded_image_.size());
+    auto qp = h264_bitstream_parser_.GetLastSliceQp();
+    if (qp.has_value()) {
+      encoded_image_.qp_ = qp.value();
+    }
+  }
+
+  // Prepare fragmentation header
+  RTPFragmentationHeader frag_header;
+  frag_header.VerifyAndAllocateFragmentationHeader(nalu_indices.size());
+  for (size_t i = 0; i < nalu_indices.size(); ++i) {
+    frag_header.fragmentationOffset[i] = nalu_indices[i].payload_start_offset;
+    frag_header.fragmentationLength[i] = nalu_indices[i].payload_size;
+  }
+
+  // Prepare codec specific info
+  CodecSpecificInfo codec_specific;
+  codec_specific.codecType = kVideoCodecH264;
+  codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
+  codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
+  codec_specific.codecSpecific.H264.idr_frame =
+      (frame_type == VideoFrameType::kVideoFrameKey);
+  codec_specific.codecSpecific.H264.base_layer_sync = false;
+
+  // Send encoded image
+  encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_specific,
+                                          &frag_header);
 }
 
 VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
   info.supports_native_handle = false;
-  info.implementation_name = "NvEncH264";
+  info.implementation_name = "JetsonH264";
   info.scaling_settings =
       VideoEncoder::ScalingSettings(kLowH264QpThreshold, kHighH264QpThreshold);
   info.is_hardware_accelerated = true;
@@ -335,7 +288,7 @@ void JetsonH264EncoderImpl::OnLossNotification(
 }
 
 void JetsonH264EncoderImpl::ReconfigureEncoderRates(uint32_t fps,
-                                                    uint32_t bitrate) {}
+                                                       uint32_t bitrate) {}
 
 void JetsonH264EncoderImpl::ReconfigureEncoderIDR() {}
 

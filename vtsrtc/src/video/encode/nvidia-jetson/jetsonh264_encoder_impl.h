@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-#include "nvmpi.h"
+#include "jetson_encoder.h"
 #include "rtc_types.h"
 
 namespace webrtc {
@@ -61,12 +61,12 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   void ReportInit();
   void ReportError();
 
- private:
-  nvmpictx* ctx_ = nullptr;
-  nvEncParam* param_ = nullptr;
+  void SendFrame(const VideoFrame& frame, const uint8_t* data, size_t size,
+                 bool is_keyframe);
 
-  //   std::unique_ptr<NvEncoder> nvh264_encoder_ = nullptr;
-  std::vector<std::vector<uint8_t>> encoded_packets_;
+ private:
+  std::unique_ptr<JetsonEncoder> encoder_;
+
   EncodedImage encoded_image_;
 
   EncodedImageCallback* encoded_image_callback_ = nullptr;
