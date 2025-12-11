@@ -3,6 +3,7 @@
 
 #include <api/video/i420_buffer.h>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <queue>
@@ -10,6 +11,22 @@
 
 #include "/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h"
 #include "/usr/src/jetson_multimedia_api/include/nvbufsurface.h"
+
+// 编码性能统计开关：生产环境建议关闭以提升性能
+// 
+// 使用方法（CMake选项）：
+//   1. 启用统计（开发/调试环境）：
+//      cmake -DENABLE_ENCODE_PERF_STATS=ON ...
+//   
+//   2. 关闭统计（生产环境，默认）：
+//      cmake -DENABLE_ENCODE_PERF_STATS=OFF ...
+//      或不设置该选项（默认关闭）
+//      性能统计代码将被完全移除，无任何运行时开销
+//
+// 注意：该宏由CMake自动定义，无需手动设置
+#ifndef ENABLE_ENCODE_PERF_STATS
+#define ENABLE_ENCODE_PERF_STATS 0
+#endif
 
 namespace webrtc {
 
@@ -45,6 +62,9 @@ class JetsonEncoder {
     std::function<void(const uint8_t* data, size_t size, bool is_keyframe,
                        uint64_t timestamp)>
         callback;
+#if ENABLE_ENCODE_PERF_STATS
+    int64_t encode_start_time_us;  // 编码开始时间（微秒）
+#endif
   };
 
   std::queue<CaptureTask> capturing_tasks_;

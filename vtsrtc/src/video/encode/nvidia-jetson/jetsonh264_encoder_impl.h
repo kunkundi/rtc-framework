@@ -5,11 +5,15 @@
 #include <common_video/h264/h264_bitstream_parser.h>
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
+#include <chrono>
+#include <climits>
 #include <memory>
 #include <vector>
 
 #include "jetson_encoder.h"
 #include "rtc_types.h"
+
+// 编码性能统计开关定义在 jetson_encoder.h 中
 
 namespace webrtc {
 
@@ -62,7 +66,7 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   void ReportError();
 
   void SendFrame(const VideoFrame& frame, const uint8_t* data, size_t size,
-                 bool is_keyframe);
+                 bool is_keyframe, int64_t encode_duration_us = 0);
 
  private:
   std::unique_ptr<JetsonEncoder> encoder_;
@@ -85,6 +89,18 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   unsigned int height_ = 0;
   unsigned int fps_ = 30;
   unsigned int bitrate_ = 25000000;
+
+#if ENABLE_ENCODE_PERF_STATS
+  // 编码性能统计
+  struct EncodeStats {
+    int64_t total_encode_time_us = 0;  // 总编码耗时（微秒）
+    int64_t max_encode_time_us = 0;    // 最大编码耗时（微秒）
+    int64_t min_encode_time_us = INT64_MAX;  // 最小编码耗时（微秒）
+    uint32_t frame_count = 0;          // 编码帧数
+    uint32_t keyframe_count = 0;       // 关键帧数
+    std::chrono::steady_clock::time_point last_log_time;  // 上次打印统计的时间
+  } encode_stats_;
+#endif
 };
 
 }  // namespace webrtc

@@ -14,7 +14,8 @@ export CXX=/usr/bin/clang++
 
 cmake -G "$CMAKE_GENERATOR" \
     -DUSE_DEFAULT_JETSON_ENCODER=OFF \
-    -DCMAKE_BUILD_TYPE=Debug \
+    -DENABLE_ENCODE_PERF_STATS=OFF \
+    -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_FLAGS="-stdlib=libstdc++ -g" \
     -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libstdc++ -g" \
     -DQTDIR="/usr/local/qt-qt-5.12.7/lib/cmake" \

@@ -9,6 +9,9 @@ if(USE_DEFAULT_JETSON_ENCODER)
     add_definitions(-DUSE_DEFAULT_JETSON_ENCODER)
 endif(USE_DEFAULT_JETSON_ENCODER)
 
+# 编码性能统计选项（默认关闭，生产环境建议关闭）
+option(ENABLE_ENCODE_PERF_STATS "Enable encode performance statistics" OFF)
+
 list(APPEND CMAKE_MODULE_PATH
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/cmake"
 )
@@ -155,6 +158,15 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		${WEBRTC_INCLUDE_DIR}
 		"/usr/src/jetson_multimedia_api/include"
 	)
+	
+	# 设置编码性能统计编译定义
+	if(ENABLE_ENCODE_PERF_STATS)
+		target_compile_definitions(${target} PRIVATE ENABLE_ENCODE_PERF_STATS=1)
+		message(STATUS "编码性能统计: 已启用")
+	else()
+		target_compile_definitions(${target} PRIVATE ENABLE_ENCODE_PERF_STATS=0)
+		message(STATUS "编码性能统计: 已关闭（生产环境推荐）")
+	endif()
 else()
 	target_include_directories(${target}
 	PUBLIC

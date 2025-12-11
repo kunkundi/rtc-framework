@@ -6,6 +6,10 @@
 #include <modules/video_coding/utility/simulcast_utility.h>
 #include <system_wrappers/include/metrics.h>
 
+#include <chrono>
+#include <climits>
+#include <chrono>
+#include <climits>
 #include <string>
 
 #include "jetsonh264_encoder_impl.h"
@@ -40,7 +44,7 @@ JetsonH264EncoderImpl::~JetsonH264EncoderImpl() { Release(); }
 
 int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
                                       const VideoEncoder::Settings& settings) {
-  LOG_INFO("[WebRTC] Init Nvidia H264 encoder");
+  LOG_INFO("[WebRTC] Init Jetson H264 encoder");
 
   ReportInit();
 
@@ -173,23 +177,105 @@ int32_t JetsonH264EncoderImpl::Encode(
     encoder_->ForceKeyFrame();
   }
 
+#if ENABLE_ENCODE_PERF_STATS
+  // 记录编码开始时间
+  auto encode_start_time = std::chrono::steady_clock::now();
+#endif
+
   // Encode frame using callback mechanism
   encoder_->EmplaceBuffer(
       frame_buffer,
+#if ENABLE_ENCODE_PERF_STATS
+      [this, input_frame, encode_start_time](const uint8_t* data, size_t size, bool is_keyframe,
+                          uint64_t timestamp) {
+        // 计算编码耗时
+        auto encode_end_time = std::chrono::steady_clock::now();
+        int64_t encode_duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            encode_end_time - encode_start_time).count();
+        
+        SendFrame(input_frame, data, size, is_keyframe, encode_duration_us);
+      });
+#else
       [this, input_frame](const uint8_t* data, size_t size, bool is_keyframe,
                           uint64_t timestamp) {
-        SendFrame(input_frame, data, size, is_keyframe);
+        SendFrame(input_frame, data, size, is_keyframe, 0);
       });
+#endif
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 void JetsonH264EncoderImpl::SendFrame(const VideoFrame& frame,
                                        const uint8_t* data, size_t size,
-                                       bool is_keyframe) {
+                                       bool is_keyframe, int64_t encode_duration_us) {
   if (size == 0) {
     return;
   }
+
+#if ENABLE_ENCODE_PERF_STATS
+  // 更新编码性能统计
+  if (encode_duration_us > 0) {
+    encode_stats_.total_encode_time_us += encode_duration_us;
+    encode_stats_.max_encode_time_us = std::max(encode_stats_.max_encode_time_us, encode_duration_us);
+    encode_stats_.min_encode_time_us = std::min(encode_stats_.min_encode_time_us, encode_duration_us);
+    encode_stats_.frame_count++;
+    if (is_keyframe) {
+      encode_stats_.keyframe_count++;
+    }
+
+    // 打印每帧编码耗时
+    LOG_INFO("[编码性能] 帧编码耗时: %ld us (%.2f ms), 大小: %zu bytes, 关键帧: %s",
+             encode_duration_us, encode_duration_us / 1000.0f,
+             size, is_keyframe ? "是" : "否");
+
+    // 每100帧或每5秒打印一次统计信息
+    auto now = std::chrono::steady_clock::now();
+    bool should_log_stats = false;
+    if (encode_stats_.frame_count == 1) {
+      encode_stats_.last_log_time = now;
+      should_log_stats = false;
+    } else {
+      auto time_since_last_log = std::chrono::duration_cast<std::chrono::seconds>(
+          now - encode_stats_.last_log_time).count();
+      if (encode_stats_.frame_count % 100 == 0 || time_since_last_log >= 5) {
+        should_log_stats = true;
+        encode_stats_.last_log_time = now;
+      }
+    }
+
+    if (should_log_stats && encode_stats_.frame_count > 0) {
+      int64_t avg_encode_time_us = encode_stats_.total_encode_time_us / encode_stats_.frame_count;
+      float fps = codec_.maxFramerate;
+      float frame_budget_ms = 1000.0f / fps;  // 每帧的时间预算（毫秒）
+      float utilization = (avg_encode_time_us / 1000.0f) / frame_budget_ms * 100.0f;  // 编码耗时占用百分比
+      
+      LOG_INFO("[编码性能统计] 总帧数: %u, 关键帧数: %u, 平均耗时: %ld us (%.2f ms), "
+               "最大耗时: %ld us (%.2f ms), 最小耗时: %ld us (%.2f ms), "
+               "帧率: %.1f fps, 时间预算: %.2f ms/帧, 占用率: %.1f%%",
+               encode_stats_.frame_count, encode_stats_.keyframe_count,
+               avg_encode_time_us, avg_encode_time_us / 1000.0f,
+               encode_stats_.max_encode_time_us, encode_stats_.max_encode_time_us / 1000.0f,
+               encode_stats_.min_encode_time_us == INT64_MAX ? 0 : encode_stats_.min_encode_time_us,
+               encode_stats_.min_encode_time_us == INT64_MAX ? 0.0f : encode_stats_.min_encode_time_us / 1000.0f,
+               fps, frame_budget_ms, utilization);
+      
+      // 性能评估和反馈
+      if (utilization > 80.0f) {
+        LOG_WARN("[编码性能警告] 编码耗时占用率过高 (%.1f%%), 可能影响实时性能。建议："
+                 "1) 降低分辨率或帧率 2) 检查格式转换耗时 3) 确认setMaxPerfMode已启用", utilization);
+      } else if (utilization > 60.0f) {
+        LOG_WARN("[编码性能提示] 编码耗时占用率较高 (%.1f%%), 建议监控性能", utilization);
+      } else if (utilization < 30.0f && avg_encode_time_us < 5000) {
+        // 性能优秀：占用率低且绝对耗时小
+        LOG_INFO("[编码性能] ✓ 编码性能优秀！耗时: %.2f ms, 占用率: %.1f%%, 有充足的时间余量", 
+                 avg_encode_time_us / 1000.0f, utilization);
+      } else if (utilization < 50.0f) {
+        // 性能良好
+        LOG_INFO("[编码性能] ✓ 编码性能良好，占用率: %.1f%%", utilization);
+      }
+    }
+  }
+#endif
 
   // Check for NAL units
   auto nalu_indices = H264::FindNaluIndices(data, size);

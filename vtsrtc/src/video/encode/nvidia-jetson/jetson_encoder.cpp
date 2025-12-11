@@ -1,6 +1,7 @@
 #include "jetson_encoder.h"
 #include "log/log_manager.h"
 
+#include <chrono>
 #include <cstring>
 #include <linux/videodev2.h>
 
@@ -165,6 +166,13 @@ bool JetsonEncoder::CreateVideoEncoder() {
     return false;
   }
 
+  // Enable maximum performance mode for better encoding speed
+  ret = encoder_->setMaxPerfMode(1);
+  if (ret < 0) {
+    LOG_WARN("Could not set encoder max performance mode (may affect encoding speed)");
+    // 不返回false，因为这不是致命错误
+  }
+
   // Setup output plane
   ret = encoder_->output_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true, false);
   if (ret < 0) {
@@ -284,14 +292,38 @@ void JetsonEncoder::EmplaceBuffer(
     v4l2_output_buf.index = nv_buffer->index;
   }
 
+#if ENABLE_ENCODE_PERF_STATS
+  // 记录格式转换开始时间
+  auto convert_start = std::chrono::steady_clock::now();
+#endif
   ConvertI420ToYUV420M(nv_buffer, i420_buffer);
+#if ENABLE_ENCODE_PERF_STATS
+  auto convert_end = std::chrono::steady_clock::now();
+  int64_t convert_duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
+      convert_end - convert_start).count();
+#endif
 
   {
     std::lock_guard<std::mutex> lock(tasks_mutex_);
     CaptureTask task;
     task.callback = on_capture;
+#if ENABLE_ENCODE_PERF_STATS
+    // 记录编码开始时间（微秒）
+    auto now = std::chrono::steady_clock::now();
+    static auto reference_time = std::chrono::steady_clock::now();
+    task.encode_start_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        now - reference_time).count();
+#endif
     capturing_tasks_.push(task);
   }
+
+#if ENABLE_ENCODE_PERF_STATS
+  // 如果格式转换耗时超过1ms，记录警告
+  if (convert_duration_us > 1000) {
+    LOG_WARN("[编码性能] 格式转换耗时较长: %ld us (%.2f ms), 可能影响整体性能",
+             convert_duration_us, convert_duration_us / 1000.0f);
+  }
+#endif
 
   if (encoder_->output_plane.qBuffer(v4l2_output_buf, nullptr) < 0) {
     LOG_ERROR("Failed to qBuffer at encoder output_plane");
@@ -363,7 +395,7 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
     thiz->capturing_tasks_.pop();
   }
 
-  // Invoke callback
+  // 调用回调
   task.callback(thiz->packets_[current_index], thiz->packets_size_[current_index],
                 is_keyframe, timestamp);
 
