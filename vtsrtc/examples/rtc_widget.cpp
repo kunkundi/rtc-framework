@@ -220,7 +220,7 @@ RtcWidget::~RtcWidget() {
 	}
 
 	for (auto& pcmdata : pcmdatas_) {
-		delete[] pcmdata.buffer;
+		delete[] static_cast<char*>(pcmdata.buffer);
 	}
 
 	for (auto& yuvframe : yuv_frames_) {
@@ -553,8 +553,10 @@ void RtcWidget::AddVideoSource() {
 	}
 	else {
 		// Camera video source
+		// current_idx is combobox index, device_index = current_idx - 1 (because index 0 is "Local YUV420p")
+		size_t device_index = current_idx - 1;
 		RtcVideoDeviceCapability device_capability{ 1280, 720, 30 };
-		auto code = RtcAddDeviceVideoSource(current_idx, &device_capability, RtcPriorityType::High);
+		auto code = RtcAddDeviceVideoSource(device_index, &device_capability, RtcPriorityType::High);
 		//CHECK_ERRORCODE
 
 // 		code = RtcAddExternalVideoSource("external_feed", RtcPriorityType::High);
