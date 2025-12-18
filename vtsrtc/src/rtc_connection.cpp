@@ -461,8 +461,10 @@ void RtcConnectionBase::InitObserverCallbacks() {
 	rtc_channel_stats_observer_ = new rtc::RefCountedObject<RtcChannelStatsObserver>();
 	rtc_channel_stats_observer_->on_stats_deliverd_ = 
 		[this, weak_self](const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+		LOG_INFO("[Stats] RtcChannelStatsObserver::OnStatsDelivered called");
 		auto self = weak_self.lock();
 		if (!self) {
+			LOG_WARN("[Stats] RtcChannelStatsObserver: weak_self is null");
 			return;
 		}
 
@@ -528,8 +530,12 @@ void RtcConnection::HandleDataChannelStateChanged(
 
 void RtcConnection::HandleNetStatsReport(
 	const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) const {
+	LOG_INFO("[Stats] HandleNetStatsReport called, on_net_stats_report_ is %s", 
+		on_net_stats_report_ ? "set" : "null");
 	if (on_net_stats_report_) {
 		on_net_stats_report_(report);
+	} else {
+		LOG_WARN("[Stats] HandleNetStatsReport: on_net_stats_report_ callback is not set!");
 	}
 }
 

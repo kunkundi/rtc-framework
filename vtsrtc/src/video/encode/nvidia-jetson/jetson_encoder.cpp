@@ -14,8 +14,8 @@
 
 namespace webrtc {
 
-const int KEY_FRAME_INTERVAL = 256;
-const int BUFFER_NUM = 4;
+const int KEY_FRAME_INTERVAL = 3000;
+const int BUFFER_NUM = 2;
 
 std::unique_ptr<JetsonEncoder> JetsonEncoder::Create(int width, int height,
                                                      uint32_t dst_pix_fmt,
@@ -105,13 +105,13 @@ bool JetsonEncoder::CreateVideoEncoder() {
   }
 
   if (dst_pix_fmt_ == V4L2_PIX_FMT_H264) {
-    ret = encoder_->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
+    ret = encoder_->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
     if (ret < 0) {
       LOG_ERROR("Could not set encoder profile");
       return false;
     }
 
-    ret = encoder_->setLevel(V4L2_MPEG_VIDEO_H264_LEVEL_5_1);
+    ret = encoder_->setLevel(V4L2_MPEG_VIDEO_H264_LEVEL_3_1);
     if (ret < 0) {
       LOG_ERROR("Could not set encoder level");
       return false;
@@ -148,7 +148,7 @@ bool JetsonEncoder::CreateVideoEncoder() {
     return false;
   }
 
-  ret = encoder_->setIFrameInterval(0);
+  ret = encoder_->setIFrameInterval(KEY_FRAME_INTERVAL);
   if (ret < 0) {
     LOG_ERROR("Could not set I-frame interval");
     return false;
@@ -281,9 +281,10 @@ void JetsonEncoder::EmplaceBuffer(
 
   if (encoder_->output_plane.getNumQueuedBuffers() ==
       encoder_->output_plane.getNumBuffers()) {
-    if (encoder_->output_plane.dqBuffer(v4l2_output_buf, &nv_buffer, NULL, 10) <
+    // 队列已满：为保证低延时，不等待，若无法立即取出旧 buffer，则丢弃当前帧
+    if (encoder_->output_plane.dqBuffer(v4l2_output_buf, &nv_buffer, NULL, 0) <
         0) {
-      LOG_ERROR("Failed to dqBuffer at encoder output_plane");
+      LOG_WARN("Encoder output queue full, dropping frame to keep latency low");
       return;
     }
   } else {

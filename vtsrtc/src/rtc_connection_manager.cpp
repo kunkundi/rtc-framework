@@ -158,6 +158,10 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
   signaling_thread_->SetName("signaling", nullptr);
   signaling_thread_->Start();
 
+  // 关闭WebRTC debug日志
+  rtc::LogMessage::LogToDebug(rtc::LS_NONE);
+  rtc::LogMessage::SetLogToStderr(false);
+
 #if 0
 	webrtc_log_hook_ = new FileLog("logs");
 	rtc::LogMessage::AddLogToStream(webrtc_log_hook_, rtc::LS_INFO);
@@ -1528,13 +1532,17 @@ void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
           return;
         }
         mtx_.lock();
+        size_t conn_count = remotesessionid_rtcconn_map_.size();
+        size_t stats_called = 0;
         for (const auto& rtccon_obj : remotesessionid_rtcconn_map_) {
           if (rtccon_obj.second->peer_conn_ != nullptr) {
+            stats_called++;
             rtccon_obj.second->peer_conn_->GetStats(
                 rtccon_obj.second->rtc_channel_stats_observer_);
           }
         }
         mtx_.unlock();
+        LOG_INFO("[Stats] StatsReport called, TotalConnections: %zu, GetStatsCalled: %zu", conn_count, stats_called);
         StatsReport(steady_timer);
       });
 }
@@ -1575,7 +1583,10 @@ void RtcConnectionManager::InteractRemotePeer(
     }
 
     if (state == vts_rtc::P2PState::Connected && current_sessionid_) {
+      LOG_INFO("[Stats] P2P Connected, netstats_report: %d, stats_report_inited: %d", 
+        rtc_config_.netstats_report, stats_report_inited_);
       if (rtc_config_.netstats_report && !stats_report_inited_) {
+        LOG_INFO("[Stats] Starting stats report initialization");
         stats_report_thread_->PostTask(RTC_FROM_HERE,
                                        [this]() { InitStatsReport(); });
         stats_report_inited_ = true;
@@ -1584,23 +1595,42 @@ void RtcConnectionManager::InteractRemotePeer(
       // get ssrc and sourceid info for statistics
       if (rtc_conn->peer_conn_) {
         auto rtpsenders = rtc_conn->peer_conn_->GetSenders();
+        LOG_INFO("[Stats] Found %zu RTP senders", rtpsenders.size());
         for (auto it : rtpsenders) {
-          if (external_feed_tracksources_.find(it->id()) !=
-              external_feed_tracksources_.end()) {
-            statistics_collector_->AddSessionSendersMediaSsrcVsId(
-                remote_sessionid, it->ssrc(), it->id());
-          }
+          uint32_t ssrc = it->ssrc();
+          std::string track_id = it->id();
+          bool is_external = external_feed_tracksources_.find(track_id) != external_feed_tracksources_.end();
+          LOG_INFO("[Stats] RTP Sender: track_id=%s, ssrc=%u, is_external=%d", 
+            track_id.c_str(), ssrc, is_external);
+          
+          // 注册所有发送端，不仅仅是external feed
+          // 使用track_id作为sourceid
+          statistics_collector_->AddSessionSendersMediaSsrcVsId(
+              remote_sessionid, ssrc, track_id);
         }
 
         auto rtpreceivers = rtc_conn->peer_conn_->GetReceivers();
+        LOG_INFO("[Stats] Found %zu RTP receivers", rtpreceivers.size());
         receiver_tracksources_id_vs_ssrc_.clear();
         for (auto it : rtpreceivers) {
           auto streamids = it->stream_ids();
           auto encoding_obj = it->GetParameters().encodings;
-          if (!streamids.empty() && !encoding_obj.empty())
+          LOG_INFO("[Stats] RTP Receiver: streamids.size()=%zu, encodings.size()=%zu",
+            streamids.size(), encoding_obj.size());
+          
+          if (!streamids.empty() && !encoding_obj.empty()) {
+            uint32_t ssrc = encoding_obj[0].ssrc.value();
+            std::string sourceid = streamids[0];
+            LOG_INFO("[Stats] Registering receiver: sourceid=%s, ssrc=%u", 
+              sourceid.c_str(), ssrc);
             statistics_collector_->AddSessionReceiversMediaSsrcVsId(
-                remote_sessionid, streamids[0], encoding_obj[0].ssrc.value());
+                remote_sessionid, sourceid, ssrc);
+          } else {
+            LOG_WARN("[Stats] RTP Receiver skipped: streamids or encodings empty");
+          }
         }
+      } else {
+        LOG_WARN("[Stats] peer_conn_ is null, cannot register SSRC mappings");
       }
     }
 
@@ -1615,6 +1645,7 @@ void RtcConnectionManager::InteractRemotePeer(
   rtc_conn->on_net_stats_report_ =
       [this, remote_sessionid, weak_self](
           const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+        LOG_INFO("[Stats] on_net_stats_report_ callback called for SessionID: %u", remote_sessionid);
         statistics_collector_->OnStatisticsReport(remote_sessionid, report);
       };
 

@@ -18,6 +18,8 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	add_executable(${target}
 		rtc_audiorender.h
 		rtc_audiorender.cpp
+		rtc_videorender.h
+		rtc_videorender.cpp
 		rtc_widget.h
 		rtc_widget.cpp
 		main.cpp

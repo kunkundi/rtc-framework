@@ -5,8 +5,10 @@ FileLog::FileLog(const std::string &LogPath)
     : logfile_(NULL),
       log_path_(LogPath)
 {
-    rtc::LogMessage::LogToDebug(rtc::LS_VERBOSE);
-    rtc::LogMessage::SetLogToStderr(true);
+    // 关闭WebRTC debug日志，只保留WARNING和ERROR级别
+    rtc::LogMessage::LogToDebug(rtc::LS_NONE);
+    // 关闭stderr输出，只输出到文件
+    rtc::LogMessage::SetLogToStderr(false);
 }
 
 FileLog::~FileLog()

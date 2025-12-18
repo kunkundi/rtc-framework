@@ -30,4 +30,6 @@ private:
     std::map<vts_rtc::SessionId, std::map<vts_rtc::VideoSourceId, uint32_t>> session_receiver_media_id_vs_ssrc_;
 
     std::map<vts_rtc::VideoSourceId, vts_rtc::NetStats> net_stats_;
+    // 存储上一次的 total_packet_send_delay 累积值（秒），用于计算增量
+    std::map<vts_rtc::VideoSourceId, double> prev_total_packet_send_delay_;
 };
