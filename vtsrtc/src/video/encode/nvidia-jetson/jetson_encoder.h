@@ -4,9 +4,9 @@
 #include <api/video/i420_buffer.h>
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <memory>
-#include <queue>
 #include <mutex>
 
 #include "/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h"
@@ -34,6 +34,7 @@ class JetsonEncoder {
   void ForceKeyFrame();
   void SetFps(int fps);
   void SetBitrate(int bitrate_bps);
+  bool Reconfigure(int new_width, int new_height);
 
  private:
   NvVideoEncoder* encoder_;
@@ -55,7 +56,7 @@ class JetsonEncoder {
 #endif
   };
 
-  std::queue<CaptureTask> capturing_tasks_;
+  std::deque<CaptureTask> capturing_tasks_;
   std::mutex tasks_mutex_;
 
   // Packet buffers
@@ -71,16 +72,16 @@ class JetsonEncoder {
 
   bool CreateVideoEncoder();
   bool PrepareCaptureBuffer();
-  void Start();
+  bool Start();
   void SendEOS();
   static bool EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
                                             NvBuffer* buffer,
                                             NvBuffer* shared_buffer, void* arg);
-  void ConvertI420ToYUV420M(NvBuffer* nv_buffer,
-                             rtc::scoped_refptr<I420BufferInterface> i420_buffer);
+  void ConvertI420ToYUV420M(
+      NvBuffer* nv_buffer,
+      rtc::scoped_refptr<I420BufferInterface> i420_buffer);
 };
 
 }  // namespace webrtc
 
 #endif  // JETSON_ENCODER_H_
-

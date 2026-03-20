@@ -81,6 +81,7 @@ int nvmpi_encoder_set_fps(nvmpictx* ctx, unsigned int fps);
 int nvmpi_encoder_set_bitrate(nvmpictx* ctx, unsigned int bitrate);
 
 int nvmpi_encoder_force_idr(nvmpictx* ctx);
+int nvmpi_encoder_reconfigure(nvmpictx* ctx, unsigned int width, unsigned int height);
 
 int nvmpi_encoder_close(nvmpictx* ctx);
 

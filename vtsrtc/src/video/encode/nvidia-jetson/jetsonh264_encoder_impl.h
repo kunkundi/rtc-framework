@@ -8,6 +8,7 @@
 #include <chrono>
 #include <climits>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "jetson_encoder.h"
@@ -27,41 +28,29 @@ class JetsonH264EncoderImpl : public VideoEncoder {
                  const VideoEncoder::Settings& settings) override;
   int32_t Release() override;
 
-  // Register an encode complete callback object.
   int32_t RegisterEncodeCompleteCallback(
       EncodedImageCallback* callback) override;
 
-  // Sets rate control parameters: bitrate, framerate, etc.
   void SetRates(const RateControlParameters& parameters) override;
 
-  // Encode an I420 image (as a part of a video stream). The encoded image
-  // will be returned to the user through the encode complete callback.
   int32_t Encode(const VideoFrame& frame,
                  const std::vector<VideoFrameType>* frame_types) override;
 
-  // Returns meta-data about the encoder, such as implementation name.
   EncoderInfo GetEncoderInfo() const override;
 
-  // Set a FecControllerOverride, through which the encoder may override
-  // decisions made by FecController.
   void SetFecControllerOverride(
       FecControllerOverride* fec_controller_override) override;
 
-  // Inform the encoder when the packet loss rate changes. [0.0 to 1.0]
   void OnPacketLossRateUpdate(float packet_loss_rate) override;
 
-  // Inform the encoder when the round trip time changes. [in milliseconds]
   void OnRttUpdate(int64_t rtt_ms) override;
 
-  // Called when a loss notification is received.
   void OnLossNotification(const LossNotification& loss_notification) override;
 
  private:
-  // Reconfigure encoder
   void ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate);
   void ReconfigureEncoderIDR();
 
-  // Reports statistics with histograms.
   void ReportInit();
   void ReportError();
 
@@ -72,6 +61,8 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   std::unique_ptr<JetsonEncoder> encoder_;
 
   EncodedImage encoded_image_;
+  size_t encoded_image_capacity_ = 0;
+  std::mutex encoded_image_mutex_;
 
   EncodedImageCallback* encoded_image_callback_ = nullptr;
   H264BitstreamParser h264_bitstream_parser_;
@@ -79,7 +70,6 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   VideoCodec codec_;
   H264PacketizationMode packetization_mode_ =
       H264PacketizationMode::SingleNalUnit;
-  // The maximum size each payload is allowed to have. Usually MTU - overhead.
   size_t max_payload_size_ = 0;
 
   bool has_reported_init_ = false;
@@ -91,14 +81,13 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   unsigned int bitrate_ = 25000000;
 
 #if ENABLE_ENCODE_PERF_STATS
-  // 编码性能统计
   struct EncodeStats {
-    int64_t total_encode_time_us = 0;  // 总编码耗时（微秒）
-    int64_t max_encode_time_us = 0;    // 最大编码耗时（微秒）
-    int64_t min_encode_time_us = INT64_MAX;  // 最小编码耗时（微秒）
-    uint32_t frame_count = 0;          // 编码帧数
-    uint32_t keyframe_count = 0;       // 关键帧数
-    std::chrono::steady_clock::time_point last_log_time;  // 上次打印统计的时间
+    int64_t total_encode_time_us = 0;
+    int64_t max_encode_time_us = 0;
+    int64_t min_encode_time_us = INT64_MAX;
+    uint32_t frame_count = 0;
+    uint32_t keyframe_count = 0;
+    std::chrono::steady_clock::time_point last_log_time;
   } encode_stats_;
 #endif
 };

@@ -384,7 +384,13 @@ int nvmpi_encoder_put_frame(nvmpictx *ctx, nvFrame *frame) {
 
   v4l2_buf.m.planes = planes;
 
+  if (!ctx || !ctx->enc || !frame) return -1;
   if (ctx->enc->isInError()) return -1;
+  if (frame->width != ctx->width || frame->height != ctx->height) {
+    if (nvmpi_encoder_reconfigure(ctx, frame->width, frame->height) < 0) {
+      return -1;
+    }
+  }
 
   if (ctx->index < ctx->enc->output_plane.getNumBuffers()) {
     nvBuffer = ctx->enc->output_plane.getNthBuffer(ctx->index);
@@ -403,7 +409,7 @@ int nvmpi_encoder_put_frame(nvmpictx *ctx, nvFrame *frame) {
   if (ret < 0) return -1;
 
   // Validate frame payload
-  if (!frame || !frame->payload[0] || !frame->payload[1] || !frame->payload[2]) {
+  if (!frame->payload[0] || !frame->payload[1] || !frame->payload[2]) {
     std::cerr << "Invalid frame payload" << std::endl;
     return -1;
   }
@@ -425,6 +431,74 @@ int nvmpi_encoder_put_frame(nvmpictx *ctx, nvFrame *frame) {
     return -1;
   }
 
+  return 0;
+}
+
+int nvmpi_encoder_reconfigure(nvmpictx *ctx, unsigned int width, unsigned int height) {
+  int ret;
+  ctx->enc->capture_plane.stopDQThread();
+  ctx->enc->capture_plane.waitForDQThread(-1);
+  ctx->enc->output_plane.setStreamStatus(false);
+  ctx->enc->capture_plane.setStreamStatus(false);
+  ctx->enc->capture_plane.deinitPlane();
+  ctx->enc->output_plane.deinitPlane();
+  ctx->width = width;
+  ctx->height = height;
+  ret = ctx->enc->setCapturePlaneFormat(ctx->encoder_pixfmt, ctx->width, ctx->height, CHUNK_SIZE);
+  if (ret < 0) return -1;
+  if (ctx->enableLossless && ctx->encoder_pixfmt == V4L2_PIX_FMT_H264) {
+    ret = ctx->enc->setOutputPlaneFormat(V4L2_PIX_FMT_YUV444M, ctx->width, ctx->height);
+  } else {
+    ret = ctx->enc->setOutputPlaneFormat(ctx->raw_pixfmt, ctx->width, ctx->height);
+  }
+  if (ret < 0) return -1;
+
+  ret = ctx->enc->setRateControlMode(ctx->ratecontrol);
+  if (ret < 0) return -1;
+
+  ret = ctx->enc->setFrameRate(ctx->fps_n, ctx->fps_d);
+  if (ret < 0) return -1;
+
+  ret = ctx->enc->setBitrate(ctx->bitrate);
+  if (ret < 0) return -1;
+
+  ret = ctx->enc->setHWPresetType(ctx->hw_preset_type);
+  if (ret < 0) return -1;
+
+  ret = ctx->enc->setMaxPerfMode(1);
+  if (ret < 0) std::cerr << "Error setting max perf mode" << std::endl;
+
+  ret = ctx->enc->setIDRInterval(ctx->idr_interval);
+  if (ret < 0) return -1;
+
+  ret = ctx->enc->setIFrameInterval(ctx->iframe_interval);
+  if (ret < 0) return -1;
+
+  ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, ctx->packets_num, false, true);
+  if (ret < 0) return -1;
+  ret = ctx->enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, ctx->packets_num, true, false);
+  if (ret < 0) return -1;
+  ret = ctx->enc->output_plane.setStreamStatus(true);
+  if (ret < 0) return -1;
+  ret = ctx->enc->capture_plane.setStreamStatus(true);
+  if (ret < 0) return -1;
+  ctx->enc->capture_plane.setDQThreadCallback(encoder_capture_plane_dq_callback);
+  ctx->enc->capture_plane.startDQThread(ctx);
+  for (uint32_t i = 0; i < ctx->enc->capture_plane.getNumBuffers(); i++) {
+    struct v4l2_buffer v4l2_buf;
+    struct v4l2_plane planes[MAX_PLANES];
+    memset(&v4l2_buf, 0, sizeof(v4l2_buf));
+    memset(planes, 0, MAX_PLANES * sizeof(struct v4l2_plane));
+    v4l2_buf.index = i;
+    v4l2_buf.m.planes = planes;
+    ret = ctx->enc->capture_plane.qBuffer(v4l2_buf, NULL);
+    if (ret < 0) return -1;
+  }
+  if (ctx->insert_sps_pps_at_idr) {
+    ctx->enc->setInsertSpsPpsAtIdrEnabled(true);
+  }
+  ctx->enc->forceIDR();
+  ctx->index = 0;
   return 0;
 }
 
