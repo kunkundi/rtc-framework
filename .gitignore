@@ -5,3 +5,4 @@ build_msvc142/
 install_msvc141/
 install_msvc142/
 .vscode/
+.xmake/
