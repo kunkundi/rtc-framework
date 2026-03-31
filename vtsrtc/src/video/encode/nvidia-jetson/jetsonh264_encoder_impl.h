@@ -5,10 +5,15 @@
 #include <common_video/h264/h264_bitstream_parser.h>
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
+#include <atomic>
 #include <chrono>
 #include <climits>
+#include <condition_variable>
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #include "jetson_encoder.h"
@@ -48,6 +53,30 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   void OnLossNotification(const LossNotification& loss_notification) override;
 
  private:
+  struct EncoderSlot {
+    std::unique_ptr<JetsonEncoder> encoder;
+    unsigned int width = 0;
+    unsigned int height = 0;
+    uint64_t token = 0;
+  };
+
+  bool CreateEncoderSlot(unsigned int width,
+                         unsigned int height,
+                         EncoderSlot* slot);
+  bool EnsureActiveEncoderForResolution(unsigned int width,
+                                        unsigned int height);
+  void ApplyRatesToEncoder(JetsonEncoder* encoder);
+  bool PrewarmStandbyForActiveResolution(unsigned int active_width,
+                                         unsigned int active_height);
+  std::pair<unsigned int, unsigned int> SelectPrewarmResolution(
+      unsigned int active_width,
+      unsigned int active_height) const;
+  void StartPrewarmWorker();
+  void StopPrewarmWorker();
+  void RequestAsyncPrewarm(unsigned int active_width,
+                           unsigned int active_height);
+  void PrewarmWorkerLoop();
+
   void ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate);
   void ReconfigureEncoderIDR();
 
@@ -58,7 +87,19 @@ class JetsonH264EncoderImpl : public VideoEncoder {
                  bool is_keyframe, int64_t encode_duration_us = 0);
 
  private:
-  std::unique_ptr<JetsonEncoder> encoder_;
+  EncoderSlot active_encoder_;
+  EncoderSlot standby_encoder_;
+  std::mutex encoder_slots_mutex_;
+  std::atomic<uint64_t> next_encoder_token_{1};
+  std::atomic<uint64_t> active_encoder_token_{0};
+
+  std::thread prewarm_thread_;
+  std::mutex prewarm_mutex_;
+  std::condition_variable prewarm_cv_;
+  bool prewarm_stop_ = true;
+  bool prewarm_request_pending_ = false;
+  unsigned int prewarm_request_active_width_ = 0;
+  unsigned int prewarm_request_active_height_ = 0;
 
   EncodedImage encoded_image_;
   size_t encoded_image_capacity_ = 0;
@@ -67,6 +108,7 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   EncodedImageCallback* encoded_image_callback_ = nullptr;
   H264BitstreamParser h264_bitstream_parser_;
 
+  vts_rtc::RtcConfig rtc_config_;
   VideoCodec codec_;
   H264PacketizationMode packetization_mode_ =
       H264PacketizationMode::SingleNalUnit;

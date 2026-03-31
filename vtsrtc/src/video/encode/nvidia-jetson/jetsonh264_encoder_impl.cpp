@@ -9,7 +9,10 @@
 #include <algorithm>
 #include <chrono>
 #include <climits>
+#include <cstdlib>
+#include <limits>
 #include <string>
+#include <utility>
 
 #include "jetsonh264_encoder_impl.h"
 #include "jetson_encoder.h"
@@ -26,8 +29,14 @@ enum class H264EncoderImplEvent {
   H264EncoderEventMax = 16,
 };
 
+static inline unsigned int AlignToEven(unsigned int value) {
+  return value & ~1u;
+}
+
 JetsonH264EncoderImpl::JetsonH264EncoderImpl(
-    const cricket::VideoCodec& codec, const vts_rtc::RtcConfig& rtc_config) {
+    const cricket::VideoCodec& codec,
+    const vts_rtc::RtcConfig& rtc_config)
+    : rtc_config_(rtc_config) {
   RTC_CHECK(absl::EqualsIgnoreCase(codec.name, cricket::kH264CodecName));
 
   std::string packetization_mode_string;
@@ -39,6 +48,260 @@ JetsonH264EncoderImpl::JetsonH264EncoderImpl(
 }
 
 JetsonH264EncoderImpl::~JetsonH264EncoderImpl() { Release(); }
+
+bool JetsonH264EncoderImpl::CreateEncoderSlot(unsigned int width,
+                                              unsigned int height,
+                                              EncoderSlot* slot) {
+  if (!slot) {
+    return false;
+  }
+
+  auto encoder = JetsonEncoder::Create(width, height, V4L2_PIX_FMT_H264, false);
+  if (!encoder) {
+    return false;
+  }
+
+  ApplyRatesToEncoder(encoder.get());
+
+  slot->encoder = std::move(encoder);
+  slot->width = width;
+  slot->height = height;
+  slot->token = next_encoder_token_.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+void JetsonH264EncoderImpl::ApplyRatesToEncoder(JetsonEncoder* encoder) {
+  if (!encoder) {
+    return;
+  }
+
+  if (fps_ > 0) {
+    encoder->SetFps(fps_);
+  }
+  if (bitrate_ > 0) {
+    encoder->SetBitrate(bitrate_);
+  }
+}
+
+std::pair<unsigned int, unsigned int>
+JetsonH264EncoderImpl::SelectPrewarmResolution(unsigned int active_width,
+                                                unsigned int active_height) const {
+  std::pair<unsigned int, unsigned int> best = {0, 0};
+  uint64_t best_delta = std::numeric_limits<uint64_t>::max();
+
+  for (const auto& codec_height : rtc_config_.encode_params.codecs) {
+    if (codec_height <= 0) {
+      continue;
+    }
+
+    unsigned int candidate_h = AlignToEven(static_cast<unsigned int>(codec_height));
+    unsigned int candidate_w = AlignToEven(
+        static_cast<unsigned int>((static_cast<uint64_t>(candidate_h) * 16 + 8) /
+                                  9));
+
+    if (candidate_w < 16 || candidate_h < 16) {
+      continue;
+    }
+
+    if (candidate_w == active_width && candidate_h == active_height) {
+      continue;
+    }
+
+    uint64_t delta = (candidate_h > active_height)
+                         ? (candidate_h - active_height)
+                         : (active_height - candidate_h);
+    if (delta < best_delta) {
+      best_delta = delta;
+      best = {candidate_w, candidate_h};
+    }
+  }
+
+  if (best.first != 0 && best.second != 0) {
+    return best;
+  }
+
+  unsigned int half_w = AlignToEven(std::max(320u, active_width / 2));
+  unsigned int half_h = AlignToEven(std::max(180u, active_height / 2));
+  if ((half_w != active_width || half_h != active_height) && half_w >= 16 &&
+      half_h >= 16) {
+    return {half_w, half_h};
+  }
+
+  return {0, 0};
+}
+
+bool JetsonH264EncoderImpl::PrewarmStandbyForActiveResolution(
+    unsigned int active_width,
+    unsigned int active_height) {
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+    if (standby_encoder_.encoder) {
+      return true;
+    }
+  }
+
+  auto candidate = SelectPrewarmResolution(active_width, active_height);
+  if (candidate.first == 0 || candidate.second == 0) {
+    return false;
+  }
+
+  EncoderSlot warmed_slot;
+  if (!CreateEncoderSlot(candidate.first, candidate.second, &warmed_slot)) {
+    LOG_WARN("Prewarm standby encoder failed for <%ux%u>", candidate.first,
+             candidate.second);
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+    if (standby_encoder_.encoder) {
+      return true;
+    }
+
+    if (active_encoder_.encoder && active_encoder_.width == warmed_slot.width &&
+        active_encoder_.height == warmed_slot.height) {
+      return true;
+    }
+
+    standby_encoder_ = std::move(warmed_slot);
+  }
+
+  LOG_INFO("Prewarmed standby encoder <%ux%u>", candidate.first,
+           candidate.second);
+  return true;
+}
+
+void JetsonH264EncoderImpl::StartPrewarmWorker() {
+  StopPrewarmWorker();
+
+  {
+    std::lock_guard<std::mutex> lock(prewarm_mutex_);
+    prewarm_stop_ = false;
+    prewarm_request_pending_ = false;
+    prewarm_request_active_width_ = 0;
+    prewarm_request_active_height_ = 0;
+  }
+
+  prewarm_thread_ =
+      std::thread(&JetsonH264EncoderImpl::PrewarmWorkerLoop, this);
+}
+
+void JetsonH264EncoderImpl::StopPrewarmWorker() {
+  {
+    std::lock_guard<std::mutex> lock(prewarm_mutex_);
+    prewarm_stop_ = true;
+    prewarm_request_pending_ = false;
+  }
+
+  prewarm_cv_.notify_all();
+
+  if (prewarm_thread_.joinable()) {
+    prewarm_thread_.join();
+  }
+}
+
+void JetsonH264EncoderImpl::RequestAsyncPrewarm(unsigned int active_width,
+                                                unsigned int active_height) {
+  if (active_width == 0 || active_height == 0) {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(prewarm_mutex_);
+    if (prewarm_stop_ || !prewarm_thread_.joinable()) {
+      return;
+    }
+
+    prewarm_request_active_width_ = active_width;
+    prewarm_request_active_height_ = active_height;
+    prewarm_request_pending_ = true;
+  }
+
+  prewarm_cv_.notify_one();
+}
+
+void JetsonH264EncoderImpl::PrewarmWorkerLoop() {
+  while (true) {
+    unsigned int active_width = 0;
+    unsigned int active_height = 0;
+
+    {
+      std::unique_lock<std::mutex> lock(prewarm_mutex_);
+      prewarm_cv_.wait(lock, [this] {
+        return prewarm_stop_ || prewarm_request_pending_;
+      });
+
+      if (prewarm_stop_) {
+        return;
+      }
+
+      active_width = prewarm_request_active_width_;
+      active_height = prewarm_request_active_height_;
+      prewarm_request_pending_ = false;
+    }
+
+    PrewarmStandbyForActiveResolution(active_width, active_height);
+  }
+}
+
+bool JetsonH264EncoderImpl::EnsureActiveEncoderForResolution(unsigned int width,
+                                                             unsigned int height) {
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+    if (active_encoder_.encoder && active_encoder_.width == width &&
+        active_encoder_.height == height) {
+      ApplyRatesToEncoder(active_encoder_.encoder.get());
+      active_encoder_token_.store(active_encoder_.token,
+                                  std::memory_order_release);
+      return true;
+    }
+
+    if (standby_encoder_.encoder && standby_encoder_.width == width &&
+        standby_encoder_.height == height) {
+      std::swap(active_encoder_, standby_encoder_);
+      ApplyRatesToEncoder(active_encoder_.encoder.get());
+      active_encoder_.encoder->ForceKeyFrame();
+      active_encoder_token_.store(active_encoder_.token,
+                                  std::memory_order_release);
+      return true;
+    }
+  }
+
+  EncoderSlot new_slot;
+  if (!CreateEncoderSlot(width, height, &new_slot)) {
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+
+    if (active_encoder_.encoder && active_encoder_.width == width &&
+        active_encoder_.height == height) {
+      ApplyRatesToEncoder(active_encoder_.encoder.get());
+      active_encoder_token_.store(active_encoder_.token,
+                                  std::memory_order_release);
+      return true;
+    }
+
+    if (standby_encoder_.encoder && standby_encoder_.width == width &&
+        standby_encoder_.height == height) {
+      std::swap(active_encoder_, standby_encoder_);
+      ApplyRatesToEncoder(active_encoder_.encoder.get());
+      active_encoder_.encoder->ForceKeyFrame();
+      active_encoder_token_.store(active_encoder_.token,
+                                  std::memory_order_release);
+      return true;
+    }
+
+    standby_encoder_ = std::move(active_encoder_);
+    active_encoder_ = std::move(new_slot);
+    ApplyRatesToEncoder(active_encoder_.encoder.get());
+    active_encoder_.encoder->ForceKeyFrame();
+    active_encoder_token_.store(active_encoder_.token,
+                                std::memory_order_release);
+    return true;
+  }
+}
 
 int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
                                       const VideoEncoder::Settings& settings) {
@@ -61,7 +324,14 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
-  encoder_.reset();
+  StopPrewarmWorker();
+
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+    active_encoder_ = EncoderSlot();
+    standby_encoder_ = EncoderSlot();
+  }
+  active_encoder_token_.store(0, std::memory_order_release);
 
   auto num_of_streams =
       SimulcastUtility::NumberOfSimulcastStreams(*codec_settings);
@@ -100,16 +370,35 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
       DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
   SetRates(RateControlParameters(allocation, codec_.maxFramerate));
 
+  if (!EnsureActiveEncoderForResolution(frame_width, frame_height)) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  // Start standby prewarm in background so InitEncode stays non-blocking.
+  StartPrewarmWorker();
+  RequestAsyncPrewarm(frame_width, frame_height);
+
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int32_t JetsonH264EncoderImpl::Release() {
-  encoder_.reset();
+  StopPrewarmWorker();
+
+  active_encoder_token_.store(0, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+    active_encoder_ = EncoderSlot();
+    standby_encoder_ = EncoderSlot();
+  }
   {
     std::lock_guard<std::mutex> lock(encoded_image_mutex_);
     encoded_image_.ClearEncodedData();
     encoded_image_capacity_ = 0;
   }
+
+  width_ = 0;
+  height_ = 0;
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -136,10 +425,9 @@ void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
   fps_ = fps;
   bitrate_ = bitrate;
 
-  if (encoder_) {
-    encoder_->SetFps(fps);
-    encoder_->SetBitrate(bitrate);
-  }
+  std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+  ApplyRatesToEncoder(active_encoder_.encoder.get());
+  ApplyRatesToEncoder(standby_encoder_.encoder.get());
 }
 
 int32_t JetsonH264EncoderImpl::Encode(
@@ -164,9 +452,14 @@ int32_t JetsonH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
-  if (frame_buffer->width() != width_ || frame_buffer->height() != height_) {
-    width_ = frame_buffer->width();
-    height_ = frame_buffer->height();
+  const unsigned int frame_width = frame_buffer->width();
+  const unsigned int frame_height = frame_buffer->height();
+  const bool resolution_changed =
+      (frame_width != width_ || frame_height != height_);
+
+  if (resolution_changed) {
+    width_ = frame_width;
+    height_ = frame_height;
 
     const size_t new_capacity =
         CalcBufferSize(VideoType::kI420, width_, height_);
@@ -178,41 +471,49 @@ int32_t JetsonH264EncoderImpl::Encode(
       encoded_image_._encodedHeight = height_;
       encoded_image_.set_size(0);
     }
-
-    if (encoder_) {
-      if (!encoder_->Reconfigure(width_, height_)) {
-        ReportError();
-        return WEBRTC_VIDEO_CODEC_ERROR;
-      }
-      encoder_->SetFps(fps_);
-      encoder_->SetBitrate(bitrate_);
-    }
   }
 
-  if (!encoder_) {
-    encoder_ = JetsonEncoder::Create(width_, height_, V4L2_PIX_FMT_H264, false);
-    if (!encoder_) {
-      ReportError();
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-    encoder_->SetFps(fps_);
-    encoder_->SetBitrate(bitrate_);
+  if (!EnsureActiveEncoderForResolution(frame_width, frame_height)) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  if (resolution_changed) {
+    RequestAsyncPrewarm(frame_width, frame_height);
+  }
+
+  JetsonEncoder* active_encoder = nullptr;
+  uint64_t encode_token = 0;
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+    active_encoder = active_encoder_.encoder.get();
+    encode_token = active_encoder_.token;
+  }
+
+  if (!active_encoder) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
   if (has_frame_type && (*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
-    encoder_->ForceKeyFrame();
+    active_encoder->ForceKeyFrame();
   }
 
 #if ENABLE_ENCODE_PERF_STATS
   auto encode_start_time = std::chrono::steady_clock::now();
 #endif
 
-  encoder_->EmplaceBuffer(
+  active_encoder->EmplaceBuffer(
       frame_buffer,
 #if ENABLE_ENCODE_PERF_STATS
-      [this, input_frame, encode_start_time](const uint8_t* data, size_t size,
-                                             bool is_keyframe,
-                                             uint64_t timestamp) {
+      [this, input_frame, encode_start_time, encode_token](
+          const uint8_t* data, size_t size, bool is_keyframe,
+          uint64_t timestamp) {
+        if (encode_token !=
+            active_encoder_token_.load(std::memory_order_acquire)) {
+          return;
+        }
+
         auto encode_end_time = std::chrono::steady_clock::now();
         int64_t encode_duration_us =
             std::chrono::duration_cast<std::chrono::microseconds>(
@@ -222,8 +523,14 @@ int32_t JetsonH264EncoderImpl::Encode(
         SendFrame(input_frame, data, size, is_keyframe, encode_duration_us);
       });
 #else
-      [this, input_frame](const uint8_t* data, size_t size, bool is_keyframe,
-                          uint64_t timestamp) {
+      [this, input_frame, encode_token](const uint8_t* data, size_t size,
+                                        bool is_keyframe,
+                                        uint64_t timestamp) {
+        if (encode_token !=
+            active_encoder_token_.load(std::memory_order_acquire)) {
+          return;
+        }
+
         SendFrame(input_frame, data, size, is_keyframe, 0);
       });
 #endif
