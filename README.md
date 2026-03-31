@@ -18,13 +18,14 @@ rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
 * 为支持ABI，vtsrtc库是C库
 #### 安装依赖
 * QT（运行p2p_qt DEMO需要）
-* Boost（signaling-server和vtsrtc网络通信需要）
-* 在share目录 \\\10.11.16.35\share\个人\朱建\rtc-solutions 下，准备了QT和Boost
+* standalone Asio（signaling-server和vtsrtc网络通信需要）
+* 在share目录 \\\10.11.16.35\share\个人\朱建\rtc-solutions 下，准备了QT
 * Ubuntu（aarch64验证过，x86_64没有验证过，估计也可以）下安装QT
 ```
 sudo apt-get install build-essential
 sudo apt-get install qtcreator
 sudo apt-get install qt5-default
+sudo apt-get install libasio-dev
 ```
 
 #### 拷贝代码与更新子模块
@@ -38,7 +39,7 @@ Clone代码
 ```
 
 #### Windows平台
-1. 打开根目录下的 run_cmake_msvcxxx.bat 脚本，对应修改QTDIR和BOOST_ROOT的值
+1. 打开根目录下的 run_cmake_msvcxxx.bat 脚本，对应修改QTDIR的值
 2. 运行 run_cmake_msvcxxx.bat 脚本，将会进行工程编译和类库安装
    - build_msvcxxx/runtime目录下保存Debug和Release的signaling-server和p2p_qt可执行程序，测试数据和依赖dll会自动拷贝好
    - install_msvcxxx目录下保存Debug和Release的vtsrtc类库

@@ -10,7 +10,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(OPENSSL_ROOT_DIR "${CMAKE_SOURCE_DIR}/third_party/OpenSSL-Win64")
 endif()
 find_package(OpenSSL REQUIRED)
-find_package(Boost REQUIRED COMPONENTS filesystem)
 
 add_executable(${target}
     log_manager.h
@@ -23,7 +22,7 @@ add_executable(${target}
     main.cpp
 )
 
-target_compile_definitions(${target} PRIVATE BOOST_ALL_NO_LIB)
+target_compile_features(${target} PRIVATE cxx_std_17)
 
 target_include_directories(${target}
 PRIVATE
@@ -37,7 +36,6 @@ target_link_libraries(${target}
     ${OPENSSL_LIBRARIES}
     simple-web-server
     simple-websocket-server
-    Boost::filesystem
 )
 
 if(MSVC)

@@ -21,7 +21,6 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 endif()
 
 find_package(Vtslog)
-find_package(Boost REQUIRED)
 find_package(WebRTC REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
@@ -146,8 +145,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "TODO configure for macOS")
 endif()
-
-target_compile_definitions(${target} PRIVATE BOOST_ALL_NO_LIB)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	target_include_directories(${target}

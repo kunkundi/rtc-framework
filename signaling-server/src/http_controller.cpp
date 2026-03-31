@@ -1,5 +1,6 @@
 #include "http_controller.h"
-#include <boost/filesystem.hpp>
+#include <filesystem>
+#include <fstream>
 
 #define LOG_REQUEST_INFO(X) LOG_INFO("Http %s, remote peer: [%s]:[%u], method: %s, path: %s, query string: %s, http version: %s", \
 	X, request->remote_endpoint().address().to_string().c_str(), request->remote_endpoint().port(), \
@@ -26,15 +27,17 @@ void HttpController::QueryDefaultResource(HttpResponse response, HttpRequest req
 	try {
 		LOG_REQUEST_INFO("default resource");
 
-		auto web_root_path = boost::filesystem::canonical("web");
-		auto path = boost::filesystem::canonical(web_root_path / request->path);
+		namespace fs = std::filesystem;
+
+		auto web_root_path = fs::canonical("web");
+		auto path = fs::canonical(web_root_path / request->path);
 		// Check if path is within web_root_path
 		if (std::distance(web_root_path.begin(), web_root_path.end()) > std::distance(path.begin(), path.end()) ||
 			!std::equal(web_root_path.begin(), web_root_path.end(), path.begin())) {
 			LOG_ERROR("Query default resource, path must be within root path");
 			throw std::invalid_argument("path must be within root path");
 		}
-		if (boost::filesystem::is_directory(path))
+		if (fs::is_directory(path))
 			path /= "index.html";
 
 		SimpleWeb::CaseInsensitiveMultimap header;

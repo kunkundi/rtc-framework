@@ -21,7 +21,7 @@ void WsController::OnOpen(WsConnection conn) {
 	sessionid_conn_map_[new_sessionid] = conn;
 
 	SteadyTimer pingtimer = std::make_shared<SimpleWeb::asio::steady_timer>(
-		io_context_->get_executor(), std::chrono::milliseconds(client_ping_timeout_));
+		*io_context_, std::chrono::milliseconds(client_ping_timeout_));
 	pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn));
 	conn_pingtimer_map_[conn] = pingtimer;
 
@@ -55,7 +55,7 @@ void WsController::OnMessage(WsConnection conn, std::shared_ptr<WsServer::InMess
 				pingtimer->expires_after(std::chrono::milliseconds(client_ping_timeout_));
 				pingtimer->async_wait(std::bind(&WsController::SetClientPingTimeout, this, std::placeholders::_1, conn));
 			}
-			catch (const boost::system::system_error& ec) {
+			catch (const SimpleWeb::system_error& ec) {
 				LOG_ERROR("Call expires_after method of pingtimer failed, reason: %s", ec.what());
 			}
 
@@ -266,8 +266,8 @@ void WsController::CloseConnectionAndTimer(WsConnection conn) {
 	if (conn_pingtimer_map_.find(conn) != conn_pingtimer_map_.cend()) {
 		auto pingtimer = conn_pingtimer_map_[conn];
 		pingtimer->cancel();
-		SimpleWeb::asio::post(pingtimer->get_executor(), [this, pingtimer, conn]() {
+		SimpleWeb::post(*io_context_, [this, pingtimer, conn]() {
 			conn_pingtimer_map_.erase(conn);
-			});
+		});
 	}
 }

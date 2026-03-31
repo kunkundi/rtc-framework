@@ -316,7 +316,7 @@ void RtcConnectionManager::InitWebsocket() {
 
     if (!ping_timer_) {
       ping_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-          ws_io_context_->get_executor(),
+          *ws_io_context_,
           std::chrono::milliseconds(rtc_config_.ping_timeout));
     } else {
       ping_timer_->expires_after(
@@ -500,7 +500,7 @@ void RtcConnectionManager::SetPingTimeout(const SimpleWeb::error_code& ec) {
 
     if (!pong_timer_) {
       pong_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-          ws_io_context_->get_executor(),
+          *ws_io_context_,
           std::chrono::milliseconds(rtc_config_.pong_timeout));
     } else {
       pong_timer_->expires_after(
@@ -557,7 +557,7 @@ void RtcConnectionManager::ReconnectWebsocket() {
     lock_reconnect_ = true;
     if (!reconnect_timer_) {
       reconnect_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-          ws_io_context_->get_executor(),
+          *ws_io_context_,
           std::chrono::milliseconds(rtc_config_.reconnect_interval));
     } else {
       reconnect_timer_->expires_after(
@@ -1511,7 +1511,7 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 void RtcConnectionManager::InitStatsReport() {
   if (!stats_report_timer_) {
     stats_report_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-        stats_report_io_context_->get_executor(),
+        *stats_report_io_context_,
         std::chrono::milliseconds(1000));
   }
   LOG_WARN("Start stats report timer");
@@ -1526,7 +1526,7 @@ void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
   std::weak_ptr<RtcConnectionManager> weak_self = shared_from_this();
   steady_timer->expires_from_now(std::chrono::milliseconds(1000));
   steady_timer->async_wait(
-      [this, steady_timer, weak_self](const boost::system::error_code& ec) {
+      [this, steady_timer, weak_self](const SimpleWeb::error_code& ec) {
         auto self = weak_self.lock();
         if (!self) {
           return;
