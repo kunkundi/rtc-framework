@@ -3,7 +3,8 @@ set_version("0.5.0")
 
 add_rules("mode.debug", "mode.release")
 set_languages("cxx14")
-add_requires("imgui v1.92.6", {configs = {opengl3 = true}})
+add_requires("imgui v1.92.6", {configs = {opengl3 = true, sdl3 = true}})
+add_requires("asio 1.32.0")
 
 local function on_windows()
     return is_plat("windows") or is_host("windows")
@@ -18,12 +19,6 @@ if on_windows() then
 else
     set_targetdir("$(builddir)/runtime")
 end
-
-option("asio_path")
-    set_default("")
-    set_showmenu(true)
-    set_description("Standalone Asio include directory")
-option_end()
 
 option("use_default_jetson_encoder")
     set_default(false)
@@ -47,51 +42,14 @@ local function is_aarch64_arch()
     return is_arch("aarch64", "arm64")
 end
 
-local function resolve_asio_include()
-    local configured_path = get_config("asio_path")
-    if configured_path and #configured_path > 0 then
-        if os.isfile(path.join(configured_path, "asio.hpp")) then
-            return configured_path
-        end
-        if os.isfile(path.join(configured_path, "asio", "asio.hpp")) then
-            return path.join(configured_path, "asio")
-        end
-        assert(false, string.format("invalid --asio_path: %s", configured_path))
-    end
-
-    local env_path = os.getenv("ASIO_PATH")
-    if env_path and #env_path > 0 then
-        if os.isfile(path.join(env_path, "asio.hpp")) then
-            return env_path
-        end
-        if os.isfile(path.join(env_path, "asio", "asio.hpp")) then
-            return path.join(env_path, "asio")
-        end
-    end
-
-    local candidates = {
-        "/usr/include",
-        "/usr/local/include",
-        "/usr/include/asio",
-        "/usr/local/include/asio"
-    }
-    for _, candidate in ipairs(candidates) do
-        if os.isfile(path.join(candidate, "asio.hpp")) then
-            return candidate
-        end
-        if os.isfile(path.join(candidate, "asio", "asio.hpp")) then
-            return path.join(candidate, "asio")
-        end
+local reported_failures = {}
+local function fail(format, ...)
+    local message = string.format(format, ...)
+    if not reported_failures[message] then
+        print("error: " .. message)
+        reported_failures[message] = true
     end
     return nil
-end
-
-local function require_asio_include()
-    local include_dir = resolve_asio_include()
-    if not include_dir then
-        assert(false, "Standalone Asio not found. Install libasio-dev or pass --asio_path=/path/to/asio/include")
-    end
-    return include_dir
 end
 
 local function webrtc_root_dir()
@@ -109,7 +67,7 @@ local function webrtc_root_dir()
         return path.join("third_party", "webrtc", "webrtc-linux")
     end
 
-    assert(false, "unsupported platform for WebRTC")
+    return fail("unsupported platform for WebRTC")
 end
 
 local function add_webrtc_config()
@@ -141,12 +99,12 @@ local function add_webrtc_config()
 end
 
 local function add_simple_web_config()
-    add_defines("USE_STANDALONE_ASIO")
+    add_defines("USE_STANDALONE_ASIO", "ASIO_STANDALONE")
     add_includedirs(
         "third_party/Simple-Web-Server",
-        "third_party/Simple-WebSocket-Server",
-        require_asio_include()
+        "third_party/Simple-WebSocket-Server"
     )
+    add_packages("asio")
 
     if on_windows() then
         add_syslinks("ws2_32", "wsock32")
@@ -167,7 +125,7 @@ local function add_vtslog_config()
         add_linkdirs(path.join("third_party", "vtslog", "lib", arch_dir))
         add_links("vtslog", "minizip")
     else
-        assert(false, "unsupported platform for vtslog")
+        return fail("unsupported platform for vtslog")
     end
 end
 
@@ -202,27 +160,82 @@ local function add_nvcodec_config()
         add_linkdirs(path.join(sdk_root, "Lib", "linux", "stubs", arch_dir))
         add_links("nvcuvid", "nvidia-encode")
     else
-        assert(false, "unsupported platform for NvCodec")
+        return fail("unsupported platform for NvCodec")
     end
 end
 
 local function add_cuda_driver_config()
-    local cuda_include_candidates = {
-        "/usr/local/cuda/include",
-        "/usr/include"
-    }
+    local cuda_include_candidates = {}
+    local cuda_path = os.getenv("CUDA_PATH")
+    local cuda_home = os.getenv("CUDA_HOME")
+
+    if on_windows() then
+        if cuda_path then
+            table.insert(cuda_include_candidates, path.join(cuda_path, "include"))
+        end
+        if cuda_home then
+            table.insert(cuda_include_candidates, path.join(cuda_home, "include"))
+        end
+        for _, include_dir in ipairs(os.dirs("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v*/include")) do
+            table.insert(cuda_include_candidates, include_dir)
+        end
+    else
+        if cuda_path then
+            table.insert(cuda_include_candidates, path.join(cuda_path, "include"))
+        end
+        if cuda_home then
+            table.insert(cuda_include_candidates, path.join(cuda_home, "include"))
+        end
+        table.insert(cuda_include_candidates, "/usr/local/cuda/include")
+        table.insert(cuda_include_candidates, "/usr/include")
+    end
+
+    local found_cuda_include = nil
     for _, include_dir in ipairs(cuda_include_candidates) do
         if os.isfile(path.join(include_dir, "cuda.h")) then
-            add_includedirs(include_dir)
+            found_cuda_include = include_dir
             break
         end
     end
 
+    if not found_cuda_include then
+        return false
+    end
+
+    add_includedirs(found_cuda_include)
+
     if on_windows() then
-        add_links("nvcuda")
+        local cuda_lib_candidates = {}
+        if cuda_path then
+            table.insert(cuda_lib_candidates, path.join(cuda_path, "lib", "x64"))
+        end
+        if cuda_home then
+            table.insert(cuda_lib_candidates, path.join(cuda_home, "lib", "x64"))
+        end
+        for _, lib_dir in ipairs(os.dirs("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v*/lib/x64")) do
+            table.insert(cuda_lib_candidates, lib_dir)
+        end
+
+        local found_cuda_libdir = nil
+        for _, lib_dir in ipairs(cuda_lib_candidates) do
+            if os.isfile(path.join(lib_dir, "cuda.lib")) then
+                found_cuda_libdir = lib_dir
+                break
+            end
+        end
+
+        if not found_cuda_libdir then
+            return false
+        end
+
+        add_linkdirs(found_cuda_libdir)
+        add_links("cuda")
     else
         add_links("cuda")
     end
+
+    add_defines("VTSRTC_HAS_CUDA_DRIVER=1")
+    return true
 end
 
 local function add_linux_runtime_rpath()
@@ -266,7 +279,7 @@ target(vtsrtc_target)
 
     if on_windows() then
         add_defines("WEBRTC_WIN", "NOMINMAX", "WIN32_LEAN_AND_MEAN", "RTC_DLL_EXPORTS")
-        add_syslinks("winmm", "Secur32", "Msdmo", "Dmoguids", "wmcodecdspuuid", "Strmiids")
+        add_syslinks("winmm", "Secur32", "Msdmo", "Dmoguids", "wmcodecdspuuid", "Strmiids", "Advapi32")
     elseif on_linux() then
         add_defines("WEBRTC_LINUX", "WEBRTC_POSIX")
     end
@@ -302,16 +315,22 @@ target(vtsrtc_target)
         add_linkdirs("/usr/lib/aarch64-linux-gnu/tegra")
     else
         add_files(
-            "vtsrtc/src/video/decode/rtc_decoder_factory.cpp",
-            "vtsrtc/src/video/encode/nvidia/nvh264_encoder_impl.cpp",
-            "vtsrtc/src/video/decode/nvidia/nvh264_decoder_impl.cpp",
-            "third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoder.cpp",
-            "third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp",
-            "third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvDecoder/NvDecoder.cpp"
+            "vtsrtc/src/video/decode/rtc_decoder_factory.cpp"
         )
 
-        add_cuda_driver_config()
-        add_nvcodec_config()
+        if add_cuda_driver_config() then
+            add_files(
+                "vtsrtc/src/video/encode/nvidia/nvh264_encoder_impl.cpp",
+                "vtsrtc/src/video/decode/nvidia/nvh264_decoder_impl.cpp",
+                "third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoder.cpp",
+                "third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp",
+                "third_party/Video_Codec_SDK_11.0.10/Samples/NvCodec/NvDecoder/NvDecoder.cpp"
+            )
+            add_nvcodec_config()
+        else
+            add_defines("VTSRTC_HAS_CUDA_DRIVER=0")
+            print("warning: CUDA toolkit not found, NVENC/NVDEC sources are disabled for this build")
+        end
     end
 
     add_installfiles("vtsrtc/src/c_rtc.h", {prefixdir = "vtsrtc/include"})
@@ -359,8 +378,10 @@ if get_config("build_examples") then
         add_includedirs("vtsrtc/src")
         add_vtslog_config()
         add_linux_runtime_rpath()
-        if on_linux() then
-            add_syslinks("pthread", "X11", "GL", "dl", "asound")
+        if on_windows() then
+            add_syslinks("opengl32")
+        elseif on_linux() then
+            add_syslinks("pthread", "GL", "dl", "asound")
         end
 
         after_buildcmd(function(target, batchcmds)

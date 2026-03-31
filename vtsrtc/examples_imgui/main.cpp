@@ -2,13 +2,13 @@
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
+#include <backends/imgui_impl_sdl3.h>
 
-#include <GL/gl.h>
-#include <GL/glx.h>
-#include <X11/XKBlib.h>
-#include <X11/keysym.h>
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
+#ifndef SDL_MAIN_HANDLED
+#define SDL_MAIN_HANDLED
+#endif
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_opengl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -178,255 +178,6 @@ const char* P2PStateText(RtcP2PState state) {
     default:
       return "Unknown";
   }
-}
-
-ImGuiKey TranslateKeySym(KeySym ks) {
-  switch (ks) {
-    case XK_Tab:
-      return ImGuiKey_Tab;
-    case XK_Left:
-      return ImGuiKey_LeftArrow;
-    case XK_Right:
-      return ImGuiKey_RightArrow;
-    case XK_Up:
-      return ImGuiKey_UpArrow;
-    case XK_Down:
-      return ImGuiKey_DownArrow;
-    case XK_Prior:
-      return ImGuiKey_PageUp;
-    case XK_Next:
-      return ImGuiKey_PageDown;
-    case XK_Home:
-      return ImGuiKey_Home;
-    case XK_End:
-      return ImGuiKey_End;
-    case XK_Insert:
-      return ImGuiKey_Insert;
-    case XK_Delete:
-      return ImGuiKey_Delete;
-    case XK_BackSpace:
-      return ImGuiKey_Backspace;
-    case XK_space:
-      return ImGuiKey_Space;
-    case XK_Return:
-    case XK_KP_Enter:
-      return ImGuiKey_Enter;
-    case XK_Escape:
-      return ImGuiKey_Escape;
-    case XK_apostrophe:
-      return ImGuiKey_Apostrophe;
-    case XK_comma:
-      return ImGuiKey_Comma;
-    case XK_minus:
-      return ImGuiKey_Minus;
-    case XK_period:
-      return ImGuiKey_Period;
-    case XK_slash:
-      return ImGuiKey_Slash;
-    case XK_semicolon:
-      return ImGuiKey_Semicolon;
-    case XK_equal:
-      return ImGuiKey_Equal;
-    case XK_bracketleft:
-      return ImGuiKey_LeftBracket;
-    case XK_backslash:
-      return ImGuiKey_Backslash;
-    case XK_bracketright:
-      return ImGuiKey_RightBracket;
-    case XK_grave:
-      return ImGuiKey_GraveAccent;
-    case XK_Caps_Lock:
-      return ImGuiKey_CapsLock;
-    case XK_Scroll_Lock:
-      return ImGuiKey_ScrollLock;
-    case XK_Num_Lock:
-      return ImGuiKey_NumLock;
-    case XK_Print:
-      return ImGuiKey_PrintScreen;
-    case XK_Pause:
-      return ImGuiKey_Pause;
-    case XK_KP_0:
-      return ImGuiKey_Keypad0;
-    case XK_KP_1:
-      return ImGuiKey_Keypad1;
-    case XK_KP_2:
-      return ImGuiKey_Keypad2;
-    case XK_KP_3:
-      return ImGuiKey_Keypad3;
-    case XK_KP_4:
-      return ImGuiKey_Keypad4;
-    case XK_KP_5:
-      return ImGuiKey_Keypad5;
-    case XK_KP_6:
-      return ImGuiKey_Keypad6;
-    case XK_KP_7:
-      return ImGuiKey_Keypad7;
-    case XK_KP_8:
-      return ImGuiKey_Keypad8;
-    case XK_KP_9:
-      return ImGuiKey_Keypad9;
-    case XK_KP_Decimal:
-      return ImGuiKey_KeypadDecimal;
-    case XK_KP_Divide:
-      return ImGuiKey_KeypadDivide;
-    case XK_KP_Multiply:
-      return ImGuiKey_KeypadMultiply;
-    case XK_KP_Subtract:
-      return ImGuiKey_KeypadSubtract;
-    case XK_KP_Add:
-      return ImGuiKey_KeypadAdd;
-    case XK_KP_Equal:
-      return ImGuiKey_KeypadEqual;
-    case XK_Shift_L:
-      return ImGuiKey_LeftShift;
-    case XK_Shift_R:
-      return ImGuiKey_RightShift;
-    case XK_Control_L:
-      return ImGuiKey_LeftCtrl;
-    case XK_Control_R:
-      return ImGuiKey_RightCtrl;
-    case XK_Alt_L:
-      return ImGuiKey_LeftAlt;
-    case XK_Alt_R:
-      return ImGuiKey_RightAlt;
-    case XK_Super_L:
-      return ImGuiKey_LeftSuper;
-    case XK_Super_R:
-      return ImGuiKey_RightSuper;
-    case XK_Menu:
-      return ImGuiKey_Menu;
-    case XK_0:
-      return ImGuiKey_0;
-    case XK_1:
-      return ImGuiKey_1;
-    case XK_2:
-      return ImGuiKey_2;
-    case XK_3:
-      return ImGuiKey_3;
-    case XK_4:
-      return ImGuiKey_4;
-    case XK_5:
-      return ImGuiKey_5;
-    case XK_6:
-      return ImGuiKey_6;
-    case XK_7:
-      return ImGuiKey_7;
-    case XK_8:
-      return ImGuiKey_8;
-    case XK_9:
-      return ImGuiKey_9;
-    case XK_a:
-    case XK_A:
-      return ImGuiKey_A;
-    case XK_b:
-    case XK_B:
-      return ImGuiKey_B;
-    case XK_c:
-    case XK_C:
-      return ImGuiKey_C;
-    case XK_d:
-    case XK_D:
-      return ImGuiKey_D;
-    case XK_e:
-    case XK_E:
-      return ImGuiKey_E;
-    case XK_f:
-    case XK_F:
-      return ImGuiKey_F;
-    case XK_g:
-    case XK_G:
-      return ImGuiKey_G;
-    case XK_h:
-    case XK_H:
-      return ImGuiKey_H;
-    case XK_i:
-    case XK_I:
-      return ImGuiKey_I;
-    case XK_j:
-    case XK_J:
-      return ImGuiKey_J;
-    case XK_k:
-    case XK_K:
-      return ImGuiKey_K;
-    case XK_l:
-    case XK_L:
-      return ImGuiKey_L;
-    case XK_m:
-    case XK_M:
-      return ImGuiKey_M;
-    case XK_n:
-    case XK_N:
-      return ImGuiKey_N;
-    case XK_o:
-    case XK_O:
-      return ImGuiKey_O;
-    case XK_p:
-    case XK_P:
-      return ImGuiKey_P;
-    case XK_q:
-    case XK_Q:
-      return ImGuiKey_Q;
-    case XK_r:
-    case XK_R:
-      return ImGuiKey_R;
-    case XK_s:
-    case XK_S:
-      return ImGuiKey_S;
-    case XK_t:
-    case XK_T:
-      return ImGuiKey_T;
-    case XK_u:
-    case XK_U:
-      return ImGuiKey_U;
-    case XK_v:
-    case XK_V:
-      return ImGuiKey_V;
-    case XK_w:
-    case XK_W:
-      return ImGuiKey_W;
-    case XK_x:
-    case XK_X:
-      return ImGuiKey_X;
-    case XK_y:
-    case XK_Y:
-      return ImGuiKey_Y;
-    case XK_z:
-    case XK_Z:
-      return ImGuiKey_Z;
-    case XK_F1:
-      return ImGuiKey_F1;
-    case XK_F2:
-      return ImGuiKey_F2;
-    case XK_F3:
-      return ImGuiKey_F3;
-    case XK_F4:
-      return ImGuiKey_F4;
-    case XK_F5:
-      return ImGuiKey_F5;
-    case XK_F6:
-      return ImGuiKey_F6;
-    case XK_F7:
-      return ImGuiKey_F7;
-    case XK_F8:
-      return ImGuiKey_F8;
-    case XK_F9:
-      return ImGuiKey_F9;
-    case XK_F10:
-      return ImGuiKey_F10;
-    case XK_F11:
-      return ImGuiKey_F11;
-    case XK_F12:
-      return ImGuiKey_F12;
-    default:
-      return ImGuiKey_None;
-  }
-}
-
-void UpdateModifierKeys(ImGuiIO& io, unsigned int state) {
-  io.AddKeyEvent(ImGuiMod_Ctrl, (state & ControlMask) != 0);
-  io.AddKeyEvent(ImGuiMod_Shift, (state & ShiftMask) != 0);
-  io.AddKeyEvent(ImGuiMod_Alt, (state & Mod1Mask) != 0);
-  io.AddKeyEvent(ImGuiMod_Super, (state & Mod4Mask) != 0);
 }
 
 class RtcAudioPlayer {
@@ -676,195 +427,93 @@ class RtcAudioPlayer {
 #endif
 };
 
-class X11OpenGLWindow {
+class SDLOpenGLWindow {
  public:
   bool Init(const char* title, int width, int height) {
-    display_ = XOpenDisplay(nullptr);
-    if (!display_) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+      return false;
+    }
+    initialized_ = true;
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
+    window_ = SDL_CreateWindow(title, width, height,
+                               SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+    if (!window_) {
+      SDL_Quit();
+      initialized_ = false;
+      return false;
+    }
+    gl_context_ = SDL_GL_CreateContext(window_);
+    if (!gl_context_) {
+      SDL_DestroyWindow(window_);
+      window_ = nullptr;
+      SDL_Quit();
+      initialized_ = false;
       return false;
     }
 
-    const int screen = DefaultScreen(display_);
-    static int visual_attribs[] = {
-        GLX_RGBA,
-        GLX_DOUBLEBUFFER,
-        GLX_DEPTH_SIZE,
-        24,
-        GLX_STENCIL_SIZE,
-        8,
-        None,
-    };
-
-    XVisualInfo* visual = glXChooseVisual(display_, screen, visual_attribs);
-    if (!visual) {
-      XCloseDisplay(display_);
-      display_ = nullptr;
+    if (!SDL_GL_MakeCurrent(window_, gl_context_)) {
+      SDL_GL_DestroyContext(gl_context_);
+      gl_context_ = nullptr;
+      SDL_DestroyWindow(window_);
+      window_ = nullptr;
+      SDL_Quit();
+      initialized_ = false;
       return false;
     }
+    SDL_GL_SetSwapInterval(1);
 
-    Colormap colormap = XCreateColormap(display_, RootWindow(display_, visual->screen),
-                                        visual->visual, AllocNone);
-
-    XSetWindowAttributes swa;
-    swa.colormap = colormap;
-    swa.event_mask = ExposureMask | StructureNotifyMask | KeyPressMask |
-                     KeyReleaseMask | ButtonPressMask | ButtonReleaseMask |
-                     PointerMotionMask | FocusChangeMask;
-
-    window_ = XCreateWindow(display_, RootWindow(display_, visual->screen), 0, 0,
-                            width, height, 0, visual->depth, InputOutput,
-                            visual->visual, CWColormap | CWEventMask, &swa);
-
-    XStoreName(display_, window_, title);
-
-    wm_delete_ = XInternAtom(display_, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(display_, window_, &wm_delete_, 1);
-
-    glx_context_ = glXCreateContext(display_, visual, nullptr, True);
-    XFree(visual);
-
-    if (!glx_context_) {
-      XDestroyWindow(display_, window_);
-      XCloseDisplay(display_);
-      window_ = 0;
-      display_ = nullptr;
-      return false;
-    }
-
-    glXMakeCurrent(display_, window_, glx_context_);
-    XMapWindow(display_, window_);
     width_ = width;
     height_ = height;
     return true;
   }
 
   void Shutdown() {
-    if (display_) {
-      glXMakeCurrent(display_, None, nullptr);
-      if (glx_context_) {
-        glXDestroyContext(display_, glx_context_);
-        glx_context_ = nullptr;
-      }
-      if (window_) {
-        XDestroyWindow(display_, window_);
-        window_ = 0;
-      }
-      XCloseDisplay(display_);
-      display_ = nullptr;
+    if (gl_context_) {
+      SDL_GL_DestroyContext(gl_context_);
+      gl_context_ = nullptr;
+    }
+    if (window_) {
+      SDL_DestroyWindow(window_);
+      window_ = nullptr;
+    }
+    if (initialized_) {
+      SDL_Quit();
+      initialized_ = false;
     }
   }
 
-  void PumpEvents(ImGuiIO& io, bool* should_close) {
-    while (XPending(display_) > 0) {
-      XEvent event;
-      XNextEvent(display_, &event);
-
-      switch (event.type) {
-        case ClientMessage:
-          if (static_cast<Atom>(event.xclient.data.l[0]) == wm_delete_) {
-            *should_close = true;
-          }
-          break;
-
-        case ConfigureNotify:
-          width_ = event.xconfigure.width;
-          height_ = event.xconfigure.height;
-          break;
-
-        case MotionNotify:
-          io.AddMousePosEvent(static_cast<float>(event.xmotion.x),
-                              static_cast<float>(event.xmotion.y));
-          break;
-
-        case ButtonPress:
-          UpdateModifierKeys(io, event.xbutton.state);
-          if (event.xbutton.button == Button1) {
-            io.AddMouseButtonEvent(0, true);
-          } else if (event.xbutton.button == Button2) {
-            io.AddMouseButtonEvent(2, true);
-          } else if (event.xbutton.button == Button3) {
-            io.AddMouseButtonEvent(1, true);
-          } else if (event.xbutton.button == Button4) {
-            io.AddMouseWheelEvent(0.0f, 1.0f);
-          } else if (event.xbutton.button == Button5) {
-            io.AddMouseWheelEvent(0.0f, -1.0f);
-          }
-          break;
-
-        case ButtonRelease:
-          UpdateModifierKeys(io, event.xbutton.state);
-          if (event.xbutton.button == Button1) {
-            io.AddMouseButtonEvent(0, false);
-          } else if (event.xbutton.button == Button2) {
-            io.AddMouseButtonEvent(2, false);
-          } else if (event.xbutton.button == Button3) {
-            io.AddMouseButtonEvent(1, false);
-          }
-          break;
-
-        case KeyPress: {
-          UpdateModifierKeys(io, event.xkey.state);
-
-          KeySym keysym = NoSymbol;
-          char buffer[64] = {0};
-          const int len = XLookupString(&event.xkey, buffer, sizeof(buffer) - 1,
-                                        &keysym, nullptr);
-
-          const ImGuiKey key = TranslateKeySym(keysym);
-          if (key != ImGuiKey_None) {
-            io.AddKeyEvent(key, true);
-          }
-
-          if (len > 0) {
-            buffer[len] = '\0';
-            io.AddInputCharactersUTF8(buffer);
-          }
-          break;
-        }
-
-        case KeyRelease: {
-          if (XEventsQueued(display_, QueuedAfterReading)) {
-            XEvent next_event;
-            XPeekEvent(display_, &next_event);
-            if (next_event.type == KeyPress &&
-                next_event.xkey.time == event.xkey.time &&
-                next_event.xkey.keycode == event.xkey.keycode) {
-              break;
-            }
-          }
-
-          UpdateModifierKeys(io, event.xkey.state);
-          KeySym keysym = XkbKeycodeToKeysym(display_, event.xkey.keycode, 0, 0);
-          const ImGuiKey key = TranslateKeySym(keysym);
-          if (key != ImGuiKey_None) {
-            io.AddKeyEvent(key, false);
-          }
-          break;
-        }
-
-        case FocusOut:
-          io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-          io.AddMouseButtonEvent(0, false);
-          io.AddMouseButtonEvent(1, false);
-          io.AddMouseButtonEvent(2, false);
-          break;
-
-        default:
-          break;
+  void PumpEvents(ImGuiIO& /*io*/, bool* should_close) {
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+      ImGui_ImplSDL3_ProcessEvent(&event);
+      if (event.type == SDL_EVENT_QUIT) {
+        *should_close = true;
+      } else if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED &&
+                 event.window.windowID == SDL_GetWindowID(window_)) {
+        *should_close = true;
       }
     }
+    SDL_GetWindowSize(window_, &width_, &height_);
   }
 
-  void SwapBuffers() { glXSwapBuffers(display_, window_); }
+  void SwapBuffers() { SDL_GL_SwapWindow(window_); }
 
   int width() const { return width_; }
   int height() const { return height_; }
+  SDL_Window* window() const { return window_; }
+  SDL_GLContext gl_context() const { return gl_context_; }
 
  private:
-  Display* display_ = nullptr;
-  Window window_ = 0;
-  GLXContext glx_context_ = nullptr;
-  Atom wm_delete_ = 0;
+  SDL_Window* window_ = nullptr;
+  SDL_GLContext gl_context_ = nullptr;
+  bool initialized_ = false;
   int width_ = 0;
   int height_ = 0;
 };
@@ -899,10 +548,10 @@ class RtcImguiApp {
   }
 
   void Run() {
-    X11OpenGLWindow window;
+    SDLOpenGLWindow window;
     if (!window.Init("rtc-solutions | p2p_imgui", kMainWindowWidth,
                      kMainWindowHeight)) {
-      AppendLog("X11OpenGLWindow init failed");
+      AppendLog("SDLOpenGLWindow init failed");
       return;
     }
 
@@ -912,7 +561,19 @@ class RtcImguiApp {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
 
-    ImGui_ImplOpenGL3_Init("#version 130");
+    if (!ImGui_ImplSDL3_InitForOpenGL(window.window(), window.gl_context())) {
+      AppendLog("ImGui_ImplSDL3_InitForOpenGL failed");
+      ImGui::DestroyContext();
+      window.Shutdown();
+      return;
+    }
+    if (!ImGui_ImplOpenGL3_Init("#version 130")) {
+      AppendLog("ImGui_ImplOpenGL3_Init failed");
+      ImGui_ImplSDL3_Shutdown();
+      ImGui::DestroyContext();
+      window.Shutdown();
+      return;
+    }
 
     bool should_close = false;
     auto last_tick = std::chrono::steady_clock::now();
@@ -931,6 +592,7 @@ class RtcImguiApp {
 
       window.PumpEvents(io, &should_close);
 
+      ImGui_ImplSDL3_NewFrame();
       ImGui_ImplOpenGL3_NewFrame();
       ImGui::NewFrame();
 
@@ -947,6 +609,7 @@ class RtcImguiApp {
     }
 
     ReleaseVideoTextures();
+    ImGui_ImplSDL3_Shutdown();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
     window.Shutdown();
