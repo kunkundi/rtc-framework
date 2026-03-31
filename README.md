@@ -9,7 +9,7 @@ rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
    - 房间管理
    - 实时音视频通信
    - 实时数据通信
-* p2p_qt是使用vtsrtc开发的DEMO
+* p2p_imgui是使用vtsrtc + Dear ImGui开发的DEMO
 
 ### 构建与编译
 工程使用xmake组织管理，目前支持：Windows和Linux平台。
@@ -17,14 +17,11 @@ rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
 * Linux平台gcc版本需要支持C++14标准（WebRTC库编译要求）
 * 为支持ABI，vtsrtc库是C库
 #### 安装依赖
-* QT（运行p2p_qt DEMO需要）
+* Dear ImGui v1.92.6（由xmake自动拉取）
+* OpenGL/X11运行环境（Linux桌面环境通常已具备）
 * standalone Asio（signaling-server和vtsrtc网络通信需要）
-* 在share目录 \\\10.11.16.35\share\个人\朱建\rtc-solutions 下，准备了QT
-* Ubuntu（aarch64验证过，x86_64没有验证过，估计也可以）下安装QT
 ```
 sudo apt-get install build-essential
-sudo apt-get install qtcreator
-sudo apt-get install qt5-default
 sudo apt-get install libasio-dev
 ```
 
@@ -39,15 +36,16 @@ Clone代码
 ```
 
 #### Windows平台
-1. 打开根目录下的 `run_xmake.bat`，按需设置环境变量 `QTDIR`（脚本会自动把 `QTDIR\\bin` 加入 `PATH`）
-2. 运行 `run_xmake.bat`，会分别构建Debug/Release并安装到 `install` 目录
+1. 运行 `run_xmake.bat`，会分别构建Debug/Release并安装到 `install` 目录
+2. 首次构建会自动下载并编译 Dear ImGui v1.92.6 依赖
 3. 习惯使用IDE开发，可执行 `xmake project -k vsxmake` 生成Visual Studio工程
 
 #### Linux平台
 1. 通用Linux环境执行 `./run_xmake.sh`
-2. Jetson(aarch64)环境执行 `./run_xmake_aarch64.sh`（如Qt不在系统PATH，可先设置 `QT_DIR`）
+2. Jetson(aarch64)环境执行 `./run_xmake_aarch64.sh`
 3. 构建产物默认输出到 `build/runtime`，安装输出到 `install`
-4. 习惯使用IDE开发，可执行 `xmake project -k compile_commands` 生成 `compile_commands.json`
+4. 示例程序为 `build/runtime/p2p_imgui`
+5. 习惯使用IDE开发，可执行 `xmake project -k compile_commands` 生成 `compile_commands.json`
 
 #### 常用xmake命令
 参照[xmake官方文档](https://xmake.io/)

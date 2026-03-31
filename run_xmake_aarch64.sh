@@ -21,11 +21,8 @@ mkdir -p "$INSTALL_DIR"
 
 cd "$SOURCE_DIR"
 
-if [ -n "${QT_DIR}" ] && [ -d "${QT_DIR}/bin" ]; then
-    export PATH="${QT_DIR}/bin:${PATH}"
-fi
-
 xmake f \
+    -y \
     -m release \
     --builddir="$BUILD_DIR" \
     --use_default_jetson_encoder=n \

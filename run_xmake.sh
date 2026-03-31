@@ -21,11 +21,8 @@ mkdir -p "$INSTALL_DIR"
 
 cd "$SOURCE_DIR"
 
-if [ -n "${QTDIR}" ] && [ -d "${QTDIR}/bin" ]; then
-    export PATH="${QTDIR}/bin:${PATH}"
-fi
-
 xmake f \
+    -y \
     -m release \
     --builddir="$BUILD_DIR" \
     ${ASIO_PATH:+--asio_path="$ASIO_PATH"}

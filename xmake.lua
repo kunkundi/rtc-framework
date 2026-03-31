@@ -3,6 +3,7 @@ set_version("0.5.0")
 
 add_rules("mode.debug", "mode.release")
 set_languages("cxx14")
+add_requires("imgui v1.92.6", {configs = {opengl3 = true}})
 
 local function on_windows()
     return is_plat("windows") or is_host("windows")
@@ -39,7 +40,7 @@ option_end()
 option("build_examples")
     set_default(true)
     set_showmenu(true)
-    set_description("Build Qt demo target p2p_qt")
+    set_description("Build ImGui demo target p2p_imgui")
 option_end()
 
 local function is_aarch64_arch()
@@ -224,6 +225,15 @@ local function add_cuda_driver_config()
     end
 end
 
+local function add_linux_runtime_rpath()
+    if on_linux() then
+        local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
+        add_ldflags("-Wl,--disable-new-dtags", {force = true})
+        add_rpathdirs("$ORIGIN")
+        add_rpathdirs(path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir))
+    end
+end
+
 local vtsrtc_target = is_aarch64_arch() and "vtsrtc_aarch64" or "vtsrtc"
 
 target(vtsrtc_target)
@@ -265,6 +275,7 @@ target(vtsrtc_target)
     add_json_config()
     add_vtslog_config()
     add_webrtc_config()
+    add_linux_runtime_rpath()
 
     if is_aarch64_arch() then
         add_files(
@@ -322,26 +333,46 @@ target("signaling-server")
     add_json_config()
     add_vtslog_config()
     add_openssl_config()
+    add_linux_runtime_rpath()
+
+    after_buildcmd(function(target, batchcmds)
+        if on_linux() then
+            local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
+            local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
+            batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
+            batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "web"), path.join(target:targetdir(), "web"))
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "signaling-server.cfg"), target:targetdir())
+        end
+    end)
 
 if get_config("build_examples") then
-    target("p2p_qt")
+    target("p2p_imgui")
         set_kind("binary")
-        add_rules("qt.widgetapp")
         add_deps(vtsrtc_target)
+        add_packages("imgui")
 
         add_files(
-            "vtsrtc/examples/rtc_audiorender.cpp",
-            "vtsrtc/examples/rtc_videorender.cpp",
-            "vtsrtc/examples/rtc_widget.cpp",
-            "vtsrtc/examples/main.cpp",
-            "vtsrtc/examples/rtc_audiorender.h",
-            "vtsrtc/examples/rtc_videorender.h",
-            "vtsrtc/examples/rtc_widget.h"
+            "vtsrtc/examples_imgui/main.cpp"
         )
 
-        add_includedirs("vtsrtc/examples", "vtsrtc/src")
+        add_includedirs("vtsrtc/src")
         add_vtslog_config()
+        add_linux_runtime_rpath()
         if on_linux() then
-            add_syslinks("pthread")
+            add_syslinks("pthread", "X11", "GL", "dl", "asound")
         end
+
+        after_buildcmd(function(target, batchcmds)
+            if on_linux() then
+                local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
+                local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
+                batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
+                batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
+                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+                batchcmds:cp(path.join(os.projectdir(), "test_data", "8k16bit.pcm"), target:targetdir())
+                batchcmds:cp(path.join(os.projectdir(), "test_data", "zjlabs.yuv"), target:targetdir())
+                batchcmds:cp(path.join(os.projectdir(), "test_data", "messagefile.txt"), target:targetdir())
+            end
+        end)
 end
