@@ -10,11 +10,11 @@ if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 rem Install xmake dependencies declared in xmake.lua (including Asio)
 xmake require -y || goto :error
 
-xmake f -y -m debug --builddir="%BUILD_DIR%" || goto :error
+xmake f -vy -m debug --builddir="%BUILD_DIR%" || goto :error
 xmake -j 12 || goto :error
 xmake install -o "%INSTALL_DIR%" || goto :error
 
-@REM xmake f -y -m release --builddir="%BUILD_DIR%" || goto :error
+@REM xmake f -vy -m release --builddir="%BUILD_DIR%" || goto :error
 @REM xmake -j 12 || goto :error
 @REM xmake install -o "%INSTALL_DIR%" || goto :error
 

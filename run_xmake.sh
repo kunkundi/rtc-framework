@@ -22,7 +22,7 @@ mkdir -p "$INSTALL_DIR"
 cd "$SOURCE_DIR"
 
 xmake f \
-    -y \
+    -vy \
     -m release \
     --builddir="$BUILD_DIR" \
     ${ASIO_PATH:+--asio_path="$ASIO_PATH"}
