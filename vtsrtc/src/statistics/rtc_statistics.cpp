@@ -1,4 +1,4 @@
-#include "rtc_statistics.h"
+﻿#include "rtc_statistics.h"
 
 #include "api/stats/rtcstats_objects.h"
 #include "log/log_manager.h"
@@ -101,8 +101,9 @@ void RtcStatistics::OnStatisticsReport(
           (const webrtc::RTCOutboundRTPStreamStats*)(report->Get(outbound_str));
       if (media_stats != NULL) {
         // 				if (*media_stats->media_type == "audio")
-        // { 					net_stats_out.audio_stats.sourceid = ssrc_vs_id.second;
-        // 					net_stats_out.audio_stats.bitrate_bps =
+        // { net_stats_out.audio_stats.sourceid = ssrc_vs_id.second;
+        // 					net_stats_out.audio_stats.bitrate_bps
+        // =
         // (&media_stats->bytes_sent)->is_defined() ? *media_stats->bytes_sent *
         // 8 : 0;
         // 				}
@@ -558,8 +559,9 @@ void RtcStatistics::OnStatisticsReport(
           (const webrtc::RTCInboundRTPStreamStats*)(report->Get(inbound_str));
       if (media_stats != NULL) {
         // 				if (*media_stats->kind == "audio") {
-        // 					net_stats_out.audio_stats.sourceid =
-        // id_vs_ssrc.first; 					net_stats_out.audio_stats.bitrate_bps =
+        // 					net_stats_out.audio_stats.sourceid
+        // = id_vs_ssrc.first;
+        // net_stats_out.audio_stats.bitrate_bps =
         // (&media_stats->bytes_received)->is_defined() ?
         // *media_stats->bytes_received : 0;
         // 					net_stats_[id_vs_ssrc.first].audio_stats.bitrate_bps

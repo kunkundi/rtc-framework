@@ -1,4 +1,4 @@
-#if !defined __aarch64__
+﻿#if !defined __aarch64__
 #include <cuda.h>
 #endif
 
@@ -316,8 +316,7 @@ void RtcConnectionManager::InitWebsocket() {
 
     if (!ping_timer_) {
       ping_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-          *ws_io_context_,
-          std::chrono::milliseconds(rtc_config_.ping_timeout));
+          *ws_io_context_, std::chrono::milliseconds(rtc_config_.ping_timeout));
     } else {
       ping_timer_->expires_after(
           std::chrono::milliseconds(rtc_config_.ping_timeout));
@@ -500,8 +499,7 @@ void RtcConnectionManager::SetPingTimeout(const SimpleWeb::error_code& ec) {
 
     if (!pong_timer_) {
       pong_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-          *ws_io_context_,
-          std::chrono::milliseconds(rtc_config_.pong_timeout));
+          *ws_io_context_, std::chrono::milliseconds(rtc_config_.pong_timeout));
     } else {
       pong_timer_->expires_after(
           std::chrono::milliseconds(rtc_config_.pong_timeout));
@@ -1372,8 +1370,8 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
                              .build();
       // if (frame.has_update_rect()) {
       // 	auto new_rect =
-      // frame.update_rect().ScaleWithFrame(frame.width(), frame.height(), 		0, 0,
-      // frame.width(), frame.height(), out_width, out_height);
+      // frame.update_rect().ScaleWithFrame(frame.width(), frame.height(),
+      // 0, 0, frame.width(), frame.height(), out_width, out_height);
       // 	frame_build.set_update_rect(new_rect);
       // }
       return frame_build;
@@ -1511,8 +1509,7 @@ void RtcConnectionManager::AddVideoTrack2PeerConnection(
 void RtcConnectionManager::InitStatsReport() {
   if (!stats_report_timer_) {
     stats_report_timer_ = std::make_shared<SimpleWeb::asio::steady_timer>(
-        *stats_report_io_context_,
-        std::chrono::milliseconds(1000));
+        *stats_report_io_context_, std::chrono::milliseconds(1000));
   }
   LOG_WARN("Start stats report timer");
 
@@ -1542,7 +1539,10 @@ void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
           }
         }
         mtx_.unlock();
-        LOG_INFO("[Stats] StatsReport called, TotalConnections: %zu, GetStatsCalled: %zu", conn_count, stats_called);
+        LOG_INFO(
+            "[Stats] StatsReport called, TotalConnections: %zu, "
+            "GetStatsCalled: %zu",
+            conn_count, stats_called);
         StatsReport(steady_timer);
       });
 }
@@ -1583,8 +1583,9 @@ void RtcConnectionManager::InteractRemotePeer(
     }
 
     if (state == vts_rtc::P2PState::Connected && current_sessionid_) {
-      LOG_INFO("[Stats] P2P Connected, netstats_report: %d, stats_report_inited: %d", 
-        rtc_config_.netstats_report, stats_report_inited_);
+      LOG_INFO(
+          "[Stats] P2P Connected, netstats_report: %d, stats_report_inited: %d",
+          rtc_config_.netstats_report, stats_report_inited_);
       if (rtc_config_.netstats_report && !stats_report_inited_) {
         LOG_INFO("[Stats] Starting stats report initialization");
         stats_report_thread_->PostTask(RTC_FROM_HERE,
@@ -1599,10 +1600,11 @@ void RtcConnectionManager::InteractRemotePeer(
         for (auto it : rtpsenders) {
           uint32_t ssrc = it->ssrc();
           std::string track_id = it->id();
-          bool is_external = external_feed_tracksources_.find(track_id) != external_feed_tracksources_.end();
-          LOG_INFO("[Stats] RTP Sender: track_id=%s, ssrc=%u, is_external=%d", 
-            track_id.c_str(), ssrc, is_external);
-          
+          bool is_external = external_feed_tracksources_.find(track_id) !=
+                             external_feed_tracksources_.end();
+          LOG_INFO("[Stats] RTP Sender: track_id=%s, ssrc=%u, is_external=%d",
+                   track_id.c_str(), ssrc, is_external);
+
           // 注册所有发送端，不仅仅是external feed
           // 使用track_id作为sourceid
           statistics_collector_->AddSessionSendersMediaSsrcVsId(
@@ -1615,18 +1617,21 @@ void RtcConnectionManager::InteractRemotePeer(
         for (auto it : rtpreceivers) {
           auto streamids = it->stream_ids();
           auto encoding_obj = it->GetParameters().encodings;
-          LOG_INFO("[Stats] RTP Receiver: streamids.size()=%zu, encodings.size()=%zu",
-            streamids.size(), encoding_obj.size());
-          
+          LOG_INFO(
+              "[Stats] RTP Receiver: streamids.size()=%zu, "
+              "encodings.size()=%zu",
+              streamids.size(), encoding_obj.size());
+
           if (!streamids.empty() && !encoding_obj.empty()) {
             uint32_t ssrc = encoding_obj[0].ssrc.value();
             std::string sourceid = streamids[0];
-            LOG_INFO("[Stats] Registering receiver: sourceid=%s, ssrc=%u", 
-              sourceid.c_str(), ssrc);
+            LOG_INFO("[Stats] Registering receiver: sourceid=%s, ssrc=%u",
+                     sourceid.c_str(), ssrc);
             statistics_collector_->AddSessionReceiversMediaSsrcVsId(
                 remote_sessionid, sourceid, ssrc);
           } else {
-            LOG_WARN("[Stats] RTP Receiver skipped: streamids or encodings empty");
+            LOG_WARN(
+                "[Stats] RTP Receiver skipped: streamids or encodings empty");
           }
         }
       } else {
@@ -1645,7 +1650,9 @@ void RtcConnectionManager::InteractRemotePeer(
   rtc_conn->on_net_stats_report_ =
       [this, remote_sessionid, weak_self](
           const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
-        LOG_INFO("[Stats] on_net_stats_report_ callback called for SessionID: %u", remote_sessionid);
+        LOG_INFO(
+            "[Stats] on_net_stats_report_ callback called for SessionID: %u",
+            remote_sessionid);
         statistics_collector_->OnStatisticsReport(remote_sessionid, report);
       };
 
