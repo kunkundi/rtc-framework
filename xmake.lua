@@ -4,6 +4,7 @@ set_version("0.5.0")
 add_rules("mode.debug", "mode.release")
 set_languages("cxx14")
 add_requires("imgui v1.92.6", {configs = {opengl3 = true, sdl3 = true}})
+add_requires("libsdl3 3.4.2")
 add_requires("asio 1.32.0")
 
 local function on_windows()
@@ -238,6 +239,79 @@ local function add_cuda_driver_config()
     return true
 end
 
+local function add_cuda_runtime_config()
+    local cuda_include_candidates = {}
+    local cuda_lib_candidates = {}
+    local cuda_path = os.getenv("CUDA_PATH")
+    local cuda_home = os.getenv("CUDA_HOME")
+
+    if cuda_path then
+        table.insert(cuda_include_candidates, path.join(cuda_path, "include"))
+        if on_windows() then
+            table.insert(cuda_lib_candidates, path.join(cuda_path, "lib", "x64"))
+        else
+            table.insert(cuda_lib_candidates, path.join(cuda_path, "lib64"))
+        end
+    end
+    if cuda_home then
+        table.insert(cuda_include_candidates, path.join(cuda_home, "include"))
+        if on_windows() then
+            table.insert(cuda_lib_candidates, path.join(cuda_home, "lib", "x64"))
+        else
+            table.insert(cuda_lib_candidates, path.join(cuda_home, "lib64"))
+        end
+    end
+
+    if on_windows() then
+        for _, include_dir in ipairs(os.dirs("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v*/include")) do
+            table.insert(cuda_include_candidates, include_dir)
+        end
+        for _, lib_dir in ipairs(os.dirs("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v*/lib/x64")) do
+            table.insert(cuda_lib_candidates, lib_dir)
+        end
+    else
+        table.insert(cuda_include_candidates, "/usr/local/cuda/include")
+        table.insert(cuda_lib_candidates, "/usr/local/cuda/lib64")
+    end
+
+    local found_cuda_include = nil
+    for _, include_dir in ipairs(cuda_include_candidates) do
+        if os.isfile(path.join(include_dir, "cuda_runtime.h")) then
+            found_cuda_include = include_dir
+            break
+        end
+    end
+    if not found_cuda_include then
+        return false
+    end
+
+    local found_cuda_libdir = nil
+    for _, lib_dir in ipairs(cuda_lib_candidates) do
+        if on_windows() then
+            if os.isfile(path.join(lib_dir, "cudart.lib")) then
+                found_cuda_libdir = lib_dir
+                break
+            end
+        else
+            if os.isfile(path.join(lib_dir, "libcudart.so")) then
+                found_cuda_libdir = lib_dir
+                break
+            end
+        end
+    end
+    if not found_cuda_libdir then
+        return false
+    end
+
+    add_includedirs(found_cuda_include)
+    add_linkdirs(found_cuda_libdir)
+    add_links("cudart")
+    if on_linux() then
+        add_rpathdirs(found_cuda_libdir)
+    end
+    return true
+end
+
 local function add_linux_runtime_rpath()
     if on_linux() then
         local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
@@ -396,4 +470,44 @@ if get_config("build_examples") then
                 batchcmds:cp(path.join(os.projectdir(), "test_data", "messagefile.txt"), target:targetdir())
             end
         end)
+
+    if on_linux() then
+        target("rtc_camera_headless")
+            set_kind("binary")
+            add_deps(vtsrtc_target)
+
+            add_files(
+                "vtsrtc/examples_imgui/rtc_camera_headless.cpp",
+                "vtsrtc/examples_imgui/rtc_camera_common.cpp",
+                "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
+                "vtsrtc/examples_imgui/rtc_headless_session.cpp",
+                "vtsrtc/examples_imgui/uyvy_to_i420_cuda.cu"
+            )
+
+            add_includedirs("vtsrtc/src")
+            add_vtslog_config()
+            add_linux_runtime_rpath()
+            add_syslinks("pthread")
+            add_cuflags("--std=c++14")
+
+            if not add_cuda_runtime_config() then
+                raise("CUDA runtime not found for rtc_camera_headless")
+            end
+
+            after_buildcmd(function(target, batchcmds)
+                local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
+                local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
+                batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
+                batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
+                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+            end)
+    end
+end
+
+if on_linux() then
+    target("v4l2_camera_test")
+        set_kind("binary")
+        add_files("vtsrtc/examples/v4l2_camera_test.cpp")
+        add_packages("libsdl3")
+        add_syslinks("v4l2", "pthread", "dl")
 end
