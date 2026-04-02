@@ -8,7 +8,6 @@
 #include "video/encode/rtc_encoder_factory.h"
 
 #if defined __aarch64__
-#include "video/encode/nvidia-jetson/rtc_codec_pool.h"
 #ifdef USE_DEFAULT_JETSON_ENCODER
 #include <modules/video_coding/codecs/nvidia/NvVideoEncoderFactory.h>
 #endif
@@ -1348,6 +1347,11 @@ void RtcConnectionManager::SendFrame(
 webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
     const vts_rtc::VideoSourceId& video_sourceid,
     const vts_rtc::YUV420pFrame& frame) {
+  const int64_t capture_time_us = rtc::TimeMicros();
+  const int64_t capture_time_ms = capture_time_us / 1000;
+  const uint32_t capture_timestamp_rtp =
+      static_cast<uint32_t>(capture_time_us * 90 / 1000);
+
   // @attention: copy frame data
   auto I420buffer = webrtc::I420Buffer::Copy(
       frame.width, frame.height, frame.buffer, frame.stride_Y,
@@ -1366,7 +1370,9 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
       auto frame_build = webrtc::VideoFrame::Builder()
                              .set_video_frame_buffer(scaled_buffer)
                              .set_rotation(webrtc::kVideoRotation_0)
-                             .set_timestamp_us(rtc::TimeMicros())
+                             .set_timestamp_us(capture_time_us)
+                             .set_timestamp_rtp(capture_timestamp_rtp)
+                             .set_ntp_time_ms(capture_time_ms)
                              .build();
       // if (frame.has_update_rect()) {
       // 	auto new_rect =
@@ -1379,7 +1385,9 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
       auto frame_build = webrtc::VideoFrame::Builder()
                              .set_video_frame_buffer(I420buffer)
                              .set_rotation(webrtc::kVideoRotation_0)
-                             .set_timestamp_us(rtc::TimeMicros())
+                             .set_timestamp_us(capture_time_us)
+                             .set_timestamp_rtp(capture_timestamp_rtp)
+                             .set_ntp_time_ms(capture_time_ms)
                              .build();
       return frame_build;
     }
@@ -1387,7 +1395,9 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
     auto frame_build = webrtc::VideoFrame::Builder()
                            .set_video_frame_buffer(I420buffer)
                            .set_rotation(webrtc::kVideoRotation_0)
-                           .set_timestamp_us(rtc::TimeMicros())
+                           .set_timestamp_us(capture_time_us)
+                           .set_timestamp_rtp(capture_timestamp_rtp)
+                           .set_ntp_time_ms(capture_time_ms)
                            .build();
     return frame_build;
   }
@@ -1596,14 +1606,15 @@ void RtcConnectionManager::InteractRemotePeer(
       // get ssrc and sourceid info for statistics
       if (rtc_conn->peer_conn_) {
         auto rtpsenders = rtc_conn->peer_conn_->GetSenders();
-        LOG_INFO("[Stats] Found %zu RTP senders", rtpsenders.size());
+        // LOG_INFO("[Stats] Found %zu RTP senders", rtpsenders.size());
         for (auto it : rtpsenders) {
           uint32_t ssrc = it->ssrc();
           std::string track_id = it->id();
           bool is_external = external_feed_tracksources_.find(track_id) !=
                              external_feed_tracksources_.end();
-          LOG_INFO("[Stats] RTP Sender: track_id=%s, ssrc=%u, is_external=%d",
-                   track_id.c_str(), ssrc, is_external);
+          // LOG_INFO("[Stats] RTP Sender: track_id=%s, ssrc=%u,
+          // is_external=%d",
+          //          track_id.c_str(), ssrc, is_external);
 
           // 注册所有发送端，不仅仅是external feed
           // 使用track_id作为sourceid
@@ -1612,15 +1623,15 @@ void RtcConnectionManager::InteractRemotePeer(
         }
 
         auto rtpreceivers = rtc_conn->peer_conn_->GetReceivers();
-        LOG_INFO("[Stats] Found %zu RTP receivers", rtpreceivers.size());
+        // LOG_INFO("[Stats] Found %zu RTP receivers", rtpreceivers.size());
         receiver_tracksources_id_vs_ssrc_.clear();
         for (auto it : rtpreceivers) {
           auto streamids = it->stream_ids();
           auto encoding_obj = it->GetParameters().encodings;
-          LOG_INFO(
-              "[Stats] RTP Receiver: streamids.size()=%zu, "
-              "encodings.size()=%zu",
-              streamids.size(), encoding_obj.size());
+          // LOG_INFO(
+          //     "[Stats] RTP Receiver: streamids.size()=%zu, "
+          //     "encodings.size()=%zu",
+          //     streamids.size(), encoding_obj.size());
 
           if (!streamids.empty() && !encoding_obj.empty()) {
             uint32_t ssrc = encoding_obj[0].ssrc.value();
@@ -1630,12 +1641,14 @@ void RtcConnectionManager::InteractRemotePeer(
             statistics_collector_->AddSessionReceiversMediaSsrcVsId(
                 remote_sessionid, sourceid, ssrc);
           } else {
-            LOG_WARN(
-                "[Stats] RTP Receiver skipped: streamids or encodings empty");
+            // LOG_WARN(
+            //     "[Stats] RTP Receiver skipped: streamids or encodings
+            //     empty");
           }
         }
       } else {
-        LOG_WARN("[Stats] peer_conn_ is null, cannot register SSRC mappings");
+        // LOG_WARN("[Stats] peer_conn_ is null, cannot register SSRC
+        // mappings");
       }
     }
 

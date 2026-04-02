@@ -165,6 +165,63 @@ local function add_nvcodec_config()
     end
 end
 
+local function add_jetson_ffmpeg_config()
+    local system_include_candidates = {
+        "/usr/include",
+        "/usr/local/include",
+        path.join("/usr/include", "aarch64-linux-gnu")
+    }
+    local system_lib_candidates = {
+        path.join("/lib", "aarch64-linux-gnu", "libnvmpi.so"),
+        path.join("/usr/lib", "aarch64-linux-gnu", "libnvmpi.so"),
+        path.join("/usr/local/lib", "libnvmpi.so")
+    }
+
+    local system_include = nil
+    local system_lib = nil
+    for _, include_dir in ipairs(system_include_candidates) do
+        if os.isfile(path.join(include_dir, "nvmpi.h")) then
+            system_include = include_dir
+            break
+        end
+    end
+    for _, libfile in ipairs(system_lib_candidates) do
+        if os.isfile(libfile) then
+            system_lib = libfile
+            break
+        end
+    end
+
+    if system_include and system_lib then
+        add_includedirs(system_include)
+        add_linkdirs(path.directory(system_lib))
+        add_links("nvmpi")
+        add_defines("VTSRTC_USE_SYSTEM_NVMPI=1")
+        add_defines("VTSRTC_HAS_FFMPEG=1")
+        return true
+    end
+
+    if not os.isdir("/usr/src/jetson_multimedia_api/include") then
+        return fail("jetson multimedia api headers not found at /usr/src/jetson_multimedia_api/include")
+    end
+
+    add_includedirs("/usr/src/jetson_multimedia_api/include")
+    add_linkdirs("/usr/lib/aarch64-linux-gnu/tegra")
+    add_syslinks("v4l2", "nvbufsurface", "nvbufsurftransform", "X11")
+    add_defines("VTSRTC_HAS_FFMPEG=1")
+    add_files(
+        "vtsrtc/src/video/encode/nvidia-jetson/nvmpi_enc.cpp",
+        "/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp",
+        "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp",
+        "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp",
+        "/usr/src/jetson_multimedia_api/samples/common/classes/NvElementProfiler.cpp",
+        "/usr/src/jetson_multimedia_api/samples/common/classes/NvBuffer.cpp",
+        "/usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp",
+        "/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp"
+    )
+    return true
+end
+
 local function add_cuda_driver_config()
     local cuda_include_candidates = {}
     local cuda_path = os.getenv("CUDA_PATH")
@@ -365,28 +422,13 @@ target(vtsrtc_target)
     add_linux_runtime_rpath()
 
     if is_aarch64_arch() then
-        add_files(
-            "vtsrtc/src/video/encode/nvidia-jetson/jetsonh264_encoder_impl.cpp",
-            "vtsrtc/src/video/encode/nvidia-jetson/jetson_encoder.cpp",
-            "vtsrtc/src/video/encode/nvidia-jetson/nvmpi_enc.cpp",
-            "/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp",
-            "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp",
-            "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp",
-            "/usr/src/jetson_multimedia_api/samples/common/classes/NvElementProfiler.cpp",
-            "/usr/src/jetson_multimedia_api/samples/common/classes/NvBuffer.cpp",
-            "/usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp",
-            "/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp"
-        )
-        add_includedirs("/usr/src/jetson_multimedia_api/include")
-
-        if get_config("enable_encode_perf_stats") then
-            add_defines("ENABLE_ENCODE_PERF_STATS=1")
-        else
-            add_defines("ENABLE_ENCODE_PERF_STATS=0")
+        if not get_config("use_default_jetson_encoder") then
+            if add_jetson_ffmpeg_config() then
+                add_files(
+                    "vtsrtc/src/video/encode/ffmpeg/ffmpeg_h264_encoder_impl.cpp"
+                )
+            end
         end
-
-        add_syslinks("v4l2", "nvbufsurface", "nvbufsurftransform", "X11")
-        add_linkdirs("/usr/lib/aarch64-linux-gnu/tegra")
     else
         add_files(
             "vtsrtc/src/video/decode/rtc_decoder_factory.cpp"

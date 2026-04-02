@@ -6,8 +6,9 @@
 #include "rtc_encoder_factory.h"
 
 #if defined __aarch64__
-#include "nvidia-jetson/jetsonh264_encoder_impl.h"
-#include "nvidia-jetson/rtc_codec_pool.h"
+// #include "nvidia-jetson/jetsonh264_encoder_impl.h"
+// #include "nvidia-jetson/rtc_codec_pool.h"
+#include "ffmpeg/ffmpeg_h264_encoder_impl.h"
 #else
 #include "nvidia/nvh264_encoder_impl.h"
 #endif
@@ -39,11 +40,9 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
     const SdpVideoFormat& format) {
   if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
 #if defined __aarch64__
-    // if(rtc_config_.encode_params.use_codec_pool)
-    // 	CodecPool::GetInstance()->Init(rtc_config_);
-    // log_level = 0;
-    // rtc::LogMessage::LogToDebug(rtc::LS_VERBOSE);
-    return std::make_unique<JetsonH264EncoderImpl>(cricket::VideoCodec(format),
+    // std::make_unique<JetsonH264EncoderImpl>(cricket::VideoCodec(format),
+    //                                                rtc_config_);
+    return std::make_unique<FFmpegH264EncoderImpl>(cricket::VideoCodec(format),
                                                    rtc_config_);
 #else
     return std::make_unique<NvH264EncoderImpl>(cricket::VideoCodec(format));

@@ -4,6 +4,7 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <cstring>
 
 #include "/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h"
 #include "/usr/src/jetson_multimedia_api/include/nvbufsurface.h"
@@ -59,9 +60,38 @@ struct nvmpictx {
   bool packets_keyflag[MAX_BUFFERS];
   uint64_t timestamp[MAX_BUFFERS];
   int buf_index;
+  uint64_t queued_frames;
+  uint64_t encoded_packets;
 
   std::mutex mtx;  // Mutex to protect shared resources
 };
+
+static int copyFrameToNvBuffer(nvFrame* frame, NvBuffer* buffer) {
+  if (!frame || !buffer) {
+    return -1;
+  }
+
+  for (uint32_t i = 0; i < buffer->n_planes; ++i) {
+    NvBuffer::NvBufferPlane& plane = buffer->planes[i];
+    const unsigned int frame_linesize = frame->linesize[i];
+    const size_t copy_size =
+        std::min<size_t>(frame_linesize,
+                         plane.fmt.bytesperpixel * plane.fmt.width);
+    char* dst = reinterpret_cast<char*>(plane.data);
+    char* src = reinterpret_cast<char*>(frame->payload[i]);
+    plane.bytesused = 0;
+
+    for (uint32_t row = 0; row < plane.fmt.height; ++row) {
+      std::memcpy(dst, src, copy_size);
+      dst += plane.fmt.stride;
+      src += frame_linesize;
+    }
+
+    plane.bytesused = plane.fmt.stride * plane.fmt.height;
+  }
+
+  return 0;
+}
 
 static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf,
                                               NvBuffer *buffer,
@@ -107,6 +137,13 @@ static bool encoder_capture_plane_dq_callback(struct v4l2_buffer *v4l2_buf,
 
   // Push to queue after all data is set
   ctx->packet_pools->push(ctx->buf_index);
+  ctx->encoded_packets++;
+  if (ctx->encoded_packets == 1 || ctx->encoded_packets % 90 == 0) {
+    LOG_INFO("[NVMPI] Encoded packet ready, bytes=%u, key=%d, pts=%llu, packets=%llu",
+             buffer->planes[0].bytesused, ctx->packets_keyflag[ctx->buf_index] ? 1 : 0,
+             static_cast<unsigned long long>(ctx->timestamp[ctx->buf_index]),
+             static_cast<unsigned long long>(ctx->encoded_packets));
+  }
 
   // Update buffer index for next packet
   ctx->buf_index = (ctx->buf_index + 1) % ctx->packets_num;
@@ -138,6 +175,8 @@ nvmpictx *nvmpi_create_encoder(nvCodingType codingType, nvEncParam *param) {
   ctx->buf_index = 0;
   ctx->enable_extended_colorformat = false;
   ctx->packets_num = param->capture_num;
+  ctx->queued_frames = 0;
+  ctx->encoded_packets = 0;
   ctx->qmax = param->qmax;
   ctx->qmin = param->qmin;
   ctx->num_b_frames = param->max_b_frames;
@@ -337,8 +376,13 @@ nvmpictx *nvmpi_create_encoder(nvCodingType codingType, nvEncParam *param) {
   ret = ctx->enc->setFrameRate(ctx->fps_n, ctx->fps_d);
   TEST_ERROR_NULL(ret < 0, "Could not set framerate", ret);
 
+  ret = ctx->enc->setMaxPerfMode(1);
+  if (ret < 0) {
+    std::cerr << "Error setting max perf mode" << std::endl;
+  }
+
   // Setup output and capture plane
-  ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, ctx->packets_num, false, true);
+  ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_MMAP, ctx->packets_num, true, false);
   TEST_ERROR_NULL(ret < 0, "Could not setup output plane", ret);
 
   ret = ctx->enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, ctx->packets_num, true, false);
@@ -405,30 +449,42 @@ int nvmpi_encoder_put_frame(nvmpictx *ctx, nvFrame *frame) {
   }
 
   NvBufSurface *nvbuf_surf = nullptr;
-  ret = NvBufSurfaceFromFd(nvBuffer->planes[0].fd, (void**)(&nvbuf_surf));
-  if (ret < 0) return -1;
-
   // Validate frame payload
   if (!frame->payload[0] || !frame->payload[1] || !frame->payload[2]) {
     std::cerr << "Invalid frame payload" << std::endl;
     return -1;
   }
 
-  // Copy data using payload_size (caller has set correct sizes for YUV420)
-  memcpy(nvbuf_surf->surfaceList[0].dataPtr, frame->payload[0], frame->payload_size[0]);
-  memcpy(nvbuf_surf->surfaceList[1].dataPtr, frame->payload[1], frame->payload_size[1]);
-  memcpy(nvbuf_surf->surfaceList[2].dataPtr, frame->payload[2], frame->payload_size[2]);
+  if (copyFrameToNvBuffer(frame, nvBuffer) < 0) {
+    std::cerr << "Failed to copy frame into NvBuffer" << std::endl;
+    return -1;
+  }
+
+  v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
+  v4l2_buf.timestamp.tv_usec = frame->timestamp % 1000000;
+  v4l2_buf.timestamp.tv_sec = frame->timestamp / 1000000;
+
+  ret = NvBufSurfaceFromFd(nvBuffer->planes[0].fd, (void**)(&nvbuf_surf));
+  if (ret < 0) return -1;
 
   // Sync all planes for device
   for (uint32_t plane = 0; plane < nvbuf_surf->surfaceList[0].planeParams.num_planes; plane++) {
     ret = NvBufSurfaceSyncForDevice(nvbuf_surf, 0, plane);
     if (ret < 0) return -1;
+    v4l2_buf.m.planes[plane].bytesused = nvBuffer->planes[plane].bytesused;
   }
 
-  ret = ctx->enc->output_plane.qBuffer(v4l2_buf, nvBuffer);
+  ret = ctx->enc->output_plane.qBuffer(v4l2_buf, NULL);
   if (ret < 0) {
     std::cerr << "Error while enqueuing buffer at output plane" << std::endl;
     return -1;
+  }
+
+  ctx->queued_frames++;
+  if (ctx->queued_frames == 1 || ctx->queued_frames % 90 == 0) {
+    LOG_INFO("[NVMPI] Queued frame to encoder, frame=<%ux%u>, queued=%llu",
+             frame->width, frame->height,
+             static_cast<unsigned long long>(ctx->queued_frames));
   }
 
   return 0;
@@ -474,7 +530,7 @@ int nvmpi_encoder_reconfigure(nvmpictx *ctx, unsigned int width, unsigned int he
   ret = ctx->enc->setIFrameInterval(ctx->iframe_interval);
   if (ret < 0) return -1;
 
-  ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_USERPTR, ctx->packets_num, false, true);
+  ret = ctx->enc->output_plane.setupPlane(V4L2_MEMORY_MMAP, ctx->packets_num, true, false);
   if (ret < 0) return -1;
   ret = ctx->enc->capture_plane.setupPlane(V4L2_MEMORY_MMAP, ctx->packets_num, true, false);
   if (ret < 0) return -1;

@@ -1,3 +1,5 @@
+#include "jetsonh264_encoder_impl.h"
+
 #include <absl/strings/match.h>
 #include <common_video/h264/h264_common.h>
 #include <common_video/libyuv/include/webrtc_libyuv.h>
@@ -14,7 +16,6 @@
 #include <string>
 #include <utility>
 
-#include "jetsonh264_encoder_impl.h"
 #include "jetson_encoder.h"
 #include "log/log_manager.h"
 
@@ -34,8 +35,7 @@ static inline unsigned int AlignToEven(unsigned int value) {
 }
 
 JetsonH264EncoderImpl::JetsonH264EncoderImpl(
-    const cricket::VideoCodec& codec,
-    const vts_rtc::RtcConfig& rtc_config)
+    const cricket::VideoCodec& codec, const vts_rtc::RtcConfig& rtc_config)
     : rtc_config_(rtc_config) {
   RTC_CHECK(absl::EqualsIgnoreCase(codec.name, cricket::kH264CodecName));
 
@@ -84,8 +84,8 @@ void JetsonH264EncoderImpl::ApplyRatesToEncoder(JetsonEncoder* encoder) {
 }
 
 std::pair<unsigned int, unsigned int>
-JetsonH264EncoderImpl::SelectPrewarmResolution(unsigned int active_width,
-                                                unsigned int active_height) const {
+JetsonH264EncoderImpl::SelectPrewarmResolution(
+    unsigned int active_width, unsigned int active_height) const {
   std::pair<unsigned int, unsigned int> best = {0, 0};
   uint64_t best_delta = std::numeric_limits<uint64_t>::max();
 
@@ -94,10 +94,10 @@ JetsonH264EncoderImpl::SelectPrewarmResolution(unsigned int active_width,
       continue;
     }
 
-    unsigned int candidate_h = AlignToEven(static_cast<unsigned int>(codec_height));
-    unsigned int candidate_w = AlignToEven(
-        static_cast<unsigned int>((static_cast<uint64_t>(candidate_h) * 16 + 8) /
-                                  9));
+    unsigned int candidate_h =
+        AlignToEven(static_cast<unsigned int>(codec_height));
+    unsigned int candidate_w = AlignToEven(static_cast<unsigned int>(
+        (static_cast<uint64_t>(candidate_h) * 16 + 8) / 9));
 
     if (candidate_w < 16 || candidate_h < 16) {
       continue;
@@ -131,8 +131,7 @@ JetsonH264EncoderImpl::SelectPrewarmResolution(unsigned int active_width,
 }
 
 bool JetsonH264EncoderImpl::PrewarmStandbyForActiveResolution(
-    unsigned int active_width,
-    unsigned int active_height) {
+    unsigned int active_width, unsigned int active_height) {
   {
     std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
     if (standby_encoder_.encoder) {
@@ -227,9 +226,8 @@ void JetsonH264EncoderImpl::PrewarmWorkerLoop() {
 
     {
       std::unique_lock<std::mutex> lock(prewarm_mutex_);
-      prewarm_cv_.wait(lock, [this] {
-        return prewarm_stop_ || prewarm_request_pending_;
-      });
+      prewarm_cv_.wait(
+          lock, [this] { return prewarm_stop_ || prewarm_request_pending_; });
 
       if (prewarm_stop_) {
         return;
@@ -244,8 +242,8 @@ void JetsonH264EncoderImpl::PrewarmWorkerLoop() {
   }
 }
 
-bool JetsonH264EncoderImpl::EnsureActiveEncoderForResolution(unsigned int width,
-                                                             unsigned int height) {
+bool JetsonH264EncoderImpl::EnsureActiveEncoderForResolution(
+    unsigned int width, unsigned int height) {
   {
     std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
     if (active_encoder_.encoder && active_encoder_.width == width &&
@@ -433,6 +431,7 @@ void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
 int32_t JetsonH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
+  LOG_ERROR("33333333");
   if (!encoded_image_callback_) {
     LOG_ERROR(
         "InitEncode() has been called, but a callback function "
@@ -524,8 +523,7 @@ int32_t JetsonH264EncoderImpl::Encode(
       });
 #else
       [this, input_frame, encode_token](const uint8_t* data, size_t size,
-                                        bool is_keyframe,
-                                        uint64_t timestamp) {
+                                        bool is_keyframe, uint64_t timestamp) {
         if (encode_token !=
             active_encoder_token_.load(std::memory_order_acquire)) {
           return;
@@ -558,9 +556,10 @@ void JetsonH264EncoderImpl::SendFrame(const VideoFrame& frame,
       encode_stats_.keyframe_count++;
     }
 
-    LOG_INFO("[编码性能] 帧编码耗时: %ld us (%.2f ms), 大小: %zu bytes, 关键帧: %s",
-             encode_duration_us, encode_duration_us / 1000.0f, size,
-             is_keyframe ? "是" : "否");
+    LOG_INFO(
+        "[编码性能] 帧编码耗时: %ld us (%.2f ms), 大小: %zu bytes, 关键帧: %s",
+        encode_duration_us, encode_duration_us / 1000.0f, size,
+        is_keyframe ? "是" : "否");
 
     auto now = std::chrono::steady_clock::now();
     bool should_log_stats = false;
@@ -586,25 +585,30 @@ void JetsonH264EncoderImpl::SendFrame(const VideoFrame& frame,
       float utilization =
           (avg_encode_time_us / 1000.0f) / frame_budget_ms * 100.0f;
 
-      LOG_INFO("[编码性能统计] 总帧数: %u, 关键帧数: %u, 平均耗时: %ld us (%.2f ms), "
-               "最大耗时: %ld us (%.2f ms), 最小耗时: %ld us (%.2f ms), "
-               "帧率: %.1f fps, 时间预算: %.2f ms/帧, 占用率: %.1f%%",
-               encode_stats_.frame_count, encode_stats_.keyframe_count,
-               avg_encode_time_us, avg_encode_time_us / 1000.0f,
-               encode_stats_.max_encode_time_us,
-               encode_stats_.max_encode_time_us / 1000.0f,
-               encode_stats_.min_encode_time_us == INT64_MAX
-                   ? 0
-                   : encode_stats_.min_encode_time_us,
-               encode_stats_.min_encode_time_us == INT64_MAX
-                   ? 0.0f
-                   : encode_stats_.min_encode_time_us / 1000.0f,
-               fps, frame_budget_ms, utilization);
+      LOG_INFO(
+          "[编码性能统计] 总帧数: %u, 关键帧数: %u, 平均耗时: %ld us (%.2f "
+          "ms), "
+          "最大耗时: %ld us (%.2f ms), 最小耗时: %ld us (%.2f ms), "
+          "帧率: %.1f fps, 时间预算: %.2f ms/帧, 占用率: %.1f%%",
+          encode_stats_.frame_count, encode_stats_.keyframe_count,
+          avg_encode_time_us, avg_encode_time_us / 1000.0f,
+          encode_stats_.max_encode_time_us,
+          encode_stats_.max_encode_time_us / 1000.0f,
+          encode_stats_.min_encode_time_us == INT64_MAX
+              ? 0
+              : encode_stats_.min_encode_time_us,
+          encode_stats_.min_encode_time_us == INT64_MAX
+              ? 0.0f
+              : encode_stats_.min_encode_time_us / 1000.0f,
+          fps, frame_budget_ms, utilization);
 
       if (utilization > 80.0f) {
-        LOG_WARN("[编码性能警告] 编码耗时占用率过高 (%.1f%%), 可能影响实时性能。建议："
-                 "1) 降低分辨率或帧率 2) 检查格式转换耗时 3) 确认setMaxPerfMode已启用",
-                 utilization);
+        LOG_WARN(
+            "[编码性能警告] 编码耗时占用率过高 (%.1f%%), "
+            "可能影响实时性能。建议："
+            "1) 降低分辨率或帧率 2) 检查格式转换耗时 3) "
+            "确认setMaxPerfMode已启用",
+            utilization);
       } else if (utilization > 60.0f) {
         LOG_WARN("[编码性能提示] 编码耗时占用率较高 (%.1f%%), 建议监控性能",
                  utilization);
