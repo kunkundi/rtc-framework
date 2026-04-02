@@ -18,6 +18,7 @@ namespace webrtc {
 
 const int KEY_FRAME_INTERVAL = 3000;
 const int BUFFER_NUM = 4;
+const uint32_t DQ_THREAD_WAIT_TIMEOUT_MS = 1000;
 
 std::unique_ptr<JetsonEncoder> JetsonEncoder::Create(int width, int height,
                                                      uint32_t dst_pix_fmt,
@@ -67,13 +68,7 @@ JetsonEncoder::~JetsonEncoder() {
   }
 
   if (encoder_) {
-    SendEOS();
-
-    encoder_->capture_plane.stopDQThread();
-    encoder_->capture_plane.waitForDQThread(-1);
-
-    encoder_->output_plane.setStreamStatus(false);
-    encoder_->capture_plane.setStreamStatus(false);
+    StopEncoderIo(true);
 
     encoder_->capture_plane.deinitPlane();
     encoder_->output_plane.deinitPlane();
@@ -111,6 +106,35 @@ bool JetsonEncoder::CreateVideoEncoder() {
     LOG_ERROR("Could not set output plane format");
     return false;
   }
+
+  if (!ApplyCodecSettings()) {
+    return false;
+  }
+
+  ret = encoder_->output_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true,
+                                          false);
+  if (ret < 0) {
+    LOG_ERROR("Could not setup output plane");
+    return false;
+  }
+
+  ret = encoder_->capture_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true,
+                                           false);
+  if (ret < 0) {
+    LOG_ERROR("Could not setup capture plane");
+    return false;
+  }
+
+  return true;
+}
+
+bool JetsonEncoder::ApplyCodecSettings() {
+  if (!encoder_) {
+    LOG_ERROR("ApplyCodecSettings called with null encoder");
+    return false;
+  }
+
+  int ret = 0;
 
   ret = encoder_->setBitrate(bitrate_bps_);
   if (ret < 0) {
@@ -187,20 +211,6 @@ bool JetsonEncoder::CreateVideoEncoder() {
         "speed)");
   }
 
-  ret = encoder_->output_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true,
-                                          false);
-  if (ret < 0) {
-    LOG_ERROR("Could not setup output plane");
-    return false;
-  }
-
-  ret = encoder_->capture_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true,
-                                           false);
-  if (ret < 0) {
-    LOG_ERROR("Could not setup capture plane");
-    return false;
-  }
-
   return true;
 }
 
@@ -213,10 +223,7 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
   int ret = 0;
   abort_ = true;
 
-  encoder_->capture_plane.stopDQThread();
-  encoder_->capture_plane.waitForDQThread(-1);
-  encoder_->output_plane.setStreamStatus(false);
-  encoder_->capture_plane.setStreamStatus(false);
+  StopEncoderIo(false);
   encoder_->capture_plane.deinitPlane();
   encoder_->output_plane.deinitPlane();
 
@@ -241,42 +248,8 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
     return false;
   }
 
-  ret = encoder_->setFrameRate(framerate_, 1);
-  if (ret < 0) {
-    LOG_ERROR("Could not set encoder framerate");
+  if (!ApplyCodecSettings()) {
     return false;
-  }
-
-  ret = encoder_->setBitrate(bitrate_bps_);
-  if (ret < 0) {
-    LOG_ERROR("Could not set bitrate");
-    return false;
-  }
-
-  // Re-apply performance related settings after format changes.
-  ret = encoder_->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_CBR);
-  if (ret < 0) {
-    LOG_WARN("Could not set rate control mode during reconfigure");
-  }
-
-  ret = encoder_->setIDRInterval(KEY_FRAME_INTERVAL);
-  if (ret < 0) {
-    LOG_WARN("Could not set IDR interval during reconfigure");
-  }
-
-  ret = encoder_->setIFrameInterval(KEY_FRAME_INTERVAL);
-  if (ret < 0) {
-    LOG_WARN("Could not set I-frame interval during reconfigure");
-  }
-
-  ret = encoder_->setHWPresetType(V4L2_ENC_HW_PRESET_ULTRAFAST);
-  if (ret < 0) {
-    LOG_WARN("Could not set encoder HW preset during reconfigure");
-  }
-
-  ret = encoder_->setMaxPerfMode(1);
-  if (ret < 0) {
-    LOG_WARN("Could not set encoder max performance mode during reconfigure");
   }
 
   ret = encoder_->output_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true,
@@ -311,10 +284,7 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
 
   if (!PrepareCaptureBuffer()) {
     LOG_ERROR("Failed to prepare capture buffers");
-    encoder_->capture_plane.stopDQThread();
-    encoder_->capture_plane.waitForDQThread(-1);
-    encoder_->capture_plane.setStreamStatus(false);
-    encoder_->output_plane.setStreamStatus(false);
+    StopEncoderIo(false);
     return false;
   }
 
@@ -406,10 +376,7 @@ bool JetsonEncoder::Start() {
 
   if (!PrepareCaptureBuffer()) {
     LOG_ERROR("Failed to prepare capture buffers");
-    encoder_->capture_plane.stopDQThread();
-    encoder_->capture_plane.waitForDQThread(-1);
-    encoder_->capture_plane.setStreamStatus(false);
-    encoder_->output_plane.setStreamStatus(false);
+    StopEncoderIo(false);
     return false;
   }
 
@@ -630,12 +597,53 @@ void JetsonEncoder::SendEOS() {
       encoder_->output_plane.getNumBuffers()) {
     if (encoder_->output_plane.dqBuffer(v4l2_buffer, &buffer, NULL, 10) < 0) {
       LOG_ERROR("Failed to dqBuffer at encoder while sending eos");
+      return;
     }
+  } else {
+    buffer = encoder_->output_plane.getNthBuffer(
+        encoder_->output_plane.getNumQueuedBuffers());
+    if (!buffer) {
+      LOG_ERROR("Failed to get output buffer while sending eos");
+      return;
+    }
+    v4l2_buffer.index = buffer->index;
   }
 
   planes[0].bytesused = 0;
   if (encoder_->output_plane.qBuffer(v4l2_buffer, NULL) < 0) {
     LOG_ERROR("Failed to qBuffer at encoder while sending eos");
+  }
+}
+
+void JetsonEncoder::StopEncoderIo(bool send_eos) {
+  if (!encoder_) {
+    return;
+  }
+
+  if (send_eos) {
+    SendEOS();
+  }
+
+  // In blocking mode stopDQThread() does not actively stop the thread; streamoff
+  // is required to unblock dqBuffer() and let the callback thread exit.
+  encoder_->capture_plane.stopDQThread();
+
+  if (encoder_->output_plane.setStreamStatus(false) < 0) {
+    LOG_WARN("Failed to streamoff output plane while stopping encoder IO");
+  }
+  if (encoder_->capture_plane.setStreamStatus(false) < 0) {
+    LOG_WARN("Failed to streamoff capture plane while stopping encoder IO");
+  }
+
+  if (encoder_->capture_plane.waitForDQThread(DQ_THREAD_WAIT_TIMEOUT_MS) < 0) {
+    LOG_WARN(
+        "Timed out waiting for capture DQ thread to stop, forcing encoder "
+        "abort");
+    encoder_->abort();
+    if (encoder_->capture_plane.waitForDQThread(DQ_THREAD_WAIT_TIMEOUT_MS) <
+        0) {
+      LOG_WARN("Capture DQ thread still running after abort");
+    }
   }
 }
 

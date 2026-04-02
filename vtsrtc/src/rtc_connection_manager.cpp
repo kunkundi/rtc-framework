@@ -187,7 +187,8 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
     LOG_INFO("Use jetson default H264 video encoder.");
     video_encoder_factory = webrtc::CreateNvVideoEncoderFactory();
 #else
-    LOG_INFO("Use hardware H264 video encoder.");
+    LOG_INFO("Use hardware H264 video encoder (%s).",
+             rtc_config_.jetson_h264_encoder.c_str());
     video_encoder_factory = std::make_unique<webrtc::RtcEncoderFactory>();
     dynamic_cast<webrtc::RtcEncoderFactory*>(video_encoder_factory.get())
         ->setConfig(rtc_config_);

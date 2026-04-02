@@ -24,25 +24,8 @@ find_package(Vtslog)
 find_package(WebRTC REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT USE_DEFAULT_JETSON_ENCODER)
-	if(EXISTS "/usr/include/nvmpi.h")
-		set(VTSRTC_NVMPI_INCLUDE_DIR "/usr/include")
-	elseif(EXISTS "/usr/local/include/nvmpi.h")
-		set(VTSRTC_NVMPI_INCLUDE_DIR "/usr/local/include")
-	elseif(EXISTS "/usr/include/aarch64-linux-gnu/nvmpi.h")
-		set(VTSRTC_NVMPI_INCLUDE_DIR "/usr/include/aarch64-linux-gnu")
-	endif()
-
-	find_library(VTSRTC_NVMPI_LIB
-		NAMES nvmpi
-		HINTS /lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/local/lib)
-
-	if(VTSRTC_NVMPI_INCLUDE_DIR AND VTSRTC_NVMPI_LIB)
-		set(VTSRTC_USE_SYSTEM_NVMPI ON)
-	else()
-		set(VTSRTC_USE_SYSTEM_NVMPI OFF)
-		if(NOT EXISTS "/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h")
-			message(FATAL_ERROR "Jetson Multimedia API headers not found")
-		endif()
+	if(NOT EXISTS "/usr/src/jetson_multimedia_api/include/NvVideoEncoder.h")
+		message(FATAL_ERROR "Jetson Multimedia API headers not found")
 	endif()
 endif()
 
@@ -99,20 +82,20 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		list(APPEND SOURCE_CODE
 			video/encode/ffmpeg/ffmpeg_h264_encoder_impl.h
 			video/encode/ffmpeg/ffmpeg_h264_encoder_impl.cpp
+			video/encode/ffmpeg/nvmpi.h
+			video/encode/ffmpeg/nvmpi_enc.cpp
+			video/encode/nvidia-jetson/jetsonh264_encoder_impl.h
+			video/encode/nvidia-jetson/jetsonh264_encoder_impl.cpp
+			video/encode/nvidia-jetson/jetson_encoder.h
+			video/encode/nvidia-jetson/jetson_encoder.cpp
+			video/encode/nvidia-jetson/NvVideoEncoder.cpp
+			/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp
+			/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp
+			/usr/src/jetson_multimedia_api/samples/common/classes/NvElementProfiler.cpp
+			/usr/src/jetson_multimedia_api/samples/common/classes/NvBuffer.cpp
+			/usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp
+			/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp
 		)
-		if(NOT VTSRTC_USE_SYSTEM_NVMPI)
-			list(APPEND SOURCE_CODE
-				video/encode/nvidia-jetson/nvmpi.h
-				video/encode/nvidia-jetson/nvmpi_enc.cpp
-				/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp
-				/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp
-				/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp
-				/usr/src/jetson_multimedia_api/samples/common/classes/NvElementProfiler.cpp
-				/usr/src/jetson_multimedia_api/samples/common/classes/NvBuffer.cpp
-				/usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp
-				/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp
-			)
-		endif()
 	endif()
 else()
 	list(APPEND SOURCE_CODE
@@ -172,10 +155,10 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		${WEBRTC_INCLUDE_DIR}
 	)
 
-	if(NOT USE_DEFAULT_JETSON_ENCODER AND VTSRTC_USE_SYSTEM_NVMPI)
-		target_include_directories(${target} PRIVATE ${VTSRTC_NVMPI_INCLUDE_DIR})
-		target_compile_definitions(${target} PRIVATE VTSRTC_USE_SYSTEM_NVMPI=1)
-	elseif(NOT USE_DEFAULT_JETSON_ENCODER)
+	if(NOT USE_DEFAULT_JETSON_ENCODER)
+		target_include_directories(${target} PRIVATE "/usr/src/jetson_multimedia_api/include")
+	endif()
+	if(NOT USE_DEFAULT_JETSON_ENCODER)
 		target_include_directories(${target} PRIVATE "/usr/src/jetson_multimedia_api/include")
 	endif()
 	
@@ -209,11 +192,9 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		${WEBRTC_LIBRARY}
 	)
 
-	if(NOT USE_DEFAULT_JETSON_ENCODER AND VTSRTC_USE_SYSTEM_NVMPI)
-		target_link_libraries(${target} PRIVATE ${VTSRTC_NVMPI_LIB})
-	elseif(NOT USE_DEFAULT_JETSON_ENCODER)
+	if(NOT USE_DEFAULT_JETSON_ENCODER)
 		target_link_directories(${target} PRIVATE /usr/lib/aarch64-linux-gnu/tegra)
-		target_link_libraries(${target} PRIVATE v4l2 nvbufsurface nvbufsurftransform X11)
+		target_link_libraries(${target} PRIVATE v4l2 nvbufsurface nvbufsurftransform nvbuf_utils X11)
 	endif()
 else()
 	target_link_libraries(${target}

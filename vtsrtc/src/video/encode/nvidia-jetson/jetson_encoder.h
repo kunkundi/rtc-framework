@@ -71,8 +71,10 @@ class JetsonEncoder {
   int buf_index_;
 
   bool CreateVideoEncoder();
+  bool ApplyCodecSettings();
   bool PrepareCaptureBuffer();
   bool Start();
+  void StopEncoderIo(bool send_eos);
   void SendEOS();
   static bool EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
                                             NvBuffer* buffer,

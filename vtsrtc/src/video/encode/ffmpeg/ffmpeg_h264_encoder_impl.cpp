@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <thread>
@@ -93,11 +94,9 @@ FFmpegH264EncoderImpl::FFmpegH264EncoderImpl(
 
 FFmpegH264EncoderImpl::~FFmpegH264EncoderImpl() {
   LOG_INFO(
-      "[WEBRTC] FFmpegH264EncoderImpl dtor, instance=%llu, encode_calls=%llu, "
-      "delivered=%llu, empty_drains=%llu",
+      "[WEBRTC] FFmpegH264EncoderImpl dtor, instance=%llu, "
+      "empty_drains=%llu",
       static_cast<unsigned long long>(instance_id_),
-      static_cast<unsigned long long>(encode_calls_),
-      static_cast<unsigned long long>(delivered_packets_),
       static_cast<unsigned long long>(empty_drains_));
   Release();
 }
@@ -182,22 +181,21 @@ int FFmpegH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
   }
 
   LOG_INFO(
-      "[WEBRTC] InitEncode success: instance=%llu, frame=<%ux%u>, fps=%u, bitrate=%u, "
+      "[WEBRTC] InitEncode success: instance=%llu, frame=<%ux%u>, fps=%u, "
+      "bitrate=%u, "
       "gop=%u, packetization_mode=%d, max_payload_size=%zu",
       static_cast<unsigned long long>(instance_id_), width_, height_, fps_,
-      bitrate_bps_, gop_size_,
-      static_cast<int>(packetization_mode_), max_payload_size_);
+      bitrate_bps_, gop_size_, static_cast<int>(packetization_mode_),
+      max_payload_size_);
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int32_t FFmpegH264EncoderImpl::Release() {
   LOG_INFO(
-      "[WEBRTC] Release enter, instance=%llu, encode_calls=%llu, "
-      "delivered=%llu, empty_drains=%llu",
+      "[WEBRTC] Release enter, instance=%llu, "
+      "empty_drains=%llu",
       static_cast<unsigned long long>(instance_id_),
-      static_cast<unsigned long long>(encode_calls_),
-      static_cast<unsigned long long>(delivered_packets_),
       static_cast<unsigned long long>(empty_drains_));
   std::lock_guard<std::mutex> lock(encoder_mutex_);
   DestroyEncoderLocked();
@@ -228,10 +226,6 @@ int32_t FFmpegH264EncoderImpl::RegisterEncodeCompleteCallback(
 void FFmpegH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
   const auto fps = static_cast<uint32_t>(parameters.framerate_fps);
   const auto bitrate = parameters.bitrate.GetBitrate(0, 0);
-  LOG_INFO(
-      "[WEBRTC] SetRates called, instance=%llu, fps=%u, bitrate=%llu",
-      static_cast<unsigned long long>(instance_id_), fps,
-      static_cast<unsigned long long>(bitrate));
   codec_.maxFramerate = fps;
   codec_.maxBitrate = bitrate;
 
@@ -242,6 +236,8 @@ void FFmpegH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
   }
 
   std::lock_guard<std::mutex> lock(encoder_mutex_);
+  const auto previous_fps = fps_;
+  const auto previous_bitrate_bps = bitrate_bps_;
   fps_ = fps;
   bitrate_bps_ =
       static_cast<unsigned int>(std::min<uint64_t>(bitrate, bitrate_cap_bps_));
@@ -250,33 +246,25 @@ void FFmpegH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
     return;
   }
 
-#if defined(NVMPI_ENC_CHUNK_SIZE)
-  pending_encoder_reconfigure_ = true;
-#else
+  if (previous_fps == fps_ && previous_bitrate_bps == bitrate_bps_) {
+    return;
+  }
+
   const int fps_result = nvmpi_encoder_set_fps(encoder_, fps_);
   const int bitrate_result = nvmpi_encoder_set_bitrate(encoder_, bitrate_bps_);
   if (fps_result != 0 || bitrate_result != 0) {
     LOG_WARN(
-        "[WEBRTC] nvmpi runtime rate update failed, encoder will be recreated");
+        "[WEBRTC] nvmpi runtime rate update failed (fps_ret=%d, "
+        "bitrate_ret=%d), "
+        "encoder will be recreated",
+        fps_result, bitrate_result);
     pending_encoder_reconfigure_ = true;
   }
-#endif
 }
 
 int32_t FFmpegH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
-  ++encode_calls_;
-  if (encode_calls_ == 1 || encode_calls_ % 90 == 0) {
-    LOG_INFO(
-        "[WEBRTC] Encode entry encoder=%s, frame=<%dx%d>, ts_us=%lld, "
-        "ts_rtp=%u, encode_calls=%llu, instance=%llu",
-        encoder_name_.c_str(), input_frame.width(), input_frame.height(),
-        static_cast<long long>(input_frame.timestamp_us()),
-        input_frame.timestamp(),
-        static_cast<unsigned long long>(encode_calls_),
-        static_cast<unsigned long long>(instance_id_));
-  }
   const bool has_frame_type = frame_types != nullptr && !frame_types->empty();
   if (has_frame_type && (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
     return WEBRTC_VIDEO_CODEC_OK;
@@ -352,18 +340,31 @@ int32_t FFmpegH264EncoderImpl::Encode(
 
 bool FFmpegH264EncoderImpl::ReinitializeEncoder(unsigned int width,
                                                 unsigned int height) {
-  width_ = width;
-  height_ = height;
-
-  const size_t new_capacity = CalcBufferSize(VideoType::kI420, width_, height_);
+  const size_t new_capacity = CalcBufferSize(VideoType::kI420, width, height);
   if (new_capacity > encoded_image_capacity_) {
     encoded_image_.SetEncodedData(EncodedImageBuffer::Create(new_capacity));
     encoded_image_capacity_ = new_capacity;
   }
-  encoded_image_._encodedWidth = width_;
-  encoded_image_._encodedHeight = height_;
+  encoded_image_._encodedWidth = width;
+  encoded_image_._encodedHeight = height;
   encoded_image_.set_size(0);
 
+  if (encoder_ != nullptr) {
+    const int ret = nvmpi_encoder_reconfigure(encoder_, width, height);
+    if (ret == 0) {
+      width_ = width;
+      height_ = height;
+      pending_encoder_reconfigure_ = false;
+      return true;
+    }
+    LOG_WARN(
+        "[WEBRTC] nvmpi_encoder_reconfigure(%u, %u) failed, fallback to "
+        "recreate",
+        width, height);
+  }
+
+  width_ = width;
+  height_ = height;
   DestroyEncoderLocked();
   pending_encoder_reconfigure_ = false;
   return InitializeEncoderLocked(width_, height_);
@@ -438,11 +439,7 @@ bool FFmpegH264EncoderImpl::RequestKeyFrameLocked() {
     return false;
   }
 
-#if defined(NVMPI_ENC_CHUNK_SIZE)
-  return ReinitializeEncoder(width_, height_);
-#else
   return nvmpi_encoder_force_idr(encoder_) == 0;
-#endif
 }
 
 void FFmpegH264EncoderImpl::EnsureScratchBufferCapacityLocked(
@@ -497,6 +494,9 @@ bool FFmpegH264EncoderImpl::CopyFrameToEncoderLocked(
   frame.linesize[2] = width / 2;
 
   const int ret = nvmpi_encoder_put_frame(encoder_, &frame);
+  if (ret == -EAGAIN) {
+    return true;
+  }
   if (ret != 0) {
     LOG_ERROR("[WEBRTC] nvmpi_encoder_put_frame failed");
     return false;
@@ -654,15 +654,6 @@ int FFmpegH264EncoderImpl::DeliverPacketLocked(const VideoFrame& frame,
     LOG_ERROR("[WEBRTC] Encode callback is null while delivering packet");
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
-  ++delivered_packets_;
-  if (delivered_packets_ == 1 || delivered_packets_ % 90 == 0) {
-    LOG_INFO(
-        "[WEBRTC] Deliver encoded packet encoder=%s, bytes=%zu, key=%d, "
-        "ts_rtp=%u, width=%d, height=%d, delivered=%llu",
-        encoder_name_.c_str(), payload_size, is_keyframe ? 1 : 0,
-        frame.timestamp(), frame.width(), frame.height(),
-        static_cast<unsigned long long>(delivered_packets_));
-  }
   encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_specific,
                                           &frag_header);
   return WEBRTC_VIDEO_CODEC_OK;
@@ -718,8 +709,8 @@ void FFmpegH264EncoderImpl::InitializeResolutionBitrateLimits() {
 
   // Use permissive defaults so WebRTC doesn't suspend this custom encoder
   // before it has a chance to produce frames under low startup bitrate.
-  const int max_bitrate = static_cast<int>(
-      std::min<unsigned int>(bitrate_cap_bps_, 100000000u));
+  const int max_bitrate =
+      static_cast<int>(std::min<unsigned int>(bitrate_cap_bps_, 100000000u));
   resolution_bitrate_limits_.emplace_back(320 * 180, 1, 1, max_bitrate);
   resolution_bitrate_limits_.emplace_back(480 * 270, 1, 1, max_bitrate);
   resolution_bitrate_limits_.emplace_back(640 * 360, 1, 1, max_bitrate);

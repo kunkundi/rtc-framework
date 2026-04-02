@@ -13,15 +13,9 @@
 
 #include "rtc_types.h"
 
-#if defined(VTSRTC_USE_SYSTEM_NVMPI)
 extern "C" {
-#include <nvmpi.h>
+#include "nvmpi.h"
 }
-#else
-extern "C" {
-#include "video/encode/nvidia-jetson/nvmpi.h"
-}
-#endif
 
 namespace webrtc {
 
@@ -60,10 +54,8 @@ class FFmpegH264EncoderImpl : public VideoEncoder {
   void DestroyEncoderLocked();
   bool CopyFrameToEncoderLocked(const I420BufferInterface& frame_buffer);
   int DrainPacketsLocked(const VideoFrame& frame);
-  int DeliverPacketLocked(const VideoFrame& frame,
-                          const uint8_t* payload,
-                          size_t payload_size,
-                          bool is_keyframe);
+  int DeliverPacketLocked(const VideoFrame& frame, const uint8_t* payload,
+                          size_t payload_size, bool is_keyframe);
   bool RequestKeyFrameLocked();
   void EnsureScratchBufferCapacityLocked(unsigned int width,
                                          unsigned int height);
@@ -100,8 +92,6 @@ class FFmpegH264EncoderImpl : public VideoEncoder {
   bool force_keyframe_after_callback_ = false;
   bool pending_encoder_reconfigure_ = false;
   uint64_t instance_id_ = 0;
-  uint64_t encode_calls_ = 0;
-  uint64_t delivered_packets_ = 0;
   uint64_t empty_drains_ = 0;
 
   unsigned int width_ = 0;

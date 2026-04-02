@@ -45,6 +45,13 @@ JetsonH264EncoderImpl::JetsonH264EncoderImpl(
       packetization_mode_string == "1") {
     packetization_mode_ = H264PacketizationMode::NonInterleaved;
   }
+
+  if (rtc_config_.encode_params.qp_threshold.first != 0 &&
+      rtc_config_.encode_params.qp_threshold.second != 0) {
+    qp_threshold_ = rtc_config_.encode_params.qp_threshold;
+  }
+
+  InitializeResolutionBitrateLimits();
 }
 
 JetsonH264EncoderImpl::~JetsonH264EncoderImpl() { Release(); }
@@ -270,6 +277,7 @@ bool JetsonH264EncoderImpl::EnsureActiveEncoderForResolution(
     return false;
   }
 
+  EncoderSlot previous_standby;
   {
     std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
 
@@ -291,6 +299,7 @@ bool JetsonH264EncoderImpl::EnsureActiveEncoderForResolution(
       return true;
     }
 
+    previous_standby = std::move(standby_encoder_);
     standby_encoder_ = std::move(active_encoder_);
     active_encoder_ = std::move(new_slot);
     ApplyRatesToEncoder(active_encoder_.encoder.get());
@@ -298,6 +307,72 @@ bool JetsonH264EncoderImpl::EnsureActiveEncoderForResolution(
     active_encoder_token_.store(active_encoder_.token,
                                 std::memory_order_release);
     return true;
+  }
+}
+
+void JetsonH264EncoderImpl::ResetEncoderSlots() {
+  EncoderSlot old_active;
+  EncoderSlot old_standby;
+  {
+    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
+    old_active = std::move(active_encoder_);
+    old_standby = std::move(standby_encoder_);
+    active_encoder_ = EncoderSlot();
+    standby_encoder_ = EncoderSlot();
+  }
+}
+
+void JetsonH264EncoderImpl::InitializeResolutionBitrateLimits() {
+  resolution_bitrate_limits_.clear();
+
+  if (rtc_config_.use_strategy) {
+    for (const auto& item : rtc_config_.strategy) {
+      if (item.second.size() < 3) {
+        continue;
+      }
+      resolution_bitrate_limits_.emplace_back(
+          static_cast<int>(item.first), static_cast<int>(item.second[0]),
+          static_cast<int>(item.second[1]), static_cast<int>(item.second[2]));
+    }
+  }
+
+  if (!resolution_bitrate_limits_.empty()) {
+    return;
+  }
+
+  const int max_bitrate = static_cast<int>(
+      std::min<unsigned int>(rtc_config_.encode_params.bitrate_maxmum == 0
+                                 ? 100000000u
+                                 : rtc_config_.encode_params.bitrate_maxmum,
+                             100000000u));
+
+  const auto append_limit = [this, max_bitrate](int width, int height) {
+    const int pixels = width * height;
+    for (const auto& limit : resolution_bitrate_limits_) {
+      if (limit.frame_size_pixels == pixels) {
+        return;
+      }
+    }
+    resolution_bitrate_limits_.emplace_back(pixels, 1, 1, max_bitrate);
+  };
+
+  append_limit(320, 180);
+  append_limit(480, 270);
+  append_limit(640, 360);
+  append_limit(960, 540);
+  append_limit(1280, 720);
+
+  for (const auto& codec_height : rtc_config_.encode_params.codecs) {
+    if (codec_height == 0) {
+      continue;
+    }
+    const unsigned int aligned_height = AlignToEven(codec_height);
+    const unsigned int aligned_width = AlignToEven(static_cast<unsigned int>(
+        (static_cast<uint64_t>(aligned_height) * 16 + 8) / 9));
+    if (aligned_width >= 16 && aligned_height >= 16) {
+      append_limit(static_cast<int>(aligned_width),
+                   static_cast<int>(aligned_height));
+    }
   }
 }
 
@@ -323,12 +398,7 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
   }
 
   StopPrewarmWorker();
-
-  {
-    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
-    active_encoder_ = EncoderSlot();
-    standby_encoder_ = EncoderSlot();
-  }
+  ResetEncoderSlots();
   active_encoder_token_.store(0, std::memory_order_release);
 
   auto num_of_streams =
@@ -384,16 +454,13 @@ int32_t JetsonH264EncoderImpl::Release() {
   StopPrewarmWorker();
 
   active_encoder_token_.store(0, std::memory_order_release);
-  {
-    std::lock_guard<std::mutex> lock(encoder_slots_mutex_);
-    active_encoder_ = EncoderSlot();
-    standby_encoder_ = EncoderSlot();
-  }
+  ResetEncoderSlots();
   {
     std::lock_guard<std::mutex> lock(encoded_image_mutex_);
     encoded_image_.ClearEncodedData();
     encoded_image_capacity_ = 0;
   }
+  encoded_image_callback_ = nullptr;
 
   width_ = 0;
   height_ = 0;
@@ -431,7 +498,6 @@ void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
 int32_t JetsonH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
-  LOG_ERROR("33333333");
   if (!encoded_image_callback_) {
     LOG_ERROR(
         "InitEncode() has been called, but a callback function "
@@ -456,10 +522,14 @@ int32_t JetsonH264EncoderImpl::Encode(
   const bool resolution_changed =
       (frame_width != width_ || frame_height != height_);
 
+  if (!EnsureActiveEncoderForResolution(frame_width, frame_height)) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
   if (resolution_changed) {
     width_ = frame_width;
     height_ = frame_height;
-
     const size_t new_capacity =
         CalcBufferSize(VideoType::kI420, width_, height_);
     {
@@ -470,14 +540,6 @@ int32_t JetsonH264EncoderImpl::Encode(
       encoded_image_._encodedHeight = height_;
       encoded_image_.set_size(0);
     }
-  }
-
-  if (!EnsureActiveEncoderForResolution(frame_width, frame_height)) {
-    ReportError();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  if (resolution_changed) {
     RequestAsyncPrewarm(frame_width, frame_height);
   }
 
@@ -695,10 +757,14 @@ VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
   info.supports_native_handle = false;
   info.implementation_name = "JetsonH264";
   info.scaling_settings =
-      VideoEncoder::ScalingSettings(kLowH264QpThreshold, kHighH264QpThreshold);
+      VideoEncoder::ScalingSettings(static_cast<int>(qp_threshold_.first),
+                                    static_cast<int>(qp_threshold_.second));
   info.is_hardware_accelerated = true;
   info.has_internal_source = false;
   info.supports_simulcast = false;
+  info.scaling_settings.min_pixels_per_frame = 360 * 180;
+  info.requested_resolution_alignment = 2;
+  info.resolution_bitrate_limits = resolution_bitrate_limits_;
 
   return info;
 }

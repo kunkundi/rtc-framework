@@ -172,6 +172,11 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		rtc_config.use_NVENC = rtc_cfg_obj["use_NVENC"].get<bool>();
 	}
 
+	if (rtc_cfg_obj.contains("jetson_h264_encoder")) {
+		rtc_config.jetson_h264_encoder =
+			rtc_cfg_obj["jetson_h264_encoder"].get<std::string>();
+	}
+
 	if (rtc_cfg_obj.contains("use_NVDEC")) {
 		rtc_config.use_NVDEC = rtc_cfg_obj["use_NVDEC"].get<bool>();
 	}

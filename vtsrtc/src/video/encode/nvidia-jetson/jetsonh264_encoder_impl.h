@@ -65,6 +65,7 @@ class JetsonH264EncoderImpl : public VideoEncoder {
                          EncoderSlot* slot);
   bool EnsureActiveEncoderForResolution(unsigned int width,
                                         unsigned int height);
+  void ResetEncoderSlots();
   void ApplyRatesToEncoder(JetsonEncoder* encoder);
   bool PrewarmStandbyForActiveResolution(unsigned int active_width,
                                          unsigned int active_height);
@@ -79,6 +80,7 @@ class JetsonH264EncoderImpl : public VideoEncoder {
 
   void ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate);
   void ReconfigureEncoderIDR();
+  void InitializeResolutionBitrateLimits();
 
   void ReportInit();
   void ReportError();
@@ -121,6 +123,8 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   unsigned int height_ = 0;
   unsigned int fps_ = 30;
   unsigned int bitrate_ = 25000000;
+  std::pair<unsigned int, unsigned int> qp_threshold_ = {37u, 39u};
+  std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
 
 #if ENABLE_ENCODE_PERF_STATS
   struct EncodeStats {

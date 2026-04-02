@@ -165,53 +165,19 @@ local function add_nvcodec_config()
     end
 end
 
-local function add_jetson_ffmpeg_config()
-    local system_include_candidates = {
-        "/usr/include",
-        "/usr/local/include",
-        path.join("/usr/include", "aarch64-linux-gnu")
-    }
-    local system_lib_candidates = {
-        path.join("/lib", "aarch64-linux-gnu", "libnvmpi.so"),
-        path.join("/usr/lib", "aarch64-linux-gnu", "libnvmpi.so"),
-        path.join("/usr/local/lib", "libnvmpi.so")
-    }
-
-    local system_include = nil
-    local system_lib = nil
-    for _, include_dir in ipairs(system_include_candidates) do
-        if os.isfile(path.join(include_dir, "nvmpi.h")) then
-            system_include = include_dir
-            break
-        end
-    end
-    for _, libfile in ipairs(system_lib_candidates) do
-        if os.isfile(libfile) then
-            system_lib = libfile
-            break
-        end
-    end
-
-    if system_include and system_lib then
-        add_includedirs(system_include)
-        add_linkdirs(path.directory(system_lib))
-        add_links("nvmpi")
-        add_defines("VTSRTC_USE_SYSTEM_NVMPI=1")
-        add_defines("VTSRTC_HAS_FFMPEG=1")
-        return true
-    end
-
+local function add_jetson_h264_encoder_config()
     if not os.isdir("/usr/src/jetson_multimedia_api/include") then
         return fail("jetson multimedia api headers not found at /usr/src/jetson_multimedia_api/include")
     end
 
     add_includedirs("/usr/src/jetson_multimedia_api/include")
     add_linkdirs("/usr/lib/aarch64-linux-gnu/tegra")
-    add_syslinks("v4l2", "nvbufsurface", "nvbufsurftransform", "X11")
-    add_defines("VTSRTC_HAS_FFMPEG=1")
+    add_syslinks("v4l2", "nvbufsurface", "nvbufsurftransform", "nvbuf_utils", "X11")
     add_files(
-        "vtsrtc/src/video/encode/nvidia-jetson/nvmpi_enc.cpp",
-        "/usr/src/jetson_multimedia_api/samples/common/classes/NvVideoEncoder.cpp",
+        "vtsrtc/src/video/encode/nvidia-jetson/jetsonh264_encoder_impl.cpp",
+        "vtsrtc/src/video/encode/nvidia-jetson/jetson_encoder.cpp",
+        "vtsrtc/src/video/encode/ffmpeg/nvmpi_enc.cpp",
+        "vtsrtc/src/video/encode/nvidia-jetson/NvVideoEncoder.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvElementProfiler.cpp",
@@ -219,6 +185,8 @@ local function add_jetson_ffmpeg_config()
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp"
     )
+
+    add_defines("VTSRTC_HAS_FFMPEG=1")
     return true
 end
 
@@ -423,7 +391,7 @@ target(vtsrtc_target)
 
     if is_aarch64_arch() then
         if not get_config("use_default_jetson_encoder") then
-            if add_jetson_ffmpeg_config() then
+            if add_jetson_h264_encoder_config() then
                 add_files(
                     "vtsrtc/src/video/encode/ffmpeg/ffmpeg_h264_encoder_impl.cpp"
                 )

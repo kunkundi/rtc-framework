@@ -164,6 +164,7 @@ struct RtcConfig {
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;
+	std::string jetson_h264_encoder = "ffmpeg-jetson";
 
 	long ping_timeout = 2000;
 	long pong_timeout = 4000;  // unit: milliseconds
