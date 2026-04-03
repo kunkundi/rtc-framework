@@ -190,6 +190,23 @@ local function add_jetson_h264_encoder_config()
     return true
 end
 
+local function add_gstreamer_h264_encoder_config()
+    if not os.isfile("/usr/include/gstreamer-1.0/gst/gst.h") then
+        return false
+    end
+
+    add_includedirs(
+        "/usr/include/gstreamer-1.0",
+        "/usr/include/orc-0.4",
+        "/usr/include/glib-2.0",
+        "/usr/lib/aarch64-linux-gnu/glib-2.0/include"
+    )
+    add_links("gstapp-1.0", "gstvideo-1.0", "gstbase-1.0", "gstreamer-1.0", "gobject-2.0", "glib-2.0")
+    add_files("vtsrtc/src/video/encode/gstreamer/gstreamer_h264_encoder_impl.cpp")
+    add_defines("VTSRTC_HAS_GSTREAMER")
+    return true
+end
+
 local function add_cuda_driver_config()
     local cuda_include_candidates = {}
     local cuda_path = os.getenv("CUDA_PATH")
@@ -396,6 +413,7 @@ target(vtsrtc_target)
                     "vtsrtc/src/video/encode/ffmpeg/ffmpeg_h264_encoder_impl.cpp"
                 )
             end
+            add_gstreamer_h264_encoder_config()
         end
     else
         add_files(

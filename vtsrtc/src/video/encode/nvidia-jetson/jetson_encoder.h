@@ -39,6 +39,7 @@ class JetsonEncoder {
  private:
   NvVideoEncoder* encoder_;
   std::atomic<bool> abort_;
+  std::atomic<bool> stopping_;
   int width_;
   int height_;
   int framerate_;

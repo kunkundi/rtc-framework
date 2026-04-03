@@ -13,6 +13,8 @@
 #endif
 #endif
 
+#include <limits>
+
 vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
   switch (http_code) {
     case HttpStatus::OK:
@@ -1407,6 +1409,13 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
 void RtcConnectionManager::SetRtpSendersPriority() {
   RTC_DCHECK_RUN_ON(logic_thread_);
 
+  const int configured_min_bitrate_bps = static_cast<int>(
+      std::min<unsigned int>(rtc_config_.encode_params.bitrate_minmum,
+                             static_cast<unsigned int>(std::numeric_limits<int>::max())));
+  const int configured_max_bitrate_bps = static_cast<int>(
+      std::min<unsigned int>(rtc_config_.encode_params.bitrate_maxmum,
+                             static_cast<unsigned int>(std::numeric_limits<int>::max())));
+
   for (const auto& rtpsender_priority : rtpsender_priority_map_) {
     auto& rtpsender = rtpsender_priority.first;
     auto rtpparams = rtpsender->GetParameters();
@@ -1421,6 +1430,12 @@ void RtcConnectionManager::SetRtpSendersPriority() {
           bitrate_priority_map[rtpsender_priority.second];
       rtpparams.encodings[0].network_priority =
           static_cast<webrtc::Priority>(rtpsender_priority.second);
+      if (configured_max_bitrate_bps > 0) {
+        rtpparams.encodings[0].max_bitrate_bps = configured_max_bitrate_bps;
+      }
+      if (configured_min_bitrate_bps > 0) {
+        rtpparams.encodings[0].min_bitrate_bps = configured_min_bitrate_bps;
+      }
       auto error = rtpsender->SetParameters(rtpparams);
       if (!error.ok()) {
         LOG_WARN("Set priority of rtpsender (%s) failed, reason: %s",
@@ -1790,7 +1805,21 @@ void RtcConnectionManager::InteractRemotePeer(
   }
 
   webrtc::BitrateSettings bitratelimit;
-  bitratelimit.max_bitrate_bps = rtc_config_.encode_params.bitrate_maxmum;
+  if (rtc_config_.encode_params.bitrate_minmum > 0) {
+    bitratelimit.min_bitrate_bps = static_cast<int>(std::min<unsigned int>(
+        rtc_config_.encode_params.bitrate_minmum,
+        static_cast<unsigned int>(std::numeric_limits<int>::max())));
+  }
+  if (rtc_config_.encode_params.bitrate_start > 0) {
+    bitratelimit.start_bitrate_bps = static_cast<int>(std::min<unsigned int>(
+        rtc_config_.encode_params.bitrate_start,
+        static_cast<unsigned int>(std::numeric_limits<int>::max())));
+  }
+  if (rtc_config_.encode_params.bitrate_maxmum > 0) {
+    bitratelimit.max_bitrate_bps = static_cast<int>(std::min<unsigned int>(
+        rtc_config_.encode_params.bitrate_maxmum,
+        static_cast<unsigned int>(std::numeric_limits<int>::max())));
+  }
   rtc_conn->peer_conn_->SetBitrate(bitratelimit);
 
   this->AddAudioTrack2PeerConnection(rtc_conn->peer_conn_);

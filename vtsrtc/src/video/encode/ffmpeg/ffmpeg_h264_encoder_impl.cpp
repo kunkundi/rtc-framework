@@ -12,7 +12,9 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <thread>
 
 #include "log/log_manager.h"
@@ -224,16 +226,24 @@ int32_t FFmpegH264EncoderImpl::RegisterEncodeCompleteCallback(
 }
 
 void FFmpegH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
-  const auto fps = static_cast<uint32_t>(parameters.framerate_fps);
-  const auto bitrate = parameters.bitrate.GetBitrate(0, 0);
-  codec_.maxFramerate = fps;
-  codec_.maxBitrate = bitrate;
-
-  if (fps < 1 || bitrate < 1) {
+  const double framerate_fps = parameters.framerate_fps;
+  const uint64_t bitrate_bps = parameters.bitrate.get_sum_bps();
+  if (!std::isfinite(framerate_fps) || framerate_fps < 1.0 ||
+      bitrate_bps < 1) {
     LOG_WARN(
-        "[WEBRTC] SetRates failed because framerate or bitrate is invalid");
+        "[WEBRTC] SetRates failed because framerate or bitrate is invalid "
+        "(fps=%.3f, bitrate=%llu)",
+        framerate_fps, static_cast<unsigned long long>(bitrate_bps));
     return;
   }
+
+  const uint32_t fps = static_cast<uint32_t>(std::min<double>(
+      std::round(framerate_fps),
+      static_cast<double>(std::numeric_limits<uint32_t>::max())));
+  const uint32_t bitrate = static_cast<uint32_t>(std::min<uint64_t>(
+      bitrate_bps, std::numeric_limits<uint32_t>::max()));
+  codec_.maxFramerate = fps;
+  codec_.maxBitrate = bitrate;
 
   std::lock_guard<std::mutex> lock(encoder_mutex_);
   const auto previous_fps = fps_;
@@ -334,6 +344,15 @@ int32_t FFmpegH264EncoderImpl::Encode(
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
+
+  LOG_INFO(
+      "[WEBRTC] Encode success: instance=%llu, frame=<%ux%u>, "
+      "encoded_size=%zu, is_keyframe=%d, "
+      "empty_drains=%llu",
+      static_cast<unsigned long long>(instance_id_), frame_width, frame_height,
+      encoded_image_.size(),
+      encoded_image_._frameType == VideoFrameType::kVideoFrameKey,
+      static_cast<unsigned long long>(empty_drains_));
 
   return WEBRTC_VIDEO_CODEC_OK;
 }

@@ -134,6 +134,12 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 			if(encode_params_obj.contains("bitrate_mode")) {
 				rtc_config.encode_params.bitrate_mode = encode_params_obj["bitrate_mode"].get<std::string>();
 			}
+			if(encode_params_obj.contains("bitrate_minmum")) {
+				rtc_config.encode_params.bitrate_minmum = encode_params_obj["bitrate_minmum"].get<unsigned int>();
+			}
+			if(encode_params_obj.contains("bitrate_start")) {
+				rtc_config.encode_params.bitrate_start = encode_params_obj["bitrate_start"].get<unsigned int>();
+			}
 			if(encode_params_obj.contains("bitrate_maxmum")) {
 				rtc_config.encode_params.bitrate_maxmum = encode_params_obj["bitrate_maxmum"].get<unsigned int>();
 			}

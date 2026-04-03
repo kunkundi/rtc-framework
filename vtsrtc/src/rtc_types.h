@@ -140,6 +140,8 @@ struct EncodeParamsConfig {
 	std::pair<unsigned int, unsigned int> qp_threshold;
 	unsigned int I_frame_interval = 3000;
 	std::string bitrate_mode = "cbr";
+	unsigned int bitrate_minmum = 0;
+	unsigned int bitrate_start = 0;
 	unsigned int bitrate_maxmum = 100000000;
 };
 

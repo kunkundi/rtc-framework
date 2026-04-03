@@ -398,8 +398,8 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
   }
 
   StopPrewarmWorker();
-  ResetEncoderSlots();
   active_encoder_token_.store(0, std::memory_order_release);
+  ResetEncoderSlots();
 
   auto num_of_streams =
       SimulcastUtility::NumberOfSimulcastStreams(*codec_settings);

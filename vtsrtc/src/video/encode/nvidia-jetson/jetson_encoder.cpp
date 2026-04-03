@@ -38,6 +38,7 @@ JetsonEncoder::JetsonEncoder(int width, int height, uint32_t dst_pix_fmt,
                              bool is_dma_src)
     : encoder_(nullptr),
       abort_(true),
+      stopping_(true),
       width_(width),
       height_(height),
       framerate_(30),
@@ -61,14 +62,15 @@ JetsonEncoder::JetsonEncoder(int width, int height, uint32_t dst_pix_fmt,
 
 JetsonEncoder::~JetsonEncoder() {
   abort_ = true;
-
-  {
-    std::lock_guard<std::mutex> lock(tasks_mutex_);
-    capturing_tasks_.clear();
-  }
+  stopping_.store(true, std::memory_order_release);
 
   if (encoder_) {
-    StopEncoderIo(true);
+    StopEncoderIo(false);
+
+    {
+      std::lock_guard<std::mutex> lock(tasks_mutex_);
+      capturing_tasks_.clear();
+    }
 
     encoder_->capture_plane.deinitPlane();
     encoder_->output_plane.deinitPlane();
@@ -222,6 +224,7 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
 
   int ret = 0;
   abort_ = true;
+  stopping_.store(true, std::memory_order_release);
 
   StopEncoderIo(false);
   encoder_->capture_plane.deinitPlane();
@@ -288,6 +291,7 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
     return false;
   }
 
+  stopping_.store(false, std::memory_order_release);
   abort_ = false;
   ForceKeyFrame();
   return true;
@@ -380,6 +384,7 @@ bool JetsonEncoder::Start() {
     return false;
   }
 
+  stopping_.store(false, std::memory_order_release);
   abort_ = false;
   return true;
 }
@@ -398,7 +403,7 @@ void JetsonEncoder::EmplaceBuffer(
     return;
   }
 
-  if (abort_) {
+  if (abort_ || stopping_.load(std::memory_order_acquire)) {
     return;
   }
 
@@ -476,15 +481,19 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
                                                   NvBuffer* shared_buffer,
                                                   void* arg) {
   JetsonEncoder* thiz = static_cast<JetsonEncoder*>(arg);
+  const bool stopping = thiz->stopping_.load(std::memory_order_acquire);
 
   if (!v4l2_buf || !buffer) {
+    if (stopping) {
+      return false;
+    }
     thiz->abort_ = true;
     thiz->encoder_->abort();
     LOG_ERROR("Failed to dequeue buffer from encoder capture plane");
     return false;
   }
 
-  if (buffer->planes[0].bytesused == 0) {
+  if (buffer->planes[0].bytesused == 0 || stopping) {
     return false;
   }
 
@@ -520,6 +529,9 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
   {
     std::lock_guard<std::mutex> lock(thiz->tasks_mutex_);
     if (thiz->capturing_tasks_.empty()) {
+      if (thiz->stopping_.load(std::memory_order_acquire)) {
+        return false;
+      }
       LOG_ERROR("No capture task available");
       if (thiz->encoder_->capture_plane.qBuffer(*v4l2_buf, NULL) < 0) {
         thiz->abort_ = true;
@@ -619,6 +631,8 @@ void JetsonEncoder::StopEncoderIo(bool send_eos) {
   if (!encoder_) {
     return;
   }
+
+  stopping_.store(true, std::memory_order_release);
 
   if (send_eos) {
     SendEOS();
