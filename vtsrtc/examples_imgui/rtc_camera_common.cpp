@@ -160,10 +160,10 @@ void PrintUsage(const char* program) {
   std::cout
       << "Usage: " << program << " [options]\n"
       << "\n"
-      << "This binary is headless by design and only accepts UYVY camera input.\n"
+  << "This binary is headless by design and auto-plays the bundled zjlabs.yuv file when available.\n"
       << "\n"
       << "Options:\n"
-      << "  --device /dev/video0       Video node to open\n"
+  << "  --device /dev/video0       Camera node to open, or pass a .yuv file path\n"
       << "  --room zhejianglab         Room to auto join after RTC login\n"
       << "  --config rtc.cfg           RTC config path, defaults to nearby rtc.cfg\n"
       << "  --width 1280               Requested capture width\n"
@@ -178,9 +178,9 @@ void PrintUsage(const char* program) {
       << "  --help                     Show this message\n"
       << "\n"
       << "Examples:\n"
+      << "  " << program << "\n"
       << "  " << program << " --device /dev/video0\n"
-      << "  " << program
-      << " --device /dev/video0 --room zhejianglab --width 1280 --height 720\n"
+      << "  " << program << " --device /path/to/video.yuv --room zhejianglab\n"
       << std::endl;
 }
 

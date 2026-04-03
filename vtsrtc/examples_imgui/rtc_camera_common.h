@@ -7,7 +7,7 @@
 namespace rtc_camera_headless {
 
 struct CaptureOptions {
-  std::string device = "/dev/video0";
+  std::string device;
   std::string room_id = "zhejianglab";
   std::string config_path;
   int width = 0;
