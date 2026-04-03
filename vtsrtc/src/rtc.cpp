@@ -199,6 +199,32 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		rtc_config.reconnect_interval = rtc_cfg_obj["reconnect_interval"].get<long>();
 	}
 
+	const bool use_rasp_encoder =
+		rtc_config.jetson_h264_encoder == "rasp" ||
+		rtc_config.jetson_h264_encoder == "raspberrypi" ||
+		rtc_config.jetson_h264_encoder == "gstreamer-rasp" ||
+		rtc_config.jetson_h264_encoder == "gstreamer-raspberrypi";
+	if (use_rasp_encoder) {
+		if (rtc_config.encode_params.bitrate_minmum == 0) {
+			rtc_config.encode_params.bitrate_minmum = 300000;
+			LOG_WARN("jetson_h264_encoder=%s, apply default bitrate_minmum=%u",
+				rtc_config.jetson_h264_encoder.c_str(),
+				rtc_config.encode_params.bitrate_minmum);
+		}
+
+		if (rtc_config.encode_params.qp_threshold.first == 0 ||
+			rtc_config.encode_params.qp_threshold.second == 0 ||
+			rtc_config.encode_params.qp_threshold.first >=
+				rtc_config.encode_params.qp_threshold.second) {
+			rtc_config.encode_params.qp_threshold = std::make_pair(34u, 38u);
+			LOG_WARN(
+				"jetson_h264_encoder=%s, apply default qp_threshold=[%u,%u]",
+				rtc_config.jetson_h264_encoder.c_str(),
+				rtc_config.encode_params.qp_threshold.first,
+				rtc_config.encode_params.qp_threshold.second);
+		}
+	}
+
 	auto rtc_agent = std::shared_ptr<RtcAgent>(
 		new RtcAgent(
 			rtc_config,

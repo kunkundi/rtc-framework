@@ -11,6 +11,7 @@
 #include "ffmpeg/ffmpeg_h264_encoder_impl.h"
 #ifdef VTSRTC_HAS_GSTREAMER
 #include "gstreamer/gstreamer_h264_encoder_impl.h"
+#include "rasp/rasp_h264_encoder_impl.h"
 #endif
 #endif
 #else
@@ -59,6 +60,14 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
                                "gstreamer-jetson-experimental") ||
         absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
                                "gstreamer-experimental");
+    const bool use_rasp =
+        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder, "rasp") ||
+        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
+                               "raspberrypi") ||
+        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
+                               "gstreamer-rasp") ||
+        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
+                               "gstreamer-raspberrypi");
     const bool use_nvidia_jetson =
         absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
                                "nvidia-jetson") ||
@@ -82,6 +91,20 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
 #endif
     }
 
+    if (use_rasp) {
+#ifdef VTSRTC_HAS_GSTREAMER
+      LOG_INFO(
+          "[WEBRTC] Select runtime H264 encoder: "
+          "rasp-gstreamer-v4l2");
+      return std::make_unique<RaspH264EncoderImpl>(cricket::VideoCodec(format),
+                                                   rtc_config_);
+#else
+      LOG_WARN(
+          "[WEBRTC] Raspberry Pi encoder requested but GStreamer support is "
+          "not built in, fallback to ffmpeg-jetson");
+#endif
+    }
+
     if (use_gstreamer) {
       LOG_WARN(
           "[WEBRTC] jetson_h264_encoder=%s currently maps to the stable "
@@ -99,12 +122,14 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
     }
 
     if (!use_ffmpeg && !use_gstreamer && !use_gstreamer_experimental &&
+        !use_rasp &&
         !use_nvidia_jetson) {
       LOG_WARN(
           "[WEBRTC] Unknown jetson_h264_encoder value: %s, supported values "
           "are ffmpeg-jetson/ffmpeg, nvidia-jetson/jetson, "
           "gstreamer-jetson/gstreamer, "
-          "gstreamer-jetson-experimental/gstreamer-experimental. "
+          "gstreamer-jetson-experimental/gstreamer-experimental, "
+          "rasp/raspberrypi/gstreamer-rasp/gstreamer-raspberrypi. "
           "Fallback to ffmpeg-jetson",
           rtc_config_.jetson_h264_encoder.c_str());
     }

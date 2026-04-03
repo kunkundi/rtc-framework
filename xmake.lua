@@ -202,7 +202,10 @@ local function add_gstreamer_h264_encoder_config()
         "/usr/lib/aarch64-linux-gnu/glib-2.0/include"
     )
     add_links("gstapp-1.0", "gstvideo-1.0", "gstbase-1.0", "gstreamer-1.0", "gobject-2.0", "glib-2.0")
-    add_files("vtsrtc/src/video/encode/gstreamer/gstreamer_h264_encoder_impl.cpp")
+    add_files(
+        "vtsrtc/src/video/encode/gstreamer/gstreamer_h264_encoder_impl.cpp",
+        "vtsrtc/src/video/encode/rasp/rasp_h264_encoder_impl.cpp"
+    )
     add_defines("VTSRTC_HAS_GSTREAMER")
     return true
 end
