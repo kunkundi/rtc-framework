@@ -58,9 +58,9 @@ constexpr float kVideoPanelTop = kControlPanelTop + kControlPanelHeight + kPanel
 constexpr float kStatsPanelTop = kVideoPanelTop + kVideoPanelHeight + kPanelGap;
 constexpr float kLogPanelTopWithStats = kStatsPanelTop + kStatsPanelHeight + kPanelGap;
 constexpr float kLogPanelTopWithoutStats = kVideoPanelTop + kVideoPanelHeight + kPanelGap;
-constexpr float kVideoViewMinSize = 220.0f;
 constexpr float kVideoCardPadding = 14.0f;
 constexpr float kVideoOverlayPadding = 8.0f;
+constexpr float kFullscreenOverlayPadding = 20.0f;
 
 struct NetStatsView {
   bool input = false;
@@ -564,6 +564,23 @@ class SDLOpenGLWindow {
 
   void SwapBuffers() { SDL_GL_SwapWindow(window_); }
 
+  bool SetFullscreen(bool fullscreen) {
+    if (!window_) {
+      return false;
+    }
+    if (!SDL_SetWindowFullscreen(window_, fullscreen)) {
+      return false;
+    }
+    return SDL_SyncWindow(window_);
+  }
+
+  bool IsFullscreen() const {
+    if (!window_) {
+      return false;
+    }
+    return (SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN) != 0;
+  }
+
   int width() const { return width_; }
   int height() const { return height_; }
   SDL_Window* window() const { return window_; }
@@ -636,6 +653,7 @@ class RtcImguiApp {
 
     bool should_close = false;
     auto last_tick = std::chrono::steady_clock::now();
+    ui_window_ = &window;
 
     while (!should_close) {
       const auto now = std::chrono::steady_clock::now();
@@ -668,6 +686,7 @@ class RtcImguiApp {
     }
 
     ReleaseVideoTextures();
+    ui_window_ = nullptr;
     ImGui_ImplSDL3_Shutdown();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
@@ -794,6 +813,7 @@ class RtcImguiApp {
     if (show_eventlog_) {
       DrawEventLogHint();
     }
+    DrawFullscreenVideoOverlay();
   }
 
   void DrawControlPanel() {
@@ -1014,6 +1034,8 @@ class RtcImguiApp {
     }
     ImGui::SameLine();
     ImGui::TextDisabled("Side-by-side input -> alternating output columns");
+    ImGui::SameLine();
+    ImGui::TextDisabled("| Double-click a frame for full screen");
     ImGui::Separator();
 
     std::vector<std::shared_ptr<VideoFrameView>> frame_snapshot;
@@ -1043,12 +1065,17 @@ class RtcImguiApp {
 
     if (frame_snapshot.size() == 1) {
       const ImVec2 start_pos = ImGui::GetCursorPos();
-      const float video_view_size = std::max(
-          kVideoViewMinSize, std::min(panel_avail.x - kVideoCardPadding * 2.0f,
-                                      panel_avail.y - kVideoCardPadding * 2.0f));
-      const float y_offset = std::max(0.0f, (panel_avail.y - video_view_size) * 0.5f);
+      const float max_box_width =
+          std::max(1.0f, panel_avail.x - kVideoCardPadding * 2.0f);
+      const float max_box_height =
+          std::max(1.0f, panel_avail.y - kVideoCardPadding * 2.0f);
+      const ImVec2 video_box_size =
+          ComputeVideoBoxSize(*frame_snapshot.front(), max_box_width, max_box_height);
+      const float y_offset =
+          std::max(0.0f, (panel_avail.y - video_box_size.y) * 0.5f);
       ImGui::SetCursorPosY(start_pos.y + y_offset);
-      DrawSingleVideoFrame(*frame_snapshot.front(), video_view_size, panel_avail.x);
+      DrawSingleVideoFrame(*frame_snapshot.front(), max_box_width, max_box_height,
+                           panel_avail.x);
       ImGui::End();
       return;
     }
@@ -1060,14 +1087,14 @@ class RtcImguiApp {
     const float cell_width =
         (panel_avail.x - style.ItemSpacing.x * static_cast<float>(columns - 1)) /
         static_cast<float>(columns);
-    const float max_by_width = cell_width - style.CellPadding.x * 2.0f - 12.0f;
-    const float max_by_height =
-        (panel_avail.y - style.ItemSpacing.y * static_cast<float>(rows - 1)) /
-            static_cast<float>(rows) -
-        style.CellPadding.y * 2.0f - 12.0f;
-    const float video_view_size =
-        std::max(160.0f, std::min(max_by_width, max_by_height));
-    const float row_height = video_view_size + style.CellPadding.y * 2.0f + 12.0f;
+    const float max_by_width =
+        std::max(1.0f, cell_width - style.CellPadding.x * 2.0f - 12.0f);
+    const float max_by_height = std::max(
+        1.0f, (panel_avail.y - style.ItemSpacing.y * static_cast<float>(rows - 1)) /
+                  static_cast<float>(rows) -
+                  style.CellPadding.y * 2.0f - 12.0f);
+    const float row_height =
+        std::max(1.0f, max_by_height + style.CellPadding.y * 2.0f + 12.0f);
     if (ImGui::BeginTable("VideoTable", columns,
                           ImGuiTableFlags_SizingStretchSame |
                               ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders,
@@ -1078,7 +1105,8 @@ class RtcImguiApp {
         }
         ImGui::TableSetColumnIndex(
             static_cast<int>(i % static_cast<size_t>(columns)));
-        DrawSingleVideoFrame(*frame_snapshot[i], video_view_size, cell_width);
+        DrawSingleVideoFrame(*frame_snapshot[i], max_by_width, max_by_height,
+                             cell_width);
       }
       ImGui::EndTable();
     }
@@ -1086,17 +1114,70 @@ class RtcImguiApp {
     ImGui::End();
   }
 
+  ImVec2 ComputeVideoBoxSize(const VideoFrameView& frame,
+                             float max_width,
+                             float max_height) const {
+    const float clamped_max_width = std::max(1.0f, max_width);
+    const float clamped_max_height = std::max(1.0f, max_height);
+
+    float aspect = 1.0f;
+    if (frame.width > 0 && frame.height > 0) {
+      aspect = static_cast<float>(frame.width) / static_cast<float>(frame.height);
+      if (aspect <= 0.0f) {
+        aspect = 1.0f;
+      }
+    }
+
+    float box_width = clamped_max_width;
+    float box_height = box_width / aspect;
+    if (box_height > clamped_max_height) {
+      box_height = clamped_max_height;
+      box_width = box_height * aspect;
+    }
+
+    box_width = std::max(1.0f, std::min(box_width, clamped_max_width));
+    box_height = std::max(1.0f, std::min(box_height, clamped_max_height));
+    return ImVec2(box_width, box_height);
+  }
+
   void DrawSingleVideoFrame(const VideoFrameView& frame,
-                            float video_view_size,
+                            float max_box_width,
+                            float max_box_height,
                             float content_width) {
+    const ImVec2 video_box_size =
+        ComputeVideoBoxSize(frame, max_box_width, max_box_height);
     const float start_x = ImGui::GetCursorPosX();
-    const float x_offset = std::max(0.0f, (content_width - video_view_size) * 0.5f);
+    const float x_offset = std::max(0.0f, (content_width - video_box_size.x) * 0.5f);
     if (x_offset > 0.0f) {
       ImGui::SetCursorPosX(start_x + x_offset);
     }
-    const ImVec2 box_size(video_view_size, video_view_size);
-    const ImVec2 box_min = ImGui::GetCursorScreenPos();
-    const ImVec2 box_max(box_min.x + box_size.x, box_min.y + box_size.y);
+    DrawVideoFrameBox(frame, video_box_size, false);
+  }
+
+  void DrawVideoFrameBox(const VideoFrameView& frame,
+                         const ImVec2& requested_box_size,
+                         bool fullscreen_mode) {
+    const ImVec2 box_size(std::max(1.0f, requested_box_size.x),
+                          std::max(1.0f, requested_box_size.y));
+
+    ImGui::PushID(frame.stream_key.c_str());
+    ImGui::InvisibleButton(fullscreen_mode ? "video_frame_fullscreen"
+                                           : "video_frame_preview",
+                           box_size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool double_clicked =
+        hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    const ImVec2 box_min = ImGui::GetItemRectMin();
+    const ImVec2 box_max = ImGui::GetItemRectMax();
+    ImGui::PopID();
+
+    if (double_clicked) {
+      if (fullscreen_mode) {
+        CloseFullscreenVideo();
+      } else {
+        OpenFullscreenVideo(frame.stream_key);
+      }
+    }
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     draw_list->AddRectFilled(box_min, box_max, IM_COL32(0, 0, 0, 255));
@@ -1134,7 +1215,10 @@ class RtcImguiApp {
 
     const auto tex_it = video_textures_.find(frame.stream_key);
     if (tex_it == video_textures_.end() || tex_it->second.texture == 0) {
-      ImGui::Dummy(ImVec2(video_view_size, video_view_size));
+      draw_list->AddRect(box_min, box_max,
+                         hovered || fullscreen_mode
+                             ? IM_COL32(90, 145, 230, 255)
+                             : IM_COL32(80, 80, 80, 255));
       return;
     }
 
@@ -1142,9 +1226,14 @@ class RtcImguiApp {
     const float offset_y = (box_size.y - draw_height) * 0.5f;
     const ImVec2 image_min(box_min.x + offset_x, box_min.y + offset_y);
     const ImVec2 image_max(image_min.x + draw_width, image_min.y + draw_height);
+    draw_list->PushClipRect(box_min, box_max, true);
     draw_list->AddImage((ImTextureID)(intptr_t)tex_it->second.texture, image_min,
                         image_max, ImVec2(0, 0), ImVec2(1, 1));
-    draw_list->AddRect(box_min, box_max, IM_COL32(80, 80, 80, 255));
+    draw_list->PopClipRect();
+    draw_list->AddRect(box_min, box_max,
+                       hovered || fullscreen_mode
+                           ? IM_COL32(90, 145, 230, 255)
+                           : IM_COL32(80, 80, 80, 255));
 
     std::ostringstream title;
     title << "sid=" << frame.remote_sessionid << "  " << frame.source_id << "  "
@@ -1159,7 +1248,141 @@ class RtcImguiApp {
         IM_COL32(235, 235, 235, 255), title_text.c_str());
     draw_list->PopClipRect();
 
-    ImGui::Dummy(box_size);
+    if (fullscreen_mode || hovered) {
+      const char* hint_text = fullscreen_mode
+                                  ? "Double-click or press Esc to exit full screen"
+                                  : "Double-click to view full screen";
+      const float hint_height =
+          ImGui::GetTextLineHeight() + kVideoOverlayPadding * 2.0f;
+      const ImVec2 hint_min(box_min.x, box_max.y - hint_height);
+      draw_list->AddRectFilled(hint_min, box_max, IM_COL32(0, 0, 0, 148));
+      draw_list->PushClipRect(hint_min, box_max, true);
+      draw_list->AddText(
+          ImVec2(hint_min.x + kVideoOverlayPadding,
+                 hint_min.y + kVideoOverlayPadding),
+          IM_COL32(235, 235, 235, 255), hint_text);
+      draw_list->PopClipRect();
+    }
+  }
+
+  void DrawFullscreenVideoOverlay() {
+    if (fullscreen_video_stream_key_.empty()) {
+      return;
+    }
+
+    std::shared_ptr<VideoFrameView> frame;
+    {
+      std::lock_guard<std::mutex> lock(video_mutex_);
+      const auto it = remote_video_frames_by_source_.find(fullscreen_video_stream_key_);
+      if (it != remote_video_frames_by_source_.end()) {
+        frame = it->second;
+      }
+    }
+
+    if (!frame) {
+      CloseFullscreenVideo();
+      return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+      CloseFullscreenVideo();
+      return;
+    }
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (!viewport) {
+      return;
+    }
+
+    const ImGuiWindowFlags window_flags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse;
+    ImGui::SetNextWindowPos(viewport->Pos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(viewport->Size, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(1.0f);
+    if (focus_fullscreen_video_) {
+      ImGui::SetNextWindowFocus();
+      focus_fullscreen_video_ = false;
+    }
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    if (ImGui::Begin("##VideoFullscreenOverlay", nullptr, window_flags)) {
+      DrawVideoFrameBox(*frame, ImGui::GetContentRegionAvail(), true);
+
+      ImDrawList* draw_list = ImGui::GetWindowDrawList();
+      const char* exit_text = "Esc: exit full screen";
+      const ImVec2 exit_size = ImGui::CalcTextSize(exit_text);
+      const float label_padding = 8.0f;
+      const ImVec2 overlay_origin = viewport->Pos;
+      const ImVec2 top_right(
+          overlay_origin.x + viewport->Size.x - kFullscreenOverlayPadding -
+              exit_size.x,
+          overlay_origin.y + kFullscreenOverlayPadding);
+      const ImVec2 exit_min(top_right.x - label_padding, top_right.y - label_padding);
+      const ImVec2 exit_max(top_right.x + exit_size.x + label_padding,
+                            top_right.y + exit_size.y + label_padding);
+      draw_list->AddRectFilled(exit_min, exit_max, IM_COL32(0, 0, 0, 170), 6.0f);
+      draw_list->AddText(top_right, IM_COL32(235, 235, 235, 255), exit_text);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+  }
+
+  void OpenFullscreenVideo(const std::string& stream_key) {
+    EnsureWindowFullscreen(true);
+    fullscreen_video_stream_key_ = stream_key;
+    focus_fullscreen_video_ = true;
+  }
+
+  void CloseFullscreenVideo() {
+    fullscreen_video_stream_key_.clear();
+    focus_fullscreen_video_ = false;
+    EnsureWindowFullscreen(false);
+  }
+
+  void EnsureWindowFullscreen(bool enable) {
+    if (!ui_window_) {
+      return;
+    }
+
+    if (enable) {
+      if (!fullscreen_video_window_forced_) {
+        fullscreen_video_window_was_fullscreen_ = ui_window_->IsFullscreen();
+      }
+
+      if (fullscreen_video_window_forced_ || fullscreen_video_window_was_fullscreen_) {
+        fullscreen_video_window_forced_ = true;
+        return;
+      }
+
+      if (!ui_window_->SetFullscreen(true)) {
+        AppendLog(std::string("SDL_SetWindowFullscreen(true) failed: ") +
+                  SDL_GetError());
+        fullscreen_video_window_forced_ = false;
+        return;
+      }
+      fullscreen_video_window_forced_ = true;
+      return;
+    }
+
+    if (!fullscreen_video_window_forced_) {
+      fullscreen_video_window_was_fullscreen_ = false;
+      return;
+    }
+
+    const bool should_restore_windowed = !fullscreen_video_window_was_fullscreen_;
+    fullscreen_video_window_forced_ = false;
+    fullscreen_video_window_was_fullscreen_ = false;
+    if (!should_restore_windowed) {
+      return;
+    }
+
+    if (!ui_window_->SetFullscreen(false)) {
+      AppendLog(std::string("SDL_SetWindowFullscreen(false) failed: ") +
+                SDL_GetError());
+    }
   }
 
   void UpdateTextureFromFrame(const VideoFrameView& frame,
@@ -1359,6 +1582,7 @@ class RtcImguiApp {
   void ResetSessionStateOnUi() {
     StopMediaFeed();
     remote_audio_player_.Clear();
+    CloseFullscreenVideo();
     video_source_added_ = false;
     audio_source_added_ = false;
 
@@ -1795,6 +2019,7 @@ class RtcImguiApp {
   std::atomic<uint64_t> remote_video_frame_seq_{0};
   std::atomic<bool> pending_reset_session_state_{false};
   RtcAudioPlayer remote_audio_player_;
+  SDLOpenGLWindow* ui_window_ = nullptr;
 
   std::mutex log_mutex_;
   std::vector<std::string> logs_;
@@ -1811,6 +2036,10 @@ class RtcImguiApp {
   std::map<std::string, std::shared_ptr<VideoFrameView>> remote_video_frames_by_source_;
   std::map<std::string, VideoTextureView> video_textures_;
   bool render_lr_pixel_interleave_ = false;
+  std::string fullscreen_video_stream_key_;
+  bool focus_fullscreen_video_ = false;
+  bool fullscreen_video_window_forced_ = false;
+  bool fullscreen_video_window_was_fullscreen_ = false;
 
   bool rtc_inited_ = false;
   bool video_source_added_ = false;
