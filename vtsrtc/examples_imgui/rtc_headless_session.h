@@ -9,7 +9,9 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <string>
+#include <unordered_set>
 
 namespace rtc_camera_headless {
 
@@ -68,6 +70,7 @@ class RtcHeadlessSession {
 
   void NoteCapturedFrame();
   bool IsRoomJoined() const;
+  bool IsReadyToSend() const;
   uint64_t captured_frames() const;
   uint64_t sent_frames() const;
   uint64_t remote_video_frames() const;
@@ -130,8 +133,12 @@ class RtcHeadlessSession {
   std::atomic<uint64_t> received_messages_{0};
   std::atomic<uint64_t> remote_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frames_{0};
+  std::atomic<bool> room_retry_requested_{false};
+  std::atomic<uint32_t> connected_peer_count_{0};
   std::chrono::steady_clock::time_point last_join_attempt_{};
   std::chrono::steady_clock::time_point last_status_{};
+  mutable std::mutex connected_peers_mutex_;
+  std::unordered_set<RtcSessionId> connected_peers_;
 };
 
 }  // namespace rtc_camera_headless

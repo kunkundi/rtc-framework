@@ -13,12 +13,19 @@ namespace rtc_camera_headless {
 
 class UyvyV4l2CaptureDevice {
  public:
+  struct CapturedFrame {
+    const uint8_t* data = nullptr;
+    size_t bytes_used = 0;
+    uint32_t buffer_index = 0;
+  };
+
   ~UyvyV4l2CaptureDevice();
 
   void Open(const CaptureOptions& options);
   void Close();
 
-  bool DequeueRawFrame(std::vector<uint8_t>* raw_frame, size_t* bytes_used);
+  bool DequeueCapturedFrame(CapturedFrame* frame);
+  void RequeueCapturedFrame(CapturedFrame* frame);
 
   uint32_t pixel_format() const;
   uint32_t width() const;

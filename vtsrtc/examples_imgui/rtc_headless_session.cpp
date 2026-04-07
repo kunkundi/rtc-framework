@@ -45,6 +45,14 @@ const char* P2PStateText(RtcP2PState state) {
   }
 }
 
+bool IsP2PConnectedState(RtcP2PState state) {
+  return state == P2PConnected;
+}
+
+bool IsP2PDisconnectedState(RtcP2PState state) {
+  return state == P2PDisconnected || state == P2PFailed || state == P2PClosed;
+}
+
 }  // namespace
 
 RtcHeadlessSession* RtcHeadlessSession::instance_ = nullptr;
@@ -123,6 +131,12 @@ void RtcHeadlessSession::Shutdown() {
   }
   RtcDestoryAgent();
   room_joined_.store(false);
+  room_retry_requested_.store(false);
+  connected_peer_count_.store(0);
+  {
+    std::lock_guard<std::mutex> lock(connected_peers_mutex_);
+    connected_peers_.clear();
+  }
 }
 
 void RtcHeadlessSession::Tick() {
@@ -145,6 +159,10 @@ void RtcHeadlessSession::NoteCapturedFrame() {
 
 bool RtcHeadlessSession::IsRoomJoined() const {
   return room_joined_.load();
+}
+
+bool RtcHeadlessSession::IsReadyToSend() const {
+  return room_joined_.load() && connected_peer_count_.load() > 0;
 }
 
 uint64_t RtcHeadlessSession::captured_frames() const {
@@ -202,7 +220,10 @@ void RtcHeadlessSession::MaybeEnterRoom(
   if (server_state_.load() != ServerLogined || room_joined_.load()) {
     return;
   }
-  if (last_join_attempt_.time_since_epoch().count() != 0 &&
+  const bool retry_requested =
+      room_retry_requested_.exchange(false, std::memory_order_relaxed);
+  if (!retry_requested &&
+      last_join_attempt_.time_since_epoch().count() != 0 &&
       now - last_join_attempt_ <
           std::chrono::milliseconds(options_.join_retry_ms)) {
     return;
@@ -223,6 +244,7 @@ void RtcHeadlessSession::MaybeEnterRoom(
   LogRtcCall(action, code);
   if (code == RtcErrorCode::OK || code == RtcErrorCode::AgentAlreadyInRoom) {
     room_joined_.store(true);
+    room_retry_requested_.store(false, std::memory_order_relaxed);
   }
 }
 
@@ -234,6 +256,8 @@ void RtcHeadlessSession::PrintStatus() const {
       << " room=" << options_.room_id
       << " " << room_state_label << "="
       << (room_joined_.load() ? "yes" : "no")
+      << " p2p_connected=" << connected_peer_count_.load()
+      << " ready=" << (IsReadyToSend() ? "yes" : "no")
       << " captured=" << captured_frames_.load()
       << " sent=" << sent_frames_.load()
       << " recv_msg=" << received_messages_.load()
@@ -257,10 +281,24 @@ void RtcHeadlessSession::OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
   if (!instance_) {
     return;
   }
-  if (op == RoomNew) {
-    instance_->room_joined_.store(true);
-  } else if (op == RoomDelete) {
-    instance_->room_joined_.store(false);
+  const std::string target_room =
+      roomid != nullptr ? std::string(roomid) : std::string();
+  if (target_room == instance_->options_.room_id) {
+    if (op == RoomDelete) {
+      instance_->room_joined_.store(false);
+      instance_->room_retry_requested_.store(false,
+                                             std::memory_order_relaxed);
+      instance_->connected_peer_count_.store(0, std::memory_order_relaxed);
+      {
+        std::lock_guard<std::mutex> lock(instance_->connected_peers_mutex_);
+        instance_->connected_peers_.clear();
+      }
+    } else if (op == RoomNew &&
+               instance_->features_.room_action == RoomAction::Join &&
+               !instance_->room_joined_.load()) {
+      instance_->room_retry_requested_.store(true,
+                                             std::memory_order_relaxed);
+    }
   }
   std::ostringstream oss;
   oss << "room event: op=" << static_cast<int>(op)
@@ -271,6 +309,17 @@ void RtcHeadlessSession::OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
 void RtcHeadlessSession::OnP2PState(RtcSessionId sessionid, RtcP2PState state) {
   if (!instance_) {
     return;
+  }
+  if (IsP2PConnectedState(state) || IsP2PDisconnectedState(state)) {
+    std::lock_guard<std::mutex> lock(instance_->connected_peers_mutex_);
+    if (IsP2PConnectedState(state)) {
+      instance_->connected_peers_.insert(sessionid);
+    } else {
+      instance_->connected_peers_.erase(sessionid);
+    }
+    instance_->connected_peer_count_.store(
+        static_cast<uint32_t>(instance_->connected_peers_.size()),
+        std::memory_order_relaxed);
   }
   std::ostringstream oss;
   oss << "p2p: session=" << sessionid << " state=" << P2PStateText(state);
@@ -297,6 +346,12 @@ void RtcHeadlessSession::OnServerConnectionState(RtcServerConnectionState state)
   instance_->server_state_.store(state);
   if (state != ServerLogined) {
     instance_->room_joined_.store(false);
+    instance_->room_retry_requested_.store(false, std::memory_order_relaxed);
+    instance_->connected_peer_count_.store(0, std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(instance_->connected_peers_mutex_);
+      instance_->connected_peers_.clear();
+    }
   }
 
   std::ostringstream oss;

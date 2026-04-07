@@ -553,6 +553,32 @@ if get_config("build_examples") then
                 batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
             end)
 
+        target("rtc_dual_camera_headless")
+            set_kind("binary")
+            add_deps(vtsrtc_target)
+
+            add_files(
+                "vtsrtc/examples_imgui/rtc_dual_camera_headless.cpp",
+                "vtsrtc/examples_imgui/dual_uyvy_to_i420_stitch_cuda.cu",
+                "vtsrtc/examples_imgui/rtc_camera_common.cpp",
+                "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
+                "vtsrtc/examples_imgui/rtc_headless_session.cpp"
+            )
+
+            add_includedirs("vtsrtc/src")
+            add_linux_runtime_rpath()
+            add_syslinks("pthread")
+            add_cuflags("--std=c++14")
+
+            if not add_cuda_runtime_config() then
+                raise("CUDA runtime not found for rtc_dual_camera_headless")
+            end
+
+            after_buildcmd(function(target, batchcmds)
+                copy_optional_vtslog_runtime(batchcmds, target)
+                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+            end)
+
         target("rtc_receiver_headless")
             set_kind("binary")
             add_deps(vtsrtc_target)

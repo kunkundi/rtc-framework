@@ -88,10 +88,12 @@ void UyvyV4l2CaptureDevice::Close() {
   }
 }
 
-bool UyvyV4l2CaptureDevice::DequeueRawFrame(std::vector<uint8_t>* raw_frame,
-                                            size_t* bytes_used) {
+bool UyvyV4l2CaptureDevice::DequeueCapturedFrame(CapturedFrame* frame) {
   if (fd_ < 0) {
     throw std::runtime_error("capture device is not open");
+  }
+  if (!frame) {
+    throw std::runtime_error("captured frame output is null");
   }
 
   pollfd pfd;
@@ -125,18 +127,36 @@ bool UyvyV4l2CaptureDevice::DequeueRawFrame(std::vector<uint8_t>* raw_frame,
     throw std::runtime_error("driver returned invalid buffer index");
   }
 
-  const uint8_t* data =
-      static_cast<const uint8_t*>(buffers_[buffer.index].start);
-  raw_frame->assign(data, data + buffer.bytesused);
-  if (bytes_used) {
-    *bytes_used = buffer.bytesused;
+  frame->data = static_cast<const uint8_t*>(buffers_[buffer.index].start);
+  frame->bytes_used = buffer.bytesused;
+  frame->buffer_index = buffer.index;
+  return true;
+}
+
+void UyvyV4l2CaptureDevice::RequeueCapturedFrame(CapturedFrame* frame) {
+  if (!frame || !frame->data) {
+    return;
+  }
+  if (fd_ < 0) {
+    throw std::runtime_error("capture device is not open");
+  }
+  if (frame->buffer_index >= buffers_.size()) {
+    throw std::runtime_error("captured frame has invalid buffer index");
   }
 
+  v4l2_buffer buffer;
+  memset(&buffer, 0, sizeof(buffer));
+  buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  buffer.memory = V4L2_MEMORY_MMAP;
+  buffer.index = frame->buffer_index;
   if (Xioctl(fd_, VIDIOC_QBUF, &buffer) < 0) {
     throw std::runtime_error("VIDIOC_QBUF failed: " +
                              std::string(strerror(errno)));
   }
-  return true;
+
+  frame->data = nullptr;
+  frame->bytes_used = 0;
+  frame->buffer_index = 0;
 }
 
 uint32_t UyvyV4l2CaptureDevice::pixel_format() const {
@@ -275,13 +295,13 @@ void RunWarmup(UyvyV4l2CaptureDevice& device, const CaptureOptions& options) {
     return;
   }
 
-  std::vector<uint8_t> discard_frame;
-  size_t bytes_used = 0;
+  UyvyV4l2CaptureDevice::CapturedFrame discard_frame;
   int discarded = 0;
   while (!StopRequested() && discarded < options.warmup_frames) {
-    if (!device.DequeueRawFrame(&discard_frame, &bytes_used)) {
+    if (!device.DequeueCapturedFrame(&discard_frame)) {
       continue;
     }
+    device.RequeueCapturedFrame(&discard_frame);
     ++discarded;
   }
 }
