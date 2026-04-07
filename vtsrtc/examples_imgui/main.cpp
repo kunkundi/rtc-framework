@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cfloat>
 #include <cstdint>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
@@ -94,7 +95,65 @@ struct VideoTextureView {
   int width = 0;
   int height = 0;
   uint64_t uploaded_frame_seq = 0;
+  bool uploaded_with_lr_interleave = false;
+  std::vector<unsigned char> remapped_buffer;
 };
+
+size_t ScaleIndexNearest(size_t dst_index, size_t dst_count, size_t src_count) {
+  if (src_count <= 1 || dst_count <= 1) {
+    return 0;
+  }
+
+  const uint64_t numerator =
+      static_cast<uint64_t>(dst_index) * static_cast<uint64_t>(src_count - 1);
+  const uint64_t denominator = static_cast<uint64_t>(dst_count - 1);
+  return static_cast<size_t>((numerator + denominator / 2) / denominator);
+}
+
+bool RasterizeFrameToRenderedHorizontalInterleave(
+    const VideoFrameView& frame,
+    size_t output_width,
+    size_t output_height,
+    std::vector<unsigned char>* output) {
+  if (!output || output_width == 0 || output_height == 0 || frame.width < 2 ||
+      (frame.width % 2) != 0 || frame.height == 0 || frame.dimension == 0) {
+    return false;
+  }
+
+  const size_t frame_bytes = frame.width * frame.height * frame.dimension;
+  if (frame.buffer.size() < frame_bytes) {
+    return false;
+  }
+
+  const size_t half_width = frame.width / 2;
+  const size_t pixel_bytes = frame.dimension;
+  const size_t src_row_bytes = frame.width * pixel_bytes;
+  const size_t dst_row_bytes = output_width * pixel_bytes;
+  const size_t left_output_columns = (output_width + 1) / 2;
+  const size_t right_output_columns = output_width / 2;
+  output->resize(output_width * output_height * pixel_bytes);
+
+  for (size_t y = 0; y < output_height; ++y) {
+    const size_t src_y = ScaleIndexNearest(y, output_height, frame.height);
+    const unsigned char* src_row = frame.buffer.data() + src_y * src_row_bytes;
+    const unsigned char* left_row = src_row;
+    const unsigned char* right_row = src_row + half_width * pixel_bytes;
+    unsigned char* dst_row = output->data() + y * dst_row_bytes;
+
+    for (size_t x = 0; x < output_width; ++x) {
+      const bool use_left = (x % 2) == 0;
+      const size_t half_index = x / 2;
+      const size_t src_x = ScaleIndexNearest(
+          half_index, use_left ? left_output_columns : right_output_columns,
+          half_width);
+      const unsigned char* src_pixel =
+          (use_left ? left_row : right_row) + src_x * pixel_bytes;
+      std::memcpy(dst_row + x * pixel_bytes, src_pixel, pixel_bytes);
+    }
+  }
+
+  return true;
+}
 
 std::string JoinPath(const std::string& base, const std::string& leaf) {
   if (base.empty()) {
@@ -948,6 +1007,15 @@ class RtcImguiApp {
 
     ImGui::Begin("Video Preview", nullptr, window_flags);
 
+    if (ImGui::Button(render_lr_pixel_interleave_
+                          ? "LR Pixel Interleave: On"
+                          : "LR Pixel Interleave: Off")) {
+      render_lr_pixel_interleave_ = !render_lr_pixel_interleave_;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Side-by-side input -> alternating output columns");
+    ImGui::Separator();
+
     std::vector<std::shared_ptr<VideoFrameView>> frame_snapshot;
     {
       std::lock_guard<std::mutex> lock(video_mutex_);
@@ -1021,20 +1089,8 @@ class RtcImguiApp {
   void DrawSingleVideoFrame(const VideoFrameView& frame,
                             float video_view_size,
                             float content_width) {
-    UpdateTextureFromFrame(frame);
-
     const float start_x = ImGui::GetCursorPosX();
     const float x_offset = std::max(0.0f, (content_width - video_view_size) * 0.5f);
-    if (x_offset > 0.0f) {
-      ImGui::SetCursorPosX(start_x + x_offset);
-    }
-
-    const auto tex_it = video_textures_.find(frame.stream_key);
-    if (tex_it == video_textures_.end() || tex_it->second.texture == 0) {
-      ImGui::Dummy(ImVec2(video_view_size, video_view_size));
-      return;
-    }
-
     if (x_offset > 0.0f) {
       ImGui::SetCursorPosX(start_x + x_offset);
     }
@@ -1056,6 +1112,30 @@ class RtcImguiApp {
       } else {
         draw_width = box_size.y * src_aspect;
       }
+    }
+
+    int render_width_pixels = 0;
+    int render_height_pixels = 0;
+    if (render_lr_pixel_interleave_) {
+      const ImGuiIO& io = ImGui::GetIO();
+      const float fb_scale_x =
+          io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
+      const float fb_scale_y =
+          io.DisplayFramebufferScale.y > 0.0f ? io.DisplayFramebufferScale.y : 1.0f;
+      render_width_pixels =
+          std::max(1, static_cast<int>(std::lround(draw_width * fb_scale_x)));
+      render_height_pixels =
+          std::max(1, static_cast<int>(std::lround(draw_height * fb_scale_y)));
+      draw_width = static_cast<float>(render_width_pixels) / fb_scale_x;
+      draw_height = static_cast<float>(render_height_pixels) / fb_scale_y;
+    }
+
+    UpdateTextureFromFrame(frame, render_width_pixels, render_height_pixels);
+
+    const auto tex_it = video_textures_.find(frame.stream_key);
+    if (tex_it == video_textures_.end() || tex_it->second.texture == 0) {
+      ImGui::Dummy(ImVec2(video_view_size, video_view_size));
+      return;
     }
 
     const float offset_x = (box_size.x - draw_width) * 0.5f;
@@ -1082,7 +1162,9 @@ class RtcImguiApp {
     ImGui::Dummy(box_size);
   }
 
-  void UpdateTextureFromFrame(const VideoFrameView& frame) {
+  void UpdateTextureFromFrame(const VideoFrameView& frame,
+                              int render_width_pixels,
+                              int render_height_pixels) {
     if (frame.buffer.empty() || frame.width == 0 || frame.height == 0 ||
         frame.dimension < 4) {
       return;
@@ -1099,33 +1181,53 @@ class RtcImguiApp {
       texture_view.width = 0;
       texture_view.height = 0;
       texture_view.uploaded_frame_seq = 0;
+      texture_view.uploaded_with_lr_interleave = false;
     }
 
-    if (texture_view.uploaded_frame_seq == frame.frame_seq) {
+    const unsigned char* upload_data = frame.buffer.data();
+    bool uploaded_with_lr_interleave = false;
+    int upload_width = static_cast<int>(frame.width);
+    int upload_height = static_cast<int>(frame.height);
+    if (render_lr_pixel_interleave_ &&
+        render_width_pixels > 0 && render_height_pixels > 0 &&
+        RasterizeFrameToRenderedHorizontalInterleave(
+            frame, static_cast<size_t>(render_width_pixels),
+            static_cast<size_t>(render_height_pixels),
+            &texture_view.remapped_buffer)) {
+      upload_data = texture_view.remapped_buffer.data();
+      uploaded_with_lr_interleave = true;
+      upload_width = render_width_pixels;
+      upload_height = render_height_pixels;
+    }
+
+    if (texture_view.uploaded_frame_seq == frame.frame_seq &&
+        texture_view.uploaded_with_lr_interleave == uploaded_with_lr_interleave &&
+        texture_view.width == upload_width && texture_view.height == upload_height) {
       return;
     }
 
     glBindTexture(GL_TEXTURE_2D, texture_view.texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                    uploaded_with_lr_interleave ? GL_NEAREST : GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                    uploaded_with_lr_interleave ? GL_NEAREST : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-    const int width = static_cast<int>(frame.width);
-    const int height = static_cast<int>(frame.height);
-    if (texture_view.width != width || texture_view.height != height) {
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_BGRA,
-                   GL_UNSIGNED_INT_8_8_8_8, frame.buffer.data());
-      texture_view.width = width;
-      texture_view.height = height;
+    if (texture_view.width != upload_width || texture_view.height != upload_height) {
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, upload_width, upload_height, 0, GL_BGRA,
+                   GL_UNSIGNED_INT_8_8_8_8, upload_data);
+      texture_view.width = upload_width;
+      texture_view.height = upload_height;
     } else {
-      glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_BGRA,
-                      GL_UNSIGNED_INT_8_8_8_8, frame.buffer.data());
+      glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, upload_width, upload_height, GL_BGRA,
+                      GL_UNSIGNED_INT_8_8_8_8, upload_data);
     }
 
     glBindTexture(GL_TEXTURE_2D, 0);
     texture_view.uploaded_frame_seq = frame.frame_seq;
+    texture_view.uploaded_with_lr_interleave = uploaded_with_lr_interleave;
   }
 
   void ReleaseVideoTextures() {
@@ -1708,6 +1810,7 @@ class RtcImguiApp {
   std::mutex video_mutex_;
   std::map<std::string, std::shared_ptr<VideoFrameView>> remote_video_frames_by_source_;
   std::map<std::string, VideoTextureView> video_textures_;
+  bool render_lr_pixel_interleave_ = false;
 
   bool rtc_inited_ = false;
   bool video_source_added_ = false;
