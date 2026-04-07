@@ -6,7 +6,6 @@ includes("@builtin/check")
 add_rules("mode.debug", "mode.release")
 set_languages("cxx14")
 add_requires("imgui v1.92.6", {configs = {opengl3 = true, sdl3 = true}})
-add_requires("libsdl3 3.4.2")
 add_requires("asio 1.32.0")
 add_requires("spdlog 1.14.1")
 
@@ -623,12 +622,4 @@ if on_linux() then
         after_buildcmd(function(target, batchcmds)
             batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
         end)
-end
-
-if on_linux() then
-    target("v4l2_camera_test")
-        set_kind("binary")
-        add_files("vtsrtc/examples/v4l2_camera_test.cpp")
-        add_packages("libsdl3")
-        add_syslinks("v4l2", "pthread", "dl")
 end
