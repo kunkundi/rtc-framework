@@ -1,6 +1,8 @@
 set_project("rtc-solutions")
 set_version("0.5.0")
 
+includes("@builtin/check")
+
 add_rules("mode.debug", "mode.release")
 set_languages("cxx14")
 add_requires("imgui v1.92.6", {configs = {opengl3 = true, sdl3 = true}})
@@ -148,9 +150,89 @@ local function add_nvcodec_config()
     end
 end
 
+local function add_jetson_multimedia_api_compat_defines()
+    local include_dir = "/usr/src/jetson_multimedia_api/include"
+    local include_flag = "-I" .. include_dir
+
+    check_cxxsnippets(
+        "VTSRTC_JETSON_NVVIDEOENCODER_HAS_DEVNODE_CTOR",
+        [[
+            NvVideoEncoder::NvVideoEncoder(const char *name, const char *dev_node, int flags)
+                : NvV4l2Element(name, dev_node, flags, valid_fields) {}
+        ]],
+        {
+            name = "jetson_nvvideoencoder_has_devnode_ctor",
+            includes = "NvVideoEncoder.h",
+            languages = "cxx14",
+            cxflags = include_flag
+        }
+    )
+
+    check_cxxsnippets(
+        "VTSRTC_JETSON_NVVIDEOENCODER_HAS_PLAIN_CTOR",
+        [[
+            NvVideoEncoder::NvVideoEncoder(const char *name, int flags)
+                : NvV4l2Element(name, "/dev/null", flags, valid_fields) {}
+        ]],
+        {
+            name = "jetson_nvvideoencoder_has_plain_ctor",
+            includes = "NvVideoEncoder.h",
+            languages = "cxx14",
+            cxflags = include_flag
+        }
+    )
+
+    check_cxxsnippets(
+        "VTSRTC_JETSON_NVVIDEOENCODER_HAS_COLORSPACE_OUTPUT_FORMAT",
+        [[
+            int NvVideoEncoder::setOutputPlaneFormat(uint32_t pixfmt, uint32_t width,
+                    uint32_t height, enum v4l2_colorspace cs)
+            {
+                (void)pixfmt;
+                (void)width;
+                (void)height;
+                (void)cs;
+                return 0;
+            }
+        ]],
+        {
+            name = "jetson_nvvideoencoder_has_colorspace_output_format",
+            includes = "NvVideoEncoder.h",
+            languages = "cxx14",
+            cxflags = include_flag
+        }
+    )
+
+    check_cxxsnippets(
+        "VTSRTC_JETSON_NVVIDEOENCODER_HAS_PLAIN_OUTPUT_FORMAT",
+        [[
+            int NvVideoEncoder::setOutputPlaneFormat(uint32_t pixfmt, uint32_t width,
+                    uint32_t height)
+            {
+                (void)pixfmt;
+                (void)width;
+                (void)height;
+                return 0;
+            }
+        ]],
+        {
+            name = "jetson_nvvideoencoder_has_plain_output_format",
+            includes = "NvVideoEncoder.h",
+            languages = "cxx14",
+            cxflags = include_flag
+        }
+    )
+
+    return true
+end
+
 local function add_jetson_h264_encoder_config()
     if not os.isdir("/usr/src/jetson_multimedia_api/include") then
         return fail("jetson multimedia api headers not found at /usr/src/jetson_multimedia_api/include")
+    end
+
+    if not add_jetson_multimedia_api_compat_defines() then
+        return nil
     end
 
     add_includedirs("/usr/src/jetson_multimedia_api/include")
