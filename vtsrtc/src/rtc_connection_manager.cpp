@@ -921,6 +921,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PublishToSRS(
   SRS_conn->InitObserverCallbacks();
 
   webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
+  peer_conn_config.disable_link_local_networks = true;
   peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
   // peer_conn_config.enable_dtls_srtp = true;
   webrtc::PeerConnectionDependencies depends(&SRS_conn->peer_conn_observer_);
@@ -1124,6 +1125,7 @@ vts_rtc::ErrorCode RtcConnectionManager::PlayFromSRS(
   SRS_conn->InitObserverCallbacks();
 
   webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
+  peer_conn_config.disable_link_local_networks = true;
   peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
   // peer_conn_config.enable_dtls_srtp = true;
   webrtc::PeerConnectionDependencies depends(&SRS_conn->peer_conn_observer_);
@@ -1791,6 +1793,7 @@ void RtcConnectionManager::InteractRemotePeer(
   peer_conn_config.continual_gathering_policy =
       webrtc::PeerConnectionInterface::GATHER_CONTINUALLY;
   peer_conn_config.disable_ipv6 = true;
+  peer_conn_config.disable_link_local_networks = true;
   peer_conn_config.tcp_candidate_policy =
       webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
   peer_conn_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
