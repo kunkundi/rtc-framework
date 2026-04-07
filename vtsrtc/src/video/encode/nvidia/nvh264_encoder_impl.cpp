@@ -13,6 +13,7 @@
 
 #include "log/log_manager.h"
 #include "nvh264_encoder_impl.h"
+#include "video/encode/playout_delay_config.h"
 
 
 namespace webrtc {
@@ -33,7 +34,8 @@ enum class H264EncoderImplEvent {
 	H264EncoderEventMax = 16,
 };
 
-NvH264EncoderImpl::NvH264EncoderImpl(const cricket::VideoCodec& codec) {
+NvH264EncoderImpl::NvH264EncoderImpl(const cricket::VideoCodec& codec,
+                                     const vts_rtc::RtcConfig& rtc_config) {
 	RTC_CHECK(absl::EqualsIgnoreCase(codec.name, cricket::kH264CodecName));
 
 	std::string packetization_mode_string;
@@ -41,6 +43,18 @@ NvH264EncoderImpl::NvH264EncoderImpl(const cricket::VideoCodec& codec) {
 		&packetization_mode_string) &&
 		packetization_mode_string == "1") {
 		packetization_mode_ = H264PacketizationMode::NonInterleaved;
+	}
+
+	const auto configured_playout_delay = ResolveConfiguredPlayoutDelay(
+		rtc_config.encode_params, "nvidia-nvenc");
+	has_configured_playout_delay_ = configured_playout_delay.enabled;
+	configured_playout_delay_min_ms_ = configured_playout_delay.min_ms;
+	configured_playout_delay_max_ms_ = configured_playout_delay.max_ms;
+	if (has_configured_playout_delay_) {
+		LOG_INFO(
+			"[WEBRTC] Enable playout delay for nvidia-nvenc: [%d, %d] ms",
+			configured_playout_delay_min_ms_,
+			configured_playout_delay_max_ms_);
 	}
 }
 
@@ -265,8 +279,12 @@ int32_t NvH264EncoderImpl::Encode(const VideoFrame& input_frame,
 
 	for (const auto& packet : encoded_packets_) {
 		encoded_image_.set_size(packet.size());
-		// TO TEST: not tested yet
-		//encoded_image_.playout_delay_ = { 0, 0 };
+		if (has_configured_playout_delay_) {
+			encoded_image_.playout_delay_.min_ms =
+				configured_playout_delay_min_ms_;
+			encoded_image_.playout_delay_.max_ms =
+				configured_playout_delay_max_ms_;
+		}
 		encoded_image_.SetTimestamp(input_frame.timestamp());
  		encoded_image_.ntp_time_ms_ = input_frame.ntp_time_ms();
  		encoded_image_.capture_time_ms_ = input_frame.render_time_ms();

@@ -8,13 +8,58 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <string>
 
 namespace rtc_camera_headless {
 
 class RtcHeadlessSession {
  public:
+  enum class RoomAction {
+    Join,
+    Open,
+  };
+
+  struct Features {
+    bool enable_data_channel = true;
+    bool enable_external_video_source = true;
+    RoomAction room_action = RoomAction::Join;
+    RtcRoomType open_room_type = RtcRoomType::VideoBroadcasting;
+    bool open_room_force = false;
+  };
+
+  using RecvMessageCallback =
+      std::function<void(RtcSessionId, RtcDataChannelLabel, const char*, size_t)>;
+  using RecvAudioFrameCallback = std::function<void(
+      RtcSessionId,
+      RtcAudioSourceId,
+      RtcMediaSourceType,
+      size_t,
+      size_t,
+      size_t,
+      size_t,
+      const void*,
+      size_t)>;
+  using RecvFrameCallback = std::function<void(RtcSessionId,
+                                               RtcVideoSourceId,
+                                               RtcMediaSourceType,
+                                               size_t,
+                                               size_t,
+                                               size_t,
+                                               const unsigned char*,
+                                               size_t)>;
+
+  struct Callbacks {
+    RecvMessageCallback recv_message;
+    RecvAudioFrameCallback recv_audio_frame;
+    RecvFrameCallback recv_frame;
+  };
+
   explicit RtcHeadlessSession(const CaptureOptions& options);
+  RtcHeadlessSession(const CaptureOptions& options, const Features& features);
+  RtcHeadlessSession(const CaptureOptions& options,
+                     const Features& features,
+                     const Callbacks& callbacks);
   ~RtcHeadlessSession();
 
   bool Init();
@@ -23,7 +68,11 @@ class RtcHeadlessSession {
 
   void NoteCapturedFrame();
   bool IsRoomJoined() const;
+  uint64_t captured_frames() const;
   uint64_t sent_frames() const;
+  uint64_t remote_video_frames() const;
+  uint64_t remote_audio_frames() const;
+  uint64_t received_messages() const;
 
   bool SendI420Frame(const uint8_t* i420_data,
                      size_t i420_size,
@@ -34,7 +83,7 @@ class RtcHeadlessSession {
                      size_t stride_v);
 
  private:
-  void MaybeJoinRoom(std::chrono::steady_clock::time_point now);
+  void MaybeEnterRoom(std::chrono::steady_clock::time_point now);
   void PrintStatus() const;
   void LogRtcCall(const char* action, RtcErrorCode code) const;
 
@@ -70,12 +119,16 @@ class RtcHeadlessSession {
   static RtcHeadlessSession* instance_;
 
   CaptureOptions options_;
+  Features features_;
+  Callbacks callbacks_;
   std::string rtc_cfg_path_;
   std::atomic<bool> rtc_inited_{false};
   std::atomic<bool> room_joined_{false};
   std::atomic<RtcServerConnectionState> server_state_{ServerDisconnected};
   std::atomic<uint64_t> captured_frames_{0};
   std::atomic<uint64_t> sent_frames_{0};
+  std::atomic<uint64_t> received_messages_{0};
+  std::atomic<uint64_t> remote_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frames_{0};
   std::chrono::steady_clock::time_point last_join_attempt_{};
   std::chrono::steady_clock::time_point last_status_{};

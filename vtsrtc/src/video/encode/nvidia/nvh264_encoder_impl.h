@@ -10,11 +10,14 @@
 #include <memory>
 #include <vector>
 
+#include "rtc_types.h"
+
 namespace webrtc {
 
 class NvH264EncoderImpl : public VideoEncoder {
  public:
-  explicit NvH264EncoderImpl(const cricket::VideoCodec& codec);
+  explicit NvH264EncoderImpl(const cricket::VideoCodec& codec,
+                             const vts_rtc::RtcConfig& rtc_config);
   ~NvH264EncoderImpl() override;
 
   int InitEncode(const VideoCodec* codec_settings,
@@ -73,6 +76,9 @@ class NvH264EncoderImpl : public VideoEncoder {
       H264PacketizationMode::SingleNalUnit;
   // The maximum size each payload is allowed to have. Usually MTU - overhead.
   size_t max_payload_size_ = 0;
+  bool has_configured_playout_delay_ = false;
+  int configured_playout_delay_min_ms_ = -1;
+  int configured_playout_delay_max_ms_ = -1;
 
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;

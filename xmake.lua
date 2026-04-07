@@ -33,6 +33,12 @@ option("enable_encode_perf_stats")
     set_description("Enable encode performance statistics")
 option_end()
 
+option("use_libvtslog")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Use external libvtslog for vtsrtc logging")
+option_end()
+
 option("build_examples")
     set_default(true)
     set_showmenu(true)
@@ -130,6 +136,22 @@ local function add_vtslog_config()
     end
 end
 
+local function add_optional_vtslog_config()
+    if get_config("use_libvtslog") then
+        add_vtslog_config()
+    end
+end
+
+local function copy_optional_vtslog_runtime(batchcmds, target)
+    if not get_config("use_libvtslog") or not on_linux() then
+        return
+    end
+    local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
+    local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
+    batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
+    batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
+end
+
 local function add_json_config()
     add_includedirs("third_party/json/include")
 end
@@ -172,11 +194,11 @@ local function add_jetson_h264_encoder_config()
 
     add_includedirs("/usr/src/jetson_multimedia_api/include")
     add_linkdirs("/usr/lib/aarch64-linux-gnu/tegra")
-    add_syslinks("v4l2", "nvbufsurface", "nvbufsurftransform", "nvbuf_utils", "X11")
+    add_syslinks("v4l2", "nvbufsurface", "nvbufsurftransform", "X11")
     add_files(
         "vtsrtc/src/video/encode/nvidia-jetson/jetsonh264_encoder_impl.cpp",
         "vtsrtc/src/video/encode/nvidia-jetson/jetson_encoder.cpp",
-        "vtsrtc/src/video/encode/ffmpeg/nvmpi_enc.cpp",
+        "vtsrtc/src/video/encode/nvidia-jetson/nvmpi_enc.cpp",
         "vtsrtc/src/video/encode/nvidia-jetson/NvVideoEncoder.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp",
@@ -186,11 +208,10 @@ local function add_jetson_h264_encoder_config()
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp"
     )
 
-    add_defines("VTSRTC_HAS_FFMPEG=1")
     return true
 end
 
-local function add_gstreamer_h264_encoder_config()
+local function add_rasp_h264_encoder_config()
     if not os.isfile("/usr/include/gstreamer-1.0/gst/gst.h") then
         return false
     end
@@ -203,7 +224,6 @@ local function add_gstreamer_h264_encoder_config()
     )
     add_links("gstapp-1.0", "gstvideo-1.0", "gstbase-1.0", "gstreamer-1.0", "gobject-2.0", "glib-2.0")
     add_files(
-        "vtsrtc/src/video/encode/gstreamer/gstreamer_h264_encoder_impl.cpp",
         "vtsrtc/src/video/encode/rasp/rasp_h264_encoder_impl.cpp"
     )
     add_defines("VTSRTC_HAS_GSTREAMER")
@@ -376,6 +396,18 @@ target(vtsrtc_target)
         set_basename("vtsrtc")
     end
 
+    if get_config("enable_encode_perf_stats") then
+        add_defines("ENABLE_ENCODE_PERF_STATS=1")
+    else
+        add_defines("ENABLE_ENCODE_PERF_STATS=0")
+    end
+
+    if get_config("use_libvtslog") then
+        add_defines("VTSRTC_USE_LIBVTSLOG=1")
+    else
+        add_defines("VTSRTC_USE_LIBVTSLOG=0")
+    end
+
     add_includedirs("vtsrtc/src", {public = true})
     add_files(
         "vtsrtc/src/log/log_manager.cpp",
@@ -405,18 +437,14 @@ target(vtsrtc_target)
 
     add_simple_web_config()
     add_json_config()
-    add_vtslog_config()
+    add_optional_vtslog_config()
     add_webrtc_config()
     add_linux_runtime_rpath()
 
     if is_aarch64_arch() then
         if not get_config("use_default_jetson_encoder") then
-            if add_jetson_h264_encoder_config() then
-                add_files(
-                    "vtsrtc/src/video/encode/ffmpeg/ffmpeg_h264_encoder_impl.cpp"
-                )
-            end
-            add_gstreamer_h264_encoder_config()
+            add_jetson_h264_encoder_config()
+            add_rasp_h264_encoder_config()
         end
     else
         add_files(
@@ -481,7 +509,6 @@ if get_config("build_examples") then
         )
 
         add_includedirs("vtsrtc/src")
-        add_vtslog_config()
         add_linux_runtime_rpath()
         if on_windows() then
             add_syslinks("opengl32")
@@ -491,10 +518,7 @@ if get_config("build_examples") then
 
         after_buildcmd(function(target, batchcmds)
             if on_linux() then
-                local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
-                local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
-                batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
-                batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
+                copy_optional_vtslog_runtime(batchcmds, target)
                 batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
                 batchcmds:cp(path.join(os.projectdir(), "test_data", "8k16bit.pcm"), target:targetdir())
                 batchcmds:cp(path.join(os.projectdir(), "test_data", "zjlabs.yuv"), target:targetdir())
@@ -516,7 +540,6 @@ if get_config("build_examples") then
             )
 
             add_includedirs("vtsrtc/src")
-            add_vtslog_config()
             add_linux_runtime_rpath()
             add_syslinks("pthread")
             add_cuflags("--std=c++14")
@@ -526,10 +549,26 @@ if get_config("build_examples") then
             end
 
             after_buildcmd(function(target, batchcmds)
-                local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
-                local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
-                batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
-                batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
+                copy_optional_vtslog_runtime(batchcmds, target)
+                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+            end)
+
+        target("rtc_receiver_headless")
+            set_kind("binary")
+            add_deps(vtsrtc_target)
+
+            add_files(
+                "vtsrtc/examples_imgui/rtc_receiver_headless.cpp",
+                "vtsrtc/examples_imgui/rtc_camera_common.cpp",
+                "vtsrtc/examples_imgui/rtc_headless_session.cpp"
+            )
+
+            add_includedirs("vtsrtc/src")
+            add_linux_runtime_rpath()
+            add_syslinks("pthread")
+
+            after_buildcmd(function(target, batchcmds)
+                copy_optional_vtslog_runtime(batchcmds, target)
                 batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
             end)
     end

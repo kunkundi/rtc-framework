@@ -123,6 +123,9 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   unsigned int height_ = 0;
   unsigned int fps_ = 30;
   unsigned int bitrate_ = 25000000;
+  bool has_configured_playout_delay_ = false;
+  int configured_playout_delay_min_ms_ = -1;
+  int configured_playout_delay_max_ms_ = -1;
   std::pair<unsigned int, unsigned int> qp_threshold_ = {37u, 39u};
   std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
 

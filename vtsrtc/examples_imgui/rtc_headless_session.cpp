@@ -50,7 +50,16 @@ const char* P2PStateText(RtcP2PState state) {
 RtcHeadlessSession* RtcHeadlessSession::instance_ = nullptr;
 
 RtcHeadlessSession::RtcHeadlessSession(const CaptureOptions& options)
-    : options_(options) {
+    : RtcHeadlessSession(options, Features(), Callbacks()) {}
+
+RtcHeadlessSession::RtcHeadlessSession(const CaptureOptions& options,
+                                       const Features& features)
+    : RtcHeadlessSession(options, features, Callbacks()) {}
+
+RtcHeadlessSession::RtcHeadlessSession(const CaptureOptions& options,
+                                       const Features& features,
+                                       const Callbacks& callbacks)
+    : options_(options), features_(features), callbacks_(callbacks) {
   instance_ = this;
 }
 
@@ -84,14 +93,22 @@ bool RtcHeadlessSession::Init() {
   last_status_ = std::chrono::steady_clock::now();
   LogInfo("RtcInitAgentV2 success");
 
-  const RtcErrorCode dc_code =
-      RtcAddDataChannel(kDataChannelLabel, RtcPriorityType::High, true, -1);
-  LogRtcCall("RtcAddDataChannel", dc_code);
+  if (features_.enable_data_channel) {
+    const RtcErrorCode dc_code =
+        RtcAddDataChannel(kDataChannelLabel, RtcPriorityType::High, true, -1);
+    LogRtcCall("RtcAddDataChannel", dc_code);
+  }
 
-  const RtcErrorCode video_code =
-      RtcAddExternalVideoSource(kExternalVideoSource, RtcPriorityType::High);
-  LogRtcCall("RtcAddExternalVideoSource", video_code);
-  return video_code == RtcErrorCode::OK;
+  if (features_.enable_external_video_source) {
+    const RtcErrorCode video_code =
+        RtcAddExternalVideoSource(kExternalVideoSource, RtcPriorityType::High);
+    LogRtcCall("RtcAddExternalVideoSource", video_code);
+    if (video_code != RtcErrorCode::OK) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 void RtcHeadlessSession::Shutdown() {
@@ -113,7 +130,7 @@ void RtcHeadlessSession::Tick() {
     return;
   }
   const auto now = std::chrono::steady_clock::now();
-  MaybeJoinRoom(now);
+  MaybeEnterRoom(now);
   if (options_.status_interval_sec > 0 &&
       now - last_status_ >=
           std::chrono::seconds(options_.status_interval_sec)) {
@@ -130,8 +147,24 @@ bool RtcHeadlessSession::IsRoomJoined() const {
   return room_joined_.load();
 }
 
+uint64_t RtcHeadlessSession::captured_frames() const {
+  return captured_frames_.load();
+}
+
 uint64_t RtcHeadlessSession::sent_frames() const {
   return sent_frames_.load();
+}
+
+uint64_t RtcHeadlessSession::remote_video_frames() const {
+  return remote_video_frames_.load();
+}
+
+uint64_t RtcHeadlessSession::remote_audio_frames() const {
+  return remote_audio_frames_.load();
+}
+
+uint64_t RtcHeadlessSession::received_messages() const {
+  return received_messages_.load();
 }
 
 bool RtcHeadlessSession::SendI420Frame(const uint8_t* i420_data,
@@ -164,7 +197,8 @@ bool RtcHeadlessSession::SendI420Frame(const uint8_t* i420_data,
   return true;
 }
 
-void RtcHeadlessSession::MaybeJoinRoom(std::chrono::steady_clock::time_point now) {
+void RtcHeadlessSession::MaybeEnterRoom(
+    std::chrono::steady_clock::time_point now) {
   if (server_state_.load() != ServerLogined || room_joined_.load()) {
     return;
   }
@@ -175,22 +209,36 @@ void RtcHeadlessSession::MaybeJoinRoom(std::chrono::steady_clock::time_point now
   }
   last_join_attempt_ = now;
 
-  const RtcErrorCode code =
-      RtcJoinRoom(const_cast<char*>(options_.room_id.c_str()));
-  LogRtcCall("RtcJoinRoom", code);
+  RtcErrorCode code = RtcErrorCode::Failed;
+  const char* action = "";
+  if (features_.room_action == RoomAction::Open) {
+    action = "RtcOpenRoom";
+    code = RtcOpenRoom(const_cast<char*>(options_.room_id.c_str()),
+                       features_.open_room_type, features_.open_room_force);
+  } else {
+    action = "RtcJoinRoom";
+    code = RtcJoinRoom(const_cast<char*>(options_.room_id.c_str()));
+  }
+
+  LogRtcCall(action, code);
   if (code == RtcErrorCode::OK || code == RtcErrorCode::AgentAlreadyInRoom) {
     room_joined_.store(true);
   }
 }
 
 void RtcHeadlessSession::PrintStatus() const {
+  const char* room_state_label =
+      features_.room_action == RoomAction::Open ? "opened" : "joined";
   std::ostringstream oss;
   oss << "status: server=" << ServerStateText(server_state_.load())
       << " room=" << options_.room_id
-      << " joined=" << (room_joined_.load() ? "yes" : "no")
+      << " " << room_state_label << "="
+      << (room_joined_.load() ? "yes" : "no")
       << " captured=" << captured_frames_.load()
       << " sent=" << sent_frames_.load()
-      << " remote=" << remote_video_frames_.load();
+      << " recv_msg=" << received_messages_.load()
+      << " recv_audio=" << remote_audio_frames_.load()
+      << " recv_video=" << remote_video_frames_.load();
   LogInfo(oss.str());
 }
 
@@ -208,6 +256,11 @@ void RtcHeadlessSession::LogRtcCall(const char* action, RtcErrorCode code) const
 void RtcHeadlessSession::OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
   if (!instance_) {
     return;
+  }
+  if (op == RoomNew) {
+    instance_->room_joined_.store(true);
+  } else if (op == RoomDelete) {
+    instance_->room_joined_.store(false);
   }
   std::ostringstream oss;
   oss << "room event: op=" << static_cast<int>(op)
@@ -253,10 +306,14 @@ void RtcHeadlessSession::OnServerConnectionState(RtcServerConnectionState state)
 
 void RtcHeadlessSession::OnRecvMessage(RtcSessionId remote_sessionid,
                                        RtcDataChannelLabel label,
-                                       const char*,
+                                       const char* msg,
                                        size_t msg_size) {
   if (!instance_) {
     return;
+  }
+  instance_->received_messages_.fetch_add(1, std::memory_order_relaxed);
+  if (instance_->callbacks_.recv_message) {
+    instance_->callbacks_.recv_message(remote_sessionid, label, msg, msg_size);
   }
   std::ostringstream oss;
   oss << "recv msg from " << remote_sessionid << " ["
@@ -264,29 +321,44 @@ void RtcHeadlessSession::OnRecvMessage(RtcSessionId remote_sessionid,
   LogInfo(oss.str());
 }
 
-void RtcHeadlessSession::OnRecvAudioFrame(RtcSessionId,
-                                          RtcAudioSourceId,
-                                          RtcMediaSourceType,
-                                          size_t,
-                                          size_t,
-                                          size_t,
-                                          size_t,
-                                          const void*,
-                                          size_t) {}
+void RtcHeadlessSession::OnRecvAudioFrame(RtcSessionId remote_sessionid,
+                                          RtcAudioSourceId sourceid,
+                                          RtcMediaSourceType source_type,
+                                          size_t bits_per_sample,
+                                          size_t sample_rate,
+                                          size_t number_of_channels,
+                                          size_t number_of_frames,
+                                          const void* audio_data,
+                                          size_t sz_audio_data) {
+  if (!instance_) {
+    return;
+  }
+  instance_->remote_audio_frames_.fetch_add(1, std::memory_order_relaxed);
+  if (instance_->callbacks_.recv_audio_frame) {
+    instance_->callbacks_.recv_audio_frame(
+        remote_sessionid, sourceid, source_type, bits_per_sample, sample_rate,
+        number_of_channels, number_of_frames, audio_data, sz_audio_data);
+  }
+}
 
 void RtcHeadlessSession::OnRecvFrame(RtcSessionId remote_sessionid,
                                      RtcVideoSourceId sourceid,
                                      RtcMediaSourceType source_type,
                                      size_t width,
                                      size_t height,
-                                     size_t,
-                                     const unsigned char*,
-                                     size_t) {
+                                     size_t dimension,
+                                     const unsigned char* buffer,
+                                     size_t sz_buffer) {
   if (!instance_) {
     return;
   }
 
   const uint64_t received = instance_->remote_video_frames_.fetch_add(1) + 1;
+  if (instance_->callbacks_.recv_frame) {
+    instance_->callbacks_.recv_frame(remote_sessionid, sourceid, source_type,
+                                     width, height, dimension, buffer,
+                                     sz_buffer);
+  }
   if ((received % 120) == 1) {
     std::ostringstream oss;
     oss << "recv frame #" << received << " from session=" << remote_sessionid

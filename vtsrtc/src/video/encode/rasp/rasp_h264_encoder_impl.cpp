@@ -25,14 +25,16 @@ extern "C" {
 }
 
 #include "log/log_manager.h"
+#include "video/encode/playout_delay_config.h"
 
 namespace webrtc {
 
 namespace {
 
-constexpr int kFirstPacketWaitTimeoutMs = 50;
+constexpr int kMinFirstPacketWaitTimeoutMs = 5;
+constexpr int kMaxFirstPacketWaitTimeoutMs = 50;
 constexpr int kSubsequentPacketWaitTimeoutMs = 0;
-constexpr size_t kMaxPendingFrames = 32;
+constexpr size_t kMaxPendingFrames = 8;
 
 enum class H264EncoderImplEvent {
   H264EncoderEventInit = 0,
@@ -89,6 +91,35 @@ bool PacketContainsKeyframe(const uint8_t* payload, size_t payload_size) {
   return false;
 }
 
+int GetFirstPacketWaitTimeoutMs(unsigned int fps) {
+  const unsigned int safe_fps = std::max(1u, fps);
+  const int frame_duration_ms =
+      static_cast<int>(std::ceil(1000.0 / static_cast<double>(safe_fps)));
+  return std::max(kMinFirstPacketWaitTimeoutMs,
+                  std::min(kMaxFirstPacketWaitTimeoutMs,
+                           frame_duration_ms + 2));
+}
+
+unsigned int ClampQpValue(unsigned int value) {
+  return std::min(value, 51u);
+}
+
+unsigned int SelectNvvPresetLevel(unsigned int width, unsigned int height,
+                                  unsigned int fps) {
+  if (width * height <= 1280u * 720u && fps <= 30u) {
+    return 2u;
+  }
+  return 1u;
+}
+
+unsigned int SelectNvvRefFrames(unsigned int width, unsigned int height,
+                                unsigned int fps) {
+  if (width * height <= 1280u * 720u && fps <= 30u) {
+    return 2u;
+  }
+  return 1u;
+}
+
 }  // namespace
 
 RaspH264EncoderImpl::RaspH264EncoderImpl(
@@ -120,12 +151,35 @@ RaspH264EncoderImpl::RaspH264EncoderImpl(
     qp_threshold_ = rtc_config_.encode_params.qp_threshold;
   }
 
+  if (rtc_config_.encode_params.qp_range.first > 0 &&
+      rtc_config_.encode_params.qp_range.second >=
+          rtc_config_.encode_params.qp_range.first) {
+    qp_range_.first = ClampQpValue(rtc_config_.encode_params.qp_range.first);
+    qp_range_.second = ClampQpValue(rtc_config_.encode_params.qp_range.second);
+  }
+
   if (!rtc_config_.encode_params.bitrate_mode.empty()) {
     bitrate_mode_ = rtc_config_.encode_params.bitrate_mode;
   }
 
+  if (rtc_config_.encode_params.bitrate_minmum != 0) {
+    bitrate_floor_bps_ = rtc_config_.encode_params.bitrate_minmum;
+  }
+
   if (rtc_config_.encode_params.bitrate_maxmum != 0) {
     bitrate_cap_bps_ = rtc_config_.encode_params.bitrate_maxmum;
+  }
+
+  const auto configured_playout_delay = ResolveConfiguredPlayoutDelay(
+      rtc_config_.encode_params, "rasp-gstreamer");
+  has_configured_playout_delay_ = configured_playout_delay.enabled;
+  configured_playout_delay_min_ms_ = configured_playout_delay.min_ms;
+  configured_playout_delay_max_ms_ = configured_playout_delay.max_ms;
+  if (has_configured_playout_delay_) {
+    LOG_INFO(
+        "[WEBRTC] Enable playout delay for rasp-gstreamer: [%d, %d] ms",
+        configured_playout_delay_min_ms_,
+        configured_playout_delay_max_ms_);
   }
 
   InitializeResolutionBitrateLimits();
@@ -203,6 +257,10 @@ int RaspH264EncoderImpl::InitEncode(
 
 int32_t RaspH264EncoderImpl::Release() {
   std::lock_guard<std::mutex> lock(encoder_mutex_);
+#if ENABLE_ENCODE_PERF_STATS
+  LogEncodeLatencySummary("release");
+  encode_stats_ = {};
+#endif
   DestroyPipelineLocked();
   encoded_image_.ClearEncodedData();
   encoded_image_capacity_ = 0;
@@ -250,6 +308,9 @@ void RaspH264EncoderImpl::SetRates(
   fps_ = fps;
   bitrate_bps_ =
       static_cast<unsigned int>(std::min<uint64_t>(bitrate, bitrate_cap_bps_));
+  if (bitrate_floor_bps_ > 0) {
+    bitrate_bps_ = std::max(bitrate_bps_, bitrate_floor_bps_);
+  }
 
   const bool fps_changed = previous_fps != fps_;
   const bool bitrate_changed = previous_bitrate_bps != bitrate_bps_;
@@ -326,10 +387,10 @@ int32_t RaspH264EncoderImpl::Encode(
   std::lock_guard<std::mutex> lock(encoder_mutex_);
   const unsigned int bitrate_bps_snapshot = bitrate_bps_;
   const unsigned int fps_snapshot = fps_;
-  LOG_INFO(
-      "[WEBRTC] Encode enter: instance=%llu, frame=<%ux%u>, bitrate=%u, fps=%u",
-      static_cast<unsigned long long>(instance_id_), frame_width, frame_height,
-      bitrate_bps_snapshot, fps_snapshot);
+  // LOG_INFO(
+  //     "[WEBRTC] Encode enter: instance=%llu, frame=<%ux%u>, bitrate=%u, fps=%u",
+  //     static_cast<unsigned long long>(instance_id_), frame_width, frame_height,
+  //     bitrate_bps_snapshot, fps_snapshot);
 
   if (encoded_image_callback_ == nullptr) {
     if (!has_reported_missing_callback_) {
@@ -366,12 +427,21 @@ int32_t RaspH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
+#if ENABLE_ENCODE_PERF_STATS
+  const auto encode_start_time = std::chrono::steady_clock::now();
+#endif
   if (!WriteFrameToPipeLocked(*frame_buffer)) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
-  pending_frames_.push_back(PendingFrame{input_frame});
+  PendingFrame pending_frame{input_frame
+#if ENABLE_ENCODE_PERF_STATS
+                             ,
+                             encode_start_time
+#endif
+  };
+  pending_frames_.push_back(std::move(pending_frame));
   if (pending_frames_.size() > kMaxPendingFrames) {
     LOG_WARN(
         "[WEBRTC] rasp-gstreamer pending frame queue overflow (%zu), "
@@ -380,7 +450,7 @@ int32_t RaspH264EncoderImpl::Encode(
     pending_frames_.pop_front();
   }
 
-  if (DrainPacketsLocked(kFirstPacketWaitTimeoutMs) < 0) {
+  if (DrainPacketsLocked(GetFirstPacketWaitTimeoutMs(fps_snapshot)) < 0) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
@@ -392,9 +462,10 @@ VideoEncoder::EncoderInfo RaspH264EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
   info.supports_native_handle = false;
   info.implementation_name = "rasp-gstreamer-h264";
-  info.scaling_settings =
-      VideoEncoder::ScalingSettings(static_cast<int>(qp_threshold_.first),
-                                    static_cast<int>(qp_threshold_.second));
+  // info.scaling_settings =
+  //     VideoEncoder::ScalingSettings(static_cast<int>(qp_threshold_.first),
+  //                                   static_cast<int>(qp_threshold_.second));
+  info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = is_hardware_encoder_;
   info.has_internal_source = false;
   info.supports_simulcast = false;
@@ -438,7 +509,45 @@ bool RaspH264EncoderImpl::InitializePipelineLocked(unsigned int width,
   encoded_image_._encodedHeight = height_;
   encoded_image_.set_size(0);
 
+  const size_t input_buffer_size =
+      static_cast<size_t>(width_) * static_cast<size_t>(height_) * 3 / 2;
+  if (!InitializeInputBufferPoolLocked(input_buffer_size)) {
+    return false;
+  }
+
   return LaunchPipelineLocked(width, height);
+}
+
+bool RaspH264EncoderImpl::InitializeInputBufferPoolLocked(size_t buffer_size) {
+  if (input_buffer_pool_ != nullptr) {
+    gst_buffer_pool_set_active(input_buffer_pool_, FALSE);
+    gst_object_unref(input_buffer_pool_);
+    input_buffer_pool_ = nullptr;
+  }
+
+  input_buffer_pool_ = gst_buffer_pool_new();
+  if (input_buffer_pool_ == nullptr) {
+    LOG_ERROR("[WEBRTC] failed to create gstreamer input buffer pool");
+    return false;
+  }
+
+  GstStructure* config = gst_buffer_pool_get_config(input_buffer_pool_);
+  gst_buffer_pool_config_set_params(config, nullptr, buffer_size, 2, 6);
+  if (!gst_buffer_pool_set_config(input_buffer_pool_, config)) {
+    LOG_ERROR("[WEBRTC] failed to configure gstreamer input buffer pool");
+    gst_object_unref(input_buffer_pool_);
+    input_buffer_pool_ = nullptr;
+    return false;
+  }
+
+  if (!gst_buffer_pool_set_active(input_buffer_pool_, TRUE)) {
+    LOG_ERROR("[WEBRTC] failed to activate gstreamer input buffer pool");
+    gst_object_unref(input_buffer_pool_);
+    input_buffer_pool_ = nullptr;
+    return false;
+  }
+
+  return true;
 }
 
 void RaspH264EncoderImpl::DestroyPipelineLocked() {
@@ -457,6 +566,11 @@ void RaspH264EncoderImpl::DestroyPipelineLocked() {
   if (pipeline_bus_ != nullptr) {
     gst_object_unref(pipeline_bus_);
     pipeline_bus_ = nullptr;
+  }
+  if (input_buffer_pool_ != nullptr) {
+    gst_buffer_pool_set_active(input_buffer_pool_, FALSE);
+    gst_object_unref(input_buffer_pool_);
+    input_buffer_pool_ = nullptr;
   }
   if (encoder_element_ != nullptr) {
     gst_object_unref(encoder_element_);
@@ -494,22 +608,24 @@ bool RaspH264EncoderImpl::WriteFrameToPipeLocked(
   const unsigned int height = frame_buffer.height();
   const size_t total_size =
       static_cast<size_t>(width) * static_cast<size_t>(height) * 3 / 2;
-  input_frame_bytes_.resize(total_size);
-
   const int y_plane_size = static_cast<int>(width * height);
   const int uv_width = static_cast<int>(width / 2);
   const int uv_height = static_cast<int>(height / 2);
   const int uv_plane_size = uv_width * uv_height;
 
-  CopyPlane(input_frame_bytes_.data(), static_cast<int>(width),
-            frame_buffer.DataY(), frame_buffer.StrideY(),
-            static_cast<int>(width), static_cast<int>(height));
-  CopyPlane(input_frame_bytes_.data() + y_plane_size, uv_width,
-            frame_buffer.DataU(), frame_buffer.StrideU(), uv_width, uv_height);
-  CopyPlane(input_frame_bytes_.data() + y_plane_size + uv_plane_size, uv_width,
-            frame_buffer.DataV(), frame_buffer.StrideV(), uv_width, uv_height);
-
-  GstBuffer* gst_buffer = gst_buffer_new_allocate(nullptr, total_size, nullptr);
+  GstBuffer* gst_buffer = nullptr;
+  if (input_buffer_pool_ != nullptr) {
+    const GstFlowReturn acquire_result =
+        gst_buffer_pool_acquire_buffer(input_buffer_pool_, &gst_buffer, nullptr);
+    if (acquire_result != GST_FLOW_OK) {
+      LOG_WARN("[WEBRTC] gst_buffer_pool_acquire_buffer failed: %d",
+               static_cast<int>(acquire_result));
+      gst_buffer = nullptr;
+    }
+  }
+  if (gst_buffer == nullptr) {
+    gst_buffer = gst_buffer_new_allocate(nullptr, total_size, nullptr);
+  }
   if (gst_buffer == nullptr) {
     LOG_ERROR("[WEBRTC] gst_buffer_new_allocate failed");
     return false;
@@ -521,7 +637,23 @@ bool RaspH264EncoderImpl::WriteFrameToPipeLocked(
     gst_buffer_unref(gst_buffer);
     return false;
   }
-  std::memcpy(map_info.data, input_frame_bytes_.data(), total_size);
+  if (map_info.size < total_size) {
+    LOG_ERROR("[WEBRTC] gst buffer size is smaller than input frame size");
+    gst_buffer_unmap(gst_buffer, &map_info);
+    gst_buffer_unref(gst_buffer);
+    return false;
+  }
+
+  uint8_t* dst_y = map_info.data;
+  uint8_t* dst_u = dst_y + y_plane_size;
+  uint8_t* dst_v = dst_u + uv_plane_size;
+  CopyPlane(dst_y, static_cast<int>(width), frame_buffer.DataY(),
+            frame_buffer.StrideY(), static_cast<int>(width),
+            static_cast<int>(height));
+  CopyPlane(dst_u, uv_width, frame_buffer.DataU(), frame_buffer.StrideU(),
+            uv_width, uv_height);
+  CopyPlane(dst_v, uv_width, frame_buffer.DataV(), frame_buffer.StrideV(),
+            uv_width, uv_height);
   gst_buffer_unmap(gst_buffer, &map_info);
 
   const uint64_t duration_ns =
@@ -614,8 +746,16 @@ int RaspH264EncoderImpl::DrainPacketsLocked(int first_wait_timeout_ms) {
     std::vector<uint8_t> packet = std::move(ready_packets_.front());
     ready_packets_.pop_front();
 
-    const int deliver_result =
-        DeliverPacketLocked(pending.frame, packet.data(), packet.size());
+    int64_t encode_duration_us = 0;
+#if ENABLE_ENCODE_PERF_STATS
+    encode_duration_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - pending.encode_start_time)
+            .count();
+#endif
+
+    const int deliver_result = DeliverPacketLocked(
+        pending.frame, packet.data(), packet.size(), encode_duration_us);
     if (deliver_result != WEBRTC_VIDEO_CODEC_OK) {
       return -1;
     }
@@ -626,8 +766,9 @@ int RaspH264EncoderImpl::DrainPacketsLocked(int first_wait_timeout_ms) {
 }
 
 int RaspH264EncoderImpl::DeliverPacketLocked(const VideoFrame& frame,
-                                                  const uint8_t* payload,
-                                                  size_t payload_size) {
+                                             const uint8_t* payload,
+                                             size_t payload_size,
+                                             int64_t encode_duration_us) {
   if (payload == nullptr || payload_size == 0) {
     return WEBRTC_VIDEO_CODEC_OK;
   }
@@ -638,6 +779,12 @@ int RaspH264EncoderImpl::DeliverPacketLocked(const VideoFrame& frame,
   }
 
   const bool is_keyframe = PacketContainsKeyframe(payload, payload_size);
+
+#if ENABLE_ENCODE_PERF_STATS
+  if (encode_duration_us > 0) {
+    RecordEncodeLatencyStats(is_keyframe, payload_size, encode_duration_us);
+  }
+#endif
 
   RTPFragmentationHeader frag_header;
   frag_header.VerifyAndAllocateFragmentationHeader(nalu_indices.size());
@@ -655,6 +802,10 @@ int RaspH264EncoderImpl::DeliverPacketLocked(const VideoFrame& frame,
   encoded_image_._encodedWidth = frame.width();
   encoded_image_._encodedHeight = frame.height();
   encoded_image_.set_size(payload_size);
+  if (has_configured_playout_delay_) {
+    encoded_image_.playout_delay_.min_ms = configured_playout_delay_min_ms_;
+    encoded_image_.playout_delay_.max_ms = configured_playout_delay_max_ms_;
+  }
   encoded_image_.SetTimestamp(frame.timestamp());
   encoded_image_.ntp_time_ms_ = frame.ntp_time_ms();
   encoded_image_.capture_time_ms_ = frame.render_time_ms();
@@ -712,6 +863,9 @@ bool RaspH264EncoderImpl::LaunchPipelineLocked(unsigned int width,
       absl::EqualsIgnoreCase(bitrate_mode_, "vbr") ? 0u : 1u;
   const unsigned int x264_bitrate_kbps = std::max(1u, bitrate_bps_ / 1000u);
   const unsigned int key_interval = std::max(1u, gop_size_);
+  const unsigned int nvv_preset_level =
+      SelectNvvPresetLevel(width, height, fps);
+  const unsigned int nvv_ref_frames = SelectNvvRefFrames(width, height, fps);
   const auto has_element = [](const char* element_name) {
     GstElementFactory* factory = gst_element_factory_find(element_name);
     if (factory == nullptr) {
@@ -731,8 +885,7 @@ bool RaspH264EncoderImpl::LaunchPipelineLocked(unsigned int width,
   std::vector<PipelineCandidate> pipeline_candidates;
   if (has_v4l2h264enc && has_v4l2convert) {
     std::ostringstream pipeline_desc;
-    pipeline_desc << "appsrc name=src is-live=true block=true format=time "
-                     "do-timestamp=true "
+    pipeline_desc << "appsrc name=src is-live=true block=true max-buffers=2 format=time do-timestamp=true "
                   << "caps=video/x-raw,format=I420,width=" << width
                   << ",height=" << height << ",framerate=" << fps << "/1"
                   << " ! v4l2convert"
@@ -740,15 +893,14 @@ bool RaspH264EncoderImpl::LaunchPipelineLocked(unsigned int width,
                   << ",height=" << height << ",framerate=" << fps << "/1"
                   << " ! v4l2h264enc name=enc"
                   << " ! video/x-h264,stream-format=byte-stream,alignment=au"
-                  << " ! appsink name=sink sync=false drop=false max-buffers=16";
+                  << " ! appsink name=sink sync=false drop=false max-buffers=4 processing-deadline=0";
     pipeline_candidates.push_back(
         PipelineCandidate{pipeline_desc.str(), "v4l2h264enc+v4l2convert", true,
                           false});
   }
   if (has_v4l2h264enc && has_videoconvert) {
     std::ostringstream pipeline_desc;
-    pipeline_desc << "appsrc name=src is-live=true block=true format=time "
-                     "do-timestamp=true "
+    pipeline_desc << "appsrc name=src is-live=true block=true max-buffers=2 format=time do-timestamp=true "
                   << "caps=video/x-raw,format=I420,width=" << width
                   << ",height=" << height << ",framerate=" << fps << "/1"
                   << " ! videoconvert"
@@ -756,15 +908,14 @@ bool RaspH264EncoderImpl::LaunchPipelineLocked(unsigned int width,
                   << ",height=" << height << ",framerate=" << fps << "/1"
                   << " ! v4l2h264enc name=enc"
                   << " ! video/x-h264,stream-format=byte-stream,alignment=au"
-                  << " ! appsink name=sink sync=false drop=false max-buffers=16";
+                  << " ! appsink name=sink sync=false drop=false max-buffers=4 processing-deadline=0";
     pipeline_candidates.push_back(
         PipelineCandidate{pipeline_desc.str(), "v4l2h264enc+videoconvert", true,
                           false});
   }
   if (has_nvv4l2h264enc && has_nvvidconv) {
     std::ostringstream pipeline_desc;
-    pipeline_desc << "appsrc name=src is-live=true block=true format=time "
-                     "do-timestamp=true "
+    pipeline_desc << "appsrc name=src is-live=true block=true max-buffers=2 format=time do-timestamp=true "
                   << "caps=video/x-raw,format=I420,width=" << width
                   << ",height=" << height << ",framerate=" << fps << "/1"
                   << " ! nvvidconv"
@@ -775,27 +926,29 @@ bool RaspH264EncoderImpl::LaunchPipelineLocked(unsigned int width,
                   << " iframeinterval=" << key_interval
                   << " idrinterval=" << key_interval
                   << " insert-sps-pps=true insert-vui=true insert-aud=true"
-                  << " maxperf-enable=true preset-level=1 profile=" << profile
+                  << " maxperf-enable=true preset-level=" << nvv_preset_level
+                  << " profile=" << profile
                   << " num-B-Frames=0"
+                  << " num-Ref-Frames=" << nvv_ref_frames
                   << " ! video/x-h264,stream-format=byte-stream,alignment=au"
-                  << " ! appsink name=sink sync=false drop=false max-buffers=16";
+                  << " ! appsink name=sink sync=false drop=false max-buffers=4 processing-deadline=0";
     pipeline_candidates.push_back(
         PipelineCandidate{pipeline_desc.str(), "nvv4l2h264enc+nvvidconv", true,
                           false});
   }
   if (has_x264enc && has_videoconvert) {
     std::ostringstream pipeline_desc;
-    pipeline_desc << "appsrc name=src is-live=true block=true format=time "
-                     "do-timestamp=true "
+    pipeline_desc << "appsrc name=src is-live=true block=true max-buffers=2 format=time do-timestamp=true "
                   << "caps=video/x-raw,format=I420,width=" << width
                   << ",height=" << height << ",framerate=" << fps << "/1"
                   << " ! videoconvert"
                   << " ! x264enc name=enc tune=zerolatency speed-preset=ultrafast "
                   << "bitrate=" << x264_bitrate_kbps
                   << " key-int-max=" << key_interval
-                  << " bframes=0 byte-stream=true aud=true"
+                  << " rc-lookahead=0 sync-lookahead=0 sliced-threads=true"
+                  << " vbv-buf-capacity=50 bframes=0 byte-stream=true aud=true"
                   << " ! video/x-h264,stream-format=byte-stream,alignment=au"
-                  << " ! appsink name=sink sync=false drop=false max-buffers=16";
+                  << " ! appsink name=sink sync=false drop=false max-buffers=4 processing-deadline=0";
     pipeline_candidates.push_back(
         PipelineCandidate{pipeline_desc.str(), "x264enc+videoconvert", false,
                           true});
@@ -876,19 +1029,61 @@ bool RaspH264EncoderImpl::LaunchPipelineLocked(unsigned int width,
   encoder_element_ = encoder_element;
   pipeline_bus_ = gst_element_get_bus(pipeline_);
 
+  gst_app_src_set_stream_type(appsrc_, GST_APP_STREAM_TYPE_STREAM);
+  g_object_set(G_OBJECT(appsrc_), "is-live", TRUE, "block", TRUE, "format",
+               GST_FORMAT_TIME, "do-timestamp", TRUE, "max-buffers",
+               static_cast<guint64>(2), nullptr);
+
   gst_app_sink_set_emit_signals(appsink_, FALSE);
   gst_app_sink_set_drop(appsink_, FALSE);
-  gst_app_sink_set_max_buffers(appsink_, 16);
+  gst_app_sink_set_max_buffers(appsink_, 4);
   gst_app_sink_set_wait_on_eos(appsink_, FALSE);
+  g_object_set(G_OBJECT(appsink_), "sync", FALSE, "processing-deadline",
+               static_cast<guint64>(0), nullptr);
 
   const guint runtime_bitrate =
       bitrate_property_uses_kbps_
           ? std::max(1u, static_cast<unsigned int>(bitrate_bps_ / 1000u))
           : bitrate_bps_;
+  const guint peak_bitrate =
+      static_cast<guint>(std::min<uint64_t>(
+          bitrate_cap_bps_,
+          std::max<uint64_t>(bitrate_bps_,
+                             static_cast<uint64_t>(bitrate_bps_) * 3 / 2)));
   GObjectClass* encoder_class = G_OBJECT_GET_CLASS(encoder_element_);
   if (g_object_class_find_property(encoder_class, "bitrate") != nullptr) {
     g_object_set(G_OBJECT(encoder_element_), "bitrate",
                  runtime_bitrate, nullptr);
+  }
+  if (control_rate == 0u &&
+      g_object_class_find_property(encoder_class, "peak-bitrate") !=
+          nullptr) {
+    g_object_set(G_OBJECT(encoder_element_), "peak-bitrate", peak_bitrate,
+                 nullptr);
+  }
+  if (g_object_class_find_property(encoder_class, "copy-timestamp") !=
+      nullptr) {
+    g_object_set(G_OBJECT(encoder_element_), "copy-timestamp", TRUE, nullptr);
+  }
+  if (g_object_class_find_property(encoder_class, "output-io-mode") !=
+      nullptr) {
+    g_object_set(G_OBJECT(encoder_element_), "output-io-mode", 5, nullptr);
+  }
+  if (g_object_class_find_property(encoder_class, "capture-io-mode") !=
+      nullptr) {
+    g_object_set(G_OBJECT(encoder_element_), "capture-io-mode", 2, nullptr);
+  }
+  if (qp_range_.first > 0 && qp_range_.second >= qp_range_.first &&
+      g_object_class_find_property(encoder_class, "qp-range") != nullptr) {
+    std::ostringstream qp_range_value;
+    qp_range_value << qp_range_.first << "," << qp_range_.second << ":"
+                   << qp_range_.first << "," << qp_range_.second << ":"
+                   << qp_range_.first << "," << qp_range_.second;
+    const std::string qp_range_text = qp_range_value.str();
+    g_object_set(G_OBJECT(encoder_element_), "qp-range", qp_range_text.c_str(),
+                 nullptr);
+    LOG_INFO("[WEBRTC] rasp-gstreamer apply qp-range=%s",
+             qp_range_text.c_str());
   }
   if (g_object_class_find_property(encoder_class, "keyframe-period") !=
       nullptr) {
@@ -1044,5 +1239,80 @@ void RaspH264EncoderImpl::ReportError() {
       static_cast<int>(H264EncoderImplEvent::H264EncoderEventMax));
   has_reported_error_ = true;
 }
+
+#if ENABLE_ENCODE_PERF_STATS
+void RaspH264EncoderImpl::RecordEncodeLatencyStats(bool is_keyframe,
+                                                   size_t payload_size,
+                                                   int64_t encode_duration_us) {
+  encode_stats_.total_encode_time_us += encode_duration_us;
+  encode_stats_.max_encode_time_us =
+      std::max(encode_stats_.max_encode_time_us, encode_duration_us);
+  encode_stats_.min_encode_time_us =
+      std::min(encode_stats_.min_encode_time_us, encode_duration_us);
+  encode_stats_.frame_count++;
+  if (is_keyframe) {
+    encode_stats_.keyframe_count++;
+  }
+
+  LOG_INFO(
+      "[RASP编码延时] 单帧耗时: %ld us (%.2f ms), 大小: %zu bytes, 关键帧: %s, "
+      "编码器: %s",
+      encode_duration_us, encode_duration_us / 1000.0f, payload_size,
+      is_keyframe ? "是" : "否", encoder_name_.c_str());
+
+  auto now = std::chrono::steady_clock::now();
+  if (encode_stats_.frame_count == 1) {
+    encode_stats_.last_log_time = now;
+    return;
+  }
+
+  const auto time_since_last_log =
+      std::chrono::duration_cast<std::chrono::seconds>(
+          now - encode_stats_.last_log_time)
+          .count();
+  if (encode_stats_.frame_count % 100 == 0 || time_since_last_log >= 5) {
+    encode_stats_.last_log_time = now;
+    LogEncodeLatencySummary("periodic");
+  }
+}
+
+void RaspH264EncoderImpl::LogEncodeLatencySummary(const char* reason) {
+  if (encode_stats_.frame_count == 0) {
+    return;
+  }
+
+  const int64_t avg_encode_time_us =
+      encode_stats_.total_encode_time_us / encode_stats_.frame_count;
+  const float fps = static_cast<float>(std::max(1u, fps_));
+  const float frame_budget_ms = 1000.0f / fps;
+  const float utilization =
+      (avg_encode_time_us / 1000.0f) / frame_budget_ms * 100.0f;
+  const int64_t min_encode_time_us =
+      encode_stats_.min_encode_time_us == INT64_MAX
+          ? 0
+          : encode_stats_.min_encode_time_us;
+
+  LOG_INFO(
+      "[RASP编码延时统计] 原因: %s, 编码器: %s, 总帧数: %u, 关键帧数: %u, "
+      "平均耗时: %ld us (%.2f ms), 最大耗时: %ld us (%.2f ms), "
+      "最小耗时: %ld us (%.2f ms), 帧率: %.1f fps, 时间预算: %.2f ms/帧, "
+      "占用率: %.1f%%",
+      reason, encoder_name_.c_str(), encode_stats_.frame_count,
+      encode_stats_.keyframe_count, avg_encode_time_us,
+      avg_encode_time_us / 1000.0f, encode_stats_.max_encode_time_us,
+      encode_stats_.max_encode_time_us / 1000.0f, min_encode_time_us,
+      min_encode_time_us / 1000.0f, fps, frame_budget_ms, utilization);
+
+  if (utilization > 80.0f) {
+    LOG_WARN(
+        "[RASP编码延时警告] 编码耗时占用率过高 (%.1f%%), 建议降低分辨率/帧率或"
+        "检查 GStreamer 队列堆积",
+        utilization);
+  } else if (utilization > 60.0f) {
+    LOG_WARN("[RASP编码延时提示] 编码耗时占用率较高 (%.1f%%), 建议继续监控",
+             utilization);
+  }
+}
+#endif
 
 }  // namespace webrtc

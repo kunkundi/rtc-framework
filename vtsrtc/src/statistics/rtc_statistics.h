@@ -41,4 +41,9 @@ class RtcStatistics {
   std::map<vts_rtc::VideoSourceId, vts_rtc::NetStats> net_stats_;
   // 存储上一次的 total_packet_send_delay 累积值（秒），用于计算增量
   std::map<vts_rtc::VideoSourceId, double> prev_total_packet_send_delay_;
+  // 存储上一次的 jitter_buffer_delay 累积值（秒），用于计算增量平均
+  std::map<vts_rtc::VideoSourceId, double> prev_jitter_buffer_delay_;
+  // 存储上一次的 jitter_buffer_emitted_count 累积值，用于计算增量平均
+  std::map<vts_rtc::VideoSourceId, uint64_t>
+      prev_jitter_buffer_emitted_count_;
 };

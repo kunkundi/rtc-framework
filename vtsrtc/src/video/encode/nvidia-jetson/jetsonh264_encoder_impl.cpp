@@ -18,6 +18,7 @@
 
 #include "jetson_encoder.h"
 #include "log/log_manager.h"
+#include "video/encode/playout_delay_config.h"
 
 namespace webrtc {
 
@@ -49,6 +50,17 @@ JetsonH264EncoderImpl::JetsonH264EncoderImpl(
   if (rtc_config_.encode_params.qp_threshold.first != 0 &&
       rtc_config_.encode_params.qp_threshold.second != 0) {
     qp_threshold_ = rtc_config_.encode_params.qp_threshold;
+  }
+
+  const auto configured_playout_delay = ResolveConfiguredPlayoutDelay(
+      rtc_config_.encode_params, "nvidia-jetson");
+  has_configured_playout_delay_ = configured_playout_delay.enabled;
+  configured_playout_delay_min_ms_ = configured_playout_delay.min_ms;
+  configured_playout_delay_max_ms_ = configured_playout_delay.max_ms;
+  if (has_configured_playout_delay_) {
+    LOG_INFO("[WEBRTC] Enable playout delay for nvidia-jetson: [%d, %d] ms",
+             configured_playout_delay_min_ms_,
+             configured_playout_delay_max_ms_);
   }
 
   InitializeResolutionBitrateLimits();
@@ -727,6 +739,10 @@ void JetsonH264EncoderImpl::SendFrame(const VideoFrame& frame,
     encoded_image_._encodedWidth = frame.width();
     encoded_image_._encodedHeight = frame.height();
     encoded_image_.set_size(size);
+    if (has_configured_playout_delay_) {
+      encoded_image_.playout_delay_.min_ms = configured_playout_delay_min_ms_;
+      encoded_image_.playout_delay_.max_ms = configured_playout_delay_max_ms_;
+    }
     encoded_image_.SetTimestamp(frame.timestamp());
     encoded_image_.ntp_time_ms_ = frame.ntp_time_ms();
     encoded_image_.capture_time_ms_ = frame.render_time_ms();

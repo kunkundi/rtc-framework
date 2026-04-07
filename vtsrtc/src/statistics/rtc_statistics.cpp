@@ -13,6 +13,8 @@ void RtcStatistics::Reset() {
   receiver_media_id_vs_ssrc_.clear();
   net_stats_.clear();
   prev_total_packet_send_delay_.clear();
+  prev_jitter_buffer_delay_.clear();
+  prev_jitter_buffer_emitted_count_.clear();
 }
 
 void RtcStatistics::SetStatisticsReportCallback(
@@ -64,6 +66,10 @@ void RtcStatistics::ResetHistoryNetStats(vts_rtc::VideoSourceId sourceid) {
     else
       it++;
   }
+
+  prev_total_packet_send_delay_.erase(sourceid);
+  prev_jitter_buffer_delay_.erase(sourceid);
+  prev_jitter_buffer_emitted_count_.erase(sourceid);
 }
 
 void RtcStatistics::OnStatisticsReport(
@@ -707,12 +713,43 @@ void RtcStatistics::OnStatisticsReport(
             if (track_stats != NULL) {
               bool jitter_delay_defined =
                   (&track_stats->jitter_buffer_delay)->is_defined();
+              bool jitter_emitted_defined =
+                  (&track_stats->jitter_buffer_emitted_count)->is_defined();
               double jitter_delay_value =
                   jitter_delay_defined ? *track_stats->jitter_buffer_delay
                                        : 0.0;
-              if (jitter_delay_defined && jitter_delay_value > 0) {
-                jitter_buffer_delay_ms =
-                    static_cast<unsigned int>(jitter_delay_value * 1000);
+              uint64_t jitter_emitted_count =
+                  jitter_emitted_defined
+                      ? *track_stats->jitter_buffer_emitted_count
+                      : 0;
+              const auto& source_id = id_vs_ssrc.first;
+
+              if (jitter_delay_defined && jitter_delay_value > 0 &&
+                  jitter_emitted_count > 0) {
+                double prev_jitter_delay =
+                    prev_jitter_buffer_delay_[source_id];
+                uint64_t prev_jitter_emitted_count =
+                    prev_jitter_buffer_emitted_count_[source_id];
+                double jitter_delay_increment =
+                    jitter_delay_value - prev_jitter_delay;
+                uint64_t jitter_emitted_increment =
+                    jitter_emitted_count >= prev_jitter_emitted_count
+                        ? (jitter_emitted_count - prev_jitter_emitted_count)
+                        : 0;
+
+                if (jitter_delay_increment >= 0 &&
+                    jitter_emitted_increment > 0) {
+                  jitter_buffer_delay_ms = static_cast<unsigned int>(
+                      (jitter_delay_increment / jitter_emitted_increment) *
+                      1000);
+                } else {
+                  jitter_buffer_delay_ms = static_cast<unsigned int>(
+                      (jitter_delay_value / jitter_emitted_count) * 1000);
+                }
+
+                prev_jitter_buffer_delay_[source_id] = jitter_delay_value;
+                prev_jitter_buffer_emitted_count_[source_id] =
+                    jitter_emitted_count;
               }
             }
           }

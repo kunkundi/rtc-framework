@@ -143,6 +143,8 @@ struct EncodeParamsConfig {
 	unsigned int bitrate_minmum = 0;
 	unsigned int bitrate_start = 0;
 	unsigned int bitrate_maxmum = 100000000;
+	int playout_delay_min_ms = -1;
+	int playout_delay_max_ms = -1;
 };
 
 struct RtcConfig {
@@ -166,7 +168,7 @@ struct RtcConfig {
 
 	bool use_NVENC = false;
 	bool use_NVDEC = false;
-	std::string jetson_h264_encoder = "ffmpeg-jetson";
+	std::string jetson_h264_encoder = "nvidia-jetson";
 
 	long ping_timeout = 2000;
 	long pong_timeout = 4000;  // unit: milliseconds

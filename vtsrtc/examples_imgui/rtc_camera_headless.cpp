@@ -5,6 +5,8 @@
 
 #include <chrono>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -18,12 +20,137 @@ constexpr size_t kYuv420Width = 1280;
 constexpr size_t kYuv420Height = 720;
 constexpr auto kYuv420FrameInterval = std::chrono::milliseconds(33);
 
+double DurationToMilliseconds(std::chrono::nanoseconds duration) {
+  return std::chrono::duration<double, std::milli>(duration).count();
+}
+
 bool EndsWith(const std::string& value, const std::string& suffix) {
   if (value.size() < suffix.size()) {
     return false;
   }
   return value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
+
+class StageTimingStats {
+ public:
+  StageTimingStats(const char* stage_name, int interval_sec)
+      : stage_name_(stage_name) {
+    if (interval_sec > 0) {
+      log_interval_ = std::chrono::seconds(interval_sec);
+      next_log_time_ = std::chrono::steady_clock::now() + log_interval_;
+    }
+  }
+
+  ~StageTimingStats() {
+    LogFinal();
+  }
+
+  void AddSample(std::chrono::nanoseconds elapsed) {
+    last_elapsed_ = elapsed;
+
+    ++total_count_;
+    total_elapsed_ += elapsed;
+    if (!has_total_sample_) {
+      total_min_ = elapsed;
+      total_max_ = elapsed;
+      has_total_sample_ = true;
+    } else {
+      if (elapsed < total_min_) {
+        total_min_ = elapsed;
+      }
+      if (elapsed > total_max_) {
+        total_max_ = elapsed;
+      }
+    }
+
+    ++window_count_;
+    window_elapsed_ += elapsed;
+    if (!has_window_sample_) {
+      window_min_ = elapsed;
+      window_max_ = elapsed;
+      has_window_sample_ = true;
+    } else {
+      if (elapsed < window_min_) {
+        window_min_ = elapsed;
+      }
+      if (elapsed > window_max_) {
+        window_max_ = elapsed;
+      }
+    }
+  }
+
+  void MaybeLogPeriodic() {
+    if (log_interval_ == std::chrono::steady_clock::duration::zero() ||
+        window_count_ == 0) {
+      return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next_log_time_) {
+      return;
+    }
+
+    LogSummary("window", window_count_, window_elapsed_, window_min_,
+               window_max_, last_elapsed_);
+    ResetWindow();
+    next_log_time_ = now + log_interval_;
+  }
+
+ private:
+  void LogFinal() {
+    if (final_logged_ || total_count_ == 0) {
+      return;
+    }
+    LogSummary("total", total_count_, total_elapsed_, total_min_, total_max_,
+               last_elapsed_);
+    final_logged_ = true;
+  }
+
+  void LogSummary(const char* scope,
+                  uint64_t sample_count,
+                  std::chrono::nanoseconds total_elapsed,
+                  std::chrono::nanoseconds min_elapsed,
+                  std::chrono::nanoseconds max_elapsed,
+                  std::chrono::nanoseconds last_elapsed) const {
+    std::ostringstream oss;
+    oss << "image preprocess [" << stage_name_ << "] " << scope
+        << " samples=" << sample_count << std::fixed << std::setprecision(3)
+        << " avg_ms="
+        << (sample_count == 0
+                ? 0.0
+                : DurationToMilliseconds(total_elapsed) /
+                      static_cast<double>(sample_count))
+        << " min_ms=" << DurationToMilliseconds(min_elapsed)
+        << " max_ms=" << DurationToMilliseconds(max_elapsed)
+        << " last_ms=" << DurationToMilliseconds(last_elapsed);
+    LogInfo(oss.str());
+  }
+
+  void ResetWindow() {
+    window_count_ = 0;
+    window_elapsed_ = std::chrono::nanoseconds::zero();
+    window_min_ = std::chrono::nanoseconds::zero();
+    window_max_ = std::chrono::nanoseconds::zero();
+    has_window_sample_ = false;
+  }
+
+  const char* stage_name_ = "";
+  std::chrono::steady_clock::duration log_interval_ =
+      std::chrono::steady_clock::duration::zero();
+  std::chrono::steady_clock::time_point next_log_time_{};
+  uint64_t total_count_ = 0;
+  uint64_t window_count_ = 0;
+  std::chrono::nanoseconds total_elapsed_ = std::chrono::nanoseconds::zero();
+  std::chrono::nanoseconds window_elapsed_ = std::chrono::nanoseconds::zero();
+  std::chrono::nanoseconds total_min_ = std::chrono::nanoseconds::zero();
+  std::chrono::nanoseconds total_max_ = std::chrono::nanoseconds::zero();
+  std::chrono::nanoseconds window_min_ = std::chrono::nanoseconds::zero();
+  std::chrono::nanoseconds window_max_ = std::chrono::nanoseconds::zero();
+  std::chrono::nanoseconds last_elapsed_ = std::chrono::nanoseconds::zero();
+  bool has_total_sample_ = false;
+  bool has_window_sample_ = false;
+  bool final_logged_ = false;
+};
 
 class Yuv420FileSource {
  public:
@@ -264,6 +391,8 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> raw_frame;
     size_t raw_bytes_used = 0;
     bool first_frame_logged = false;
+    StageTimingStats preprocess_stats("UYVY->I420 CUDA",
+                                      options.status_interval_sec);
 
     while (!StopRequested()) {
       rtc_session.Tick();
@@ -284,11 +413,15 @@ int main(int argc, char** argv) {
 
       const uint8_t* i420_data = nullptr;
       size_t i420_size = 0;
+      const auto preprocess_start = std::chrono::steady_clock::now();
       if (!converter.Convert(raw_frame.data(), raw_bytes_used, &i420_data,
                              &i420_size, &cuda_error)) {
         throw std::runtime_error("failed to convert UYVY to I420 on CUDA: " +
                                  cuda_error);
       }
+      preprocess_stats.AddSample(std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::steady_clock::now() - preprocess_start));
+      preprocess_stats.MaybeLogPeriodic();
 
       if (!rtc_session.SendI420Frame(
           i420_data, i420_size, capture_device.width(),

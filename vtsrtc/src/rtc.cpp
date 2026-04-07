@@ -143,6 +143,12 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 			if(encode_params_obj.contains("bitrate_maxmum")) {
 				rtc_config.encode_params.bitrate_maxmum = encode_params_obj["bitrate_maxmum"].get<unsigned int>();
 			}
+			if(encode_params_obj.contains("playout_delay_min_ms")) {
+				rtc_config.encode_params.playout_delay_min_ms = encode_params_obj["playout_delay_min_ms"].get<int>();
+			}
+			if(encode_params_obj.contains("playout_delay_max_ms")) {
+				rtc_config.encode_params.playout_delay_max_ms = encode_params_obj["playout_delay_max_ms"].get<int>();
+			}
 		}
 	}
 

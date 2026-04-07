@@ -34,6 +34,7 @@
 #include <libv4l2.h>
 
 #define ENCODER_DEV "/dev/nvhost-msenc"
+#define ENCODER_DEV_ALT "/dev/v4l2-nvenc"
 #define ENCODER_COMP_NAME "NVENC"
 
 #define CHECK_V4L2_RETURN(ret, str)              \
@@ -71,15 +72,30 @@
 
 using namespace std;
 
-NvVideoEncoder::NvVideoEncoder(const char *name, int flags)
-    :NvV4l2Element(name, ENCODER_DEV, flags, valid_fields)
+NvVideoEncoder::NvVideoEncoder(const char *name, const char *dev_node,
+                               int flags)
+    : NvV4l2Element(name, dev_node, flags, valid_fields)
 {
 }
 
 NvVideoEncoder *
 NvVideoEncoder::createVideoEncoder(const char *name, int flags)
 {
-    NvVideoEncoder *enc = new NvVideoEncoder(name, flags);
+    NvVideoEncoder *enc;
+
+    if (access(ENCODER_DEV, F_OK) == 0)
+    {
+        enc = new NvVideoEncoder(name, ENCODER_DEV, flags);
+    }
+    else if (access(ENCODER_DEV_ALT, F_OK) == 0)
+    {
+        enc = new NvVideoEncoder(name, ENCODER_DEV_ALT, flags);
+    }
+    else
+    {
+        return NULL;
+    }
+
     if (enc->isInError())
     {
         delete enc;
@@ -94,7 +110,7 @@ NvVideoEncoder::~NvVideoEncoder()
 
 int
 NvVideoEncoder::setOutputPlaneFormat(uint32_t pixfmt, uint32_t width,
-        uint32_t height)
+        uint32_t height, enum v4l2_colorspace cs)
 {
     struct v4l2_format format;
     uint32_t num_bufferplanes;
@@ -120,6 +136,7 @@ NvVideoEncoder::setOutputPlaneFormat(uint32_t pixfmt, uint32_t width,
     format.fmt.pix_mp.height = height;
     format.fmt.pix_mp.pixelformat = pixfmt;
     format.fmt.pix_mp.num_planes = num_bufferplanes;
+    format.fmt.pix_mp.colorspace = cs;
 
     return output_plane.setFormat(format);
 }
