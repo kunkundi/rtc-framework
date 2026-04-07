@@ -6,6 +6,7 @@ set_languages("cxx14")
 add_requires("imgui v1.92.6", {configs = {opengl3 = true, sdl3 = true}})
 add_requires("libsdl3 3.4.2")
 add_requires("asio 1.32.0")
+add_requires("spdlog 1.14.1")
 
 local function on_windows()
     return is_plat("windows") or is_host("windows")
@@ -31,18 +32,6 @@ option("enable_encode_perf_stats")
     set_default(false)
     set_showmenu(true)
     set_description("Enable encode performance statistics")
-option_end()
-
-option("use_libvtslog")
-    set_default(false)
-    set_showmenu(true)
-    set_description("Use external libvtslog for vtsrtc logging")
-option_end()
-
-option("build_examples")
-    set_default(true)
-    set_showmenu(true)
-    set_description("Build ImGui demo target p2p_imgui")
 option_end()
 
 local function is_aarch64_arch()
@@ -120,36 +109,8 @@ local function add_simple_web_config()
     end
 end
 
-local function add_vtslog_config()
-    add_includedirs("third_party/vtslog/include")
-
-    if on_windows() then
-        local cfg = is_mode("debug") and "Debug" or "Release"
-        add_linkdirs(path.join("third_party", "vtslog", "lib", "windows", cfg))
-        add_links("vtslog")
-    elseif on_linux() then
-        local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
-        add_linkdirs(path.join("third_party", "vtslog", "lib", arch_dir))
-        add_links("vtslog", "minizip")
-    else
-        return fail("unsupported platform for vtslog")
-    end
-end
-
-local function add_optional_vtslog_config()
-    if get_config("use_libvtslog") then
-        add_vtslog_config()
-    end
-end
-
-local function copy_optional_vtslog_runtime(batchcmds, target)
-    if not get_config("use_libvtslog") or not on_linux() then
-        return
-    end
-    local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
-    local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
-    batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
-    batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
+local function add_spdlog_config()
+    add_packages("spdlog")
 end
 
 local function add_json_config()
@@ -379,10 +340,8 @@ end
 
 local function add_linux_runtime_rpath()
     if on_linux() then
-        local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
         add_ldflags("-Wl,--disable-new-dtags", {force = true})
         add_rpathdirs("$ORIGIN")
-        add_rpathdirs(path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir))
     end
 end
 
@@ -400,12 +359,6 @@ target(vtsrtc_target)
         add_defines("ENABLE_ENCODE_PERF_STATS=1")
     else
         add_defines("ENABLE_ENCODE_PERF_STATS=0")
-    end
-
-    if get_config("use_libvtslog") then
-        add_defines("VTSRTC_USE_LIBVTSLOG=1")
-    else
-        add_defines("VTSRTC_USE_LIBVTSLOG=0")
     end
 
     add_includedirs("vtsrtc/src", {public = true})
@@ -437,7 +390,7 @@ target(vtsrtc_target)
 
     add_simple_web_config()
     add_json_config()
-    add_optional_vtslog_config()
+    add_spdlog_config()
     add_webrtc_config()
     add_linux_runtime_rpath()
 
@@ -483,121 +436,111 @@ target("signaling-server")
     add_includedirs("signaling-server/src")
     add_simple_web_config()
     add_json_config()
-    add_vtslog_config()
+    add_spdlog_config()
     add_openssl_config()
     add_linux_runtime_rpath()
 
     after_buildcmd(function(target, batchcmds)
         if on_linux() then
-            local arch_dir = is_aarch64_arch() and "aarch64" or "x64"
-            local vtslog_dir = path.join(os.projectdir(), "third_party", "vtslog", "lib", arch_dir)
-            batchcmds:cp(path.join(vtslog_dir, "libvtslog.so"), target:targetdir())
-            batchcmds:cp(path.join(vtslog_dir, "libminizip.so"), target:targetdir())
             batchcmds:cp(path.join(os.projectdir(), "test_data", "web"), path.join(target:targetdir(), "web"))
             batchcmds:cp(path.join(os.projectdir(), "test_data", "signaling-server.cfg"), target:targetdir())
         end
     end)
 
-if get_config("build_examples") then
-    target("p2p_imgui")
+target("p2p_imgui")
+    set_kind("binary")
+    add_deps(vtsrtc_target)
+    add_packages("imgui")
+
+    add_files(
+        "vtsrtc/examples_imgui/main.cpp"
+    )
+
+    add_includedirs("vtsrtc/src")
+    add_linux_runtime_rpath()
+    if on_windows() then
+        add_syslinks("opengl32")
+    elseif on_linux() then
+        add_syslinks("pthread", "GL", "dl", "asound")
+    end
+
+    after_buildcmd(function(target, batchcmds)
+        if on_linux() then
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "8k16bit.pcm"), target:targetdir())
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "zjlabs.yuv"), target:targetdir())
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "messagefile.txt"), target:targetdir())
+        end
+    end)
+
+if on_linux() then
+    target("rtc_camera_headless")
         set_kind("binary")
         add_deps(vtsrtc_target)
-        add_packages("imgui")
 
         add_files(
-            "vtsrtc/examples_imgui/main.cpp"
+            "vtsrtc/examples_imgui/rtc_camera_headless.cpp",
+            "vtsrtc/examples_imgui/rtc_camera_common.cpp",
+            "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
+            "vtsrtc/examples_imgui/rtc_headless_session.cpp",
+            "vtsrtc/examples_imgui/uyvy_to_i420_cuda.cu"
         )
 
         add_includedirs("vtsrtc/src")
         add_linux_runtime_rpath()
-        if on_windows() then
-            add_syslinks("opengl32")
-        elseif on_linux() then
-            add_syslinks("pthread", "GL", "dl", "asound")
+        add_syslinks("pthread")
+        add_cuflags("--std=c++14")
+
+        if not add_cuda_runtime_config() then
+            raise("CUDA runtime not found for rtc_camera_headless")
         end
 
         after_buildcmd(function(target, batchcmds)
-            if on_linux() then
-                copy_optional_vtslog_runtime(batchcmds, target)
-                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
-                batchcmds:cp(path.join(os.projectdir(), "test_data", "8k16bit.pcm"), target:targetdir())
-                batchcmds:cp(path.join(os.projectdir(), "test_data", "zjlabs.yuv"), target:targetdir())
-                batchcmds:cp(path.join(os.projectdir(), "test_data", "messagefile.txt"), target:targetdir())
-            end
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
         end)
 
-    if on_linux() then
-        target("rtc_camera_headless")
-            set_kind("binary")
-            add_deps(vtsrtc_target)
+    target("rtc_dual_camera_headless")
+        set_kind("binary")
+        add_deps(vtsrtc_target)
 
-            add_files(
-                "vtsrtc/examples_imgui/rtc_camera_headless.cpp",
-                "vtsrtc/examples_imgui/rtc_camera_common.cpp",
-                "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
-                "vtsrtc/examples_imgui/rtc_headless_session.cpp",
-                "vtsrtc/examples_imgui/uyvy_to_i420_cuda.cu"
-            )
+        add_files(
+            "vtsrtc/examples_imgui/rtc_dual_camera_headless.cpp",
+            "vtsrtc/examples_imgui/dual_uyvy_to_i420_stitch_cuda.cu",
+            "vtsrtc/examples_imgui/rtc_camera_common.cpp",
+            "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
+            "vtsrtc/examples_imgui/rtc_headless_session.cpp"
+        )
 
-            add_includedirs("vtsrtc/src")
-            add_linux_runtime_rpath()
-            add_syslinks("pthread")
-            add_cuflags("--std=c++14")
+        add_includedirs("vtsrtc/src")
+        add_linux_runtime_rpath()
+        add_syslinks("pthread")
+        add_cuflags("--std=c++14")
 
-            if not add_cuda_runtime_config() then
-                raise("CUDA runtime not found for rtc_camera_headless")
-            end
+        if not add_cuda_runtime_config() then
+            raise("CUDA runtime not found for rtc_dual_camera_headless")
+        end
 
-            after_buildcmd(function(target, batchcmds)
-                copy_optional_vtslog_runtime(batchcmds, target)
-                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
-            end)
+        after_buildcmd(function(target, batchcmds)
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+        end)
 
-        target("rtc_dual_camera_headless")
-            set_kind("binary")
-            add_deps(vtsrtc_target)
+    target("rtc_receiver_headless")
+        set_kind("binary")
+        add_deps(vtsrtc_target)
 
-            add_files(
-                "vtsrtc/examples_imgui/rtc_dual_camera_headless.cpp",
-                "vtsrtc/examples_imgui/dual_uyvy_to_i420_stitch_cuda.cu",
-                "vtsrtc/examples_imgui/rtc_camera_common.cpp",
-                "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
-                "vtsrtc/examples_imgui/rtc_headless_session.cpp"
-            )
+        add_files(
+            "vtsrtc/examples_imgui/rtc_receiver_headless.cpp",
+            "vtsrtc/examples_imgui/rtc_camera_common.cpp",
+            "vtsrtc/examples_imgui/rtc_headless_session.cpp"
+        )
 
-            add_includedirs("vtsrtc/src")
-            add_linux_runtime_rpath()
-            add_syslinks("pthread")
-            add_cuflags("--std=c++14")
+        add_includedirs("vtsrtc/src")
+        add_linux_runtime_rpath()
+        add_syslinks("pthread")
 
-            if not add_cuda_runtime_config() then
-                raise("CUDA runtime not found for rtc_dual_camera_headless")
-            end
-
-            after_buildcmd(function(target, batchcmds)
-                copy_optional_vtslog_runtime(batchcmds, target)
-                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
-            end)
-
-        target("rtc_receiver_headless")
-            set_kind("binary")
-            add_deps(vtsrtc_target)
-
-            add_files(
-                "vtsrtc/examples_imgui/rtc_receiver_headless.cpp",
-                "vtsrtc/examples_imgui/rtc_camera_common.cpp",
-                "vtsrtc/examples_imgui/rtc_headless_session.cpp"
-            )
-
-            add_includedirs("vtsrtc/src")
-            add_linux_runtime_rpath()
-            add_syslinks("pthread")
-
-            after_buildcmd(function(target, batchcmds)
-                copy_optional_vtslog_runtime(batchcmds, target)
-                batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
-            end)
-    end
+        after_buildcmd(function(target, batchcmds)
+            batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+        end)
 end
 
 if on_linux() then

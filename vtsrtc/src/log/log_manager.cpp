@@ -1,20 +1,36 @@
 #include "log_manager.h"
 
-#include <cstdarg>
-#include <chrono>
+#include <algorithm>
+#include <cerrno>
 #include <cstdio>
-#include <cstring>
-#include <ctime>
-#include <iomanip>
-#include <iostream>
-#include <sstream>
+#include <utility>
 #include <vector>
 
-#if defined(VTSRTC_USE_LIBVTSLOG) && VTSRTC_USE_LIBVTSLOG
+#include <spdlog/logger.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
+#if defined(_WIN32)
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
 
 namespace {
 
+constexpr const char* kLoggerName = "rtc_agent_logger";
+constexpr const char* kTopic = "rtc_agent";
+constexpr const char* kLogFileName = "rtc_agent.log";
+constexpr bool kStdoutEnabled = false;
+constexpr size_t kMaxLogFileSize = 10 * 1024 * 1024;
+constexpr size_t kMaxLogFiles = 10;
+
 std::string FormatMessage(const char* fmt, va_list args) {
+  if (!fmt) {
+    return std::string();
+  }
+
   va_list args_copy;
   va_copy(args_copy, args);
   const int required = std::vsnprintf(nullptr, 0, fmt, args_copy);
@@ -28,110 +44,108 @@ std::string FormatMessage(const char* fmt, va_list args) {
   return std::string(buffer.data());
 }
 
-}  // namespace
-
-LogManager::LogManager() {}
-
-LogManager::~LogManager() {
-  log_.ClsFile("rtc_agent");
+std::string NormalizeSeparators(const std::string& path) {
+  std::string normalized = path;
+  std::replace(normalized.begin(), normalized.end(), '\\', '/');
+  return normalized;
 }
 
-int LogManager::init(std::string log_path) {
-  log_path_ = std::move(log_path);
-  if (!log_path_.empty()) {
-    log_.InitLog(true, vts::log::LEVEL_INFO, log_path_);
-  } else {
-    log_.InitLog(true, vts::log::LEVEL_INFO);
+std::string DirectoryName(const std::string& path) {
+  const std::string normalized = NormalizeSeparators(path);
+  const std::string::size_type slash = normalized.find_last_of('/');
+  if (slash == std::string::npos) {
+    return std::string();
   }
-  log_.CrtFile("rtc_agent");
-  return 0;
+  return normalized.substr(0, slash);
 }
 
-void LogManager::Log(Level level,
-                     const char* file,
-                     int line,
-                     const char* fmt,
-                     ...) {
-  va_list args;
-  va_start(args, fmt);
-  const std::string message = FormatMessage(fmt, args);
-  va_end(args);
-  log_.Log(ToVtsLevel(level), file ? file : "", line, 1, topic_, "%s",
-           message.c_str());
-}
-
-vts::log::LOG_LEVEL LogManager::ToVtsLevel(Level level) const {
-  switch (level) {
-    case Level::Info:
-      return vts::log::LEVEL_INFO;
-    case Level::Warn:
-      return vts::log::LEVEL_WARN;
-    case Level::Error:
-      return vts::log::LEVEL_ERROR;
-    default:
-      return vts::log::LEVEL_INFO;
-  }
-}
-
+int MakeDirectory(const char* path) {
+#if defined(_WIN32)
+  return _mkdir(path);
 #else
-
-#include <errno.h>
-#include <stdarg.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-
-namespace {
-
-std::string TimestampNow() {
-  const auto now = std::chrono::system_clock::now();
-  const auto now_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) %
-      std::chrono::seconds(1);
-  const std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-  std::tm tm_now{};
-  localtime_r(&now_time, &tm_now);
-
-  std::ostringstream oss;
-  oss << std::setfill('0') << std::setw(4) << (tm_now.tm_year + 1900)
-      << std::setw(2) << (tm_now.tm_mon + 1) << std::setw(2) << tm_now.tm_mday
-      << "-" << std::setw(2) << tm_now.tm_hour << std::setw(2) << tm_now.tm_min
-      << std::setw(2) << tm_now.tm_sec << "." << std::setw(3)
-      << now_ms.count();
-  return oss.str();
+  return ::mkdir(path, 0755);
+#endif
 }
 
-bool EnsureDirectoryExists(const std::string& path) {
-  if (path.empty() || path == ".") {
+bool EnsureDirectoryExists(const std::string& raw_path) {
+  if (raw_path.empty() || raw_path == ".") {
     return true;
   }
 
+  const std::string path = NormalizeSeparators(raw_path);
   std::string current;
-  if (!path.empty() && path[0] == '/') {
+  std::string::size_type pos = 0;
+
+  if (path.size() >= 2 && path[1] == ':') {
+    current = path.substr(0, 2);
+    pos = 2;
+    if (pos < path.size() && path[pos] == '/') {
+      current += "/";
+      ++pos;
+    }
+  } else if (!path.empty() && path[0] == '/') {
     current = "/";
+    pos = 1;
   }
 
-  size_t pos = 0;
   while (pos < path.size()) {
-    const size_t next = path.find('/', pos);
-    const size_t length =
-        next == std::string::npos ? path.size() - pos : next - pos;
-    const std::string component = path.substr(pos, length);
+    while (pos < path.size() && path[pos] == '/') {
+      ++pos;
+    }
+    if (pos >= path.size()) {
+      break;
+    }
+
+    const std::string::size_type next = path.find('/', pos);
+    const std::string part =
+        next == std::string::npos ? path.substr(pos) : path.substr(pos, next - pos);
     pos = next == std::string::npos ? path.size() : next + 1;
 
-    if (component.empty() || component == ".") {
+    if (part.empty() || part == ".") {
       continue;
     }
 
     if (!current.empty() && current.back() != '/') {
       current += "/";
     }
-    current += component;
+    current += part;
 
-    if (::mkdir(current.c_str(), 0755) != 0 && errno != EEXIST) {
+    if (MakeDirectory(current.c_str()) != 0 && errno != EEXIST) {
       return false;
     }
   }
+
   return true;
+}
+
+std::string BuildLogFilePath(const std::string& log_path) {
+  if (log_path.empty()) {
+    return kLogFileName;
+  }
+
+  std::string file_path = log_path;
+  if (file_path.back() != '/' && file_path.back() != '\\') {
+    file_path += "/";
+  }
+  file_path += kLogFileName;
+  return file_path;
+}
+
+std::string BuildPattern() {
+  return std::string("[%L][%Y%m%d-%H%M%S.%e][%s:%#][") + kTopic + "]:%v";
+}
+
+spdlog::level::level_enum ToSpdlogLevel(LogManager::Level level) {
+  switch (level) {
+    case LogManager::Level::Info:
+      return spdlog::level::info;
+    case LogManager::Level::Warn:
+      return spdlog::level::warn;
+    case LogManager::Level::Error:
+      return spdlog::level::err;
+    default:
+      return spdlog::level::info;
+  }
 }
 
 }  // namespace
@@ -143,9 +157,7 @@ LogManager::~LogManager() {}
 int LogManager::init(std::string log_path) {
   std::lock_guard<std::mutex> lock(mutex_);
   log_path_ = std::move(log_path);
-  initialized_ = true;
-  directory_ready_ = false;
-  EnsureLogDirectoryLocked();
+  ResetLoggerLocked();
   return 0;
 }
 
@@ -165,79 +177,39 @@ void LogManager::VLog(Level level,
                       int line,
                       const char* fmt,
                       va_list args) {
+  const std::string message = FormatMessage(fmt, args);
+
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!initialized_) {
-    initialized_ = true;
-  }
-  EnsureLogDirectoryLocked();
-
-  va_list args_copy;
-  va_copy(args_copy, args);
-  const int required = std::vsnprintf(nullptr, 0, fmt, args_copy);
-  va_end(args_copy);
-
-  if (required < 0) {
-    return;
+  if (!logger_) {
+    ResetLoggerLocked();
   }
 
-  std::vector<char> buffer(static_cast<size_t>(required) + 1, '\0');
-  std::vsnprintf(buffer.data(), buffer.size(), fmt, args);
-
-  const std::string prefix = FormatPrefix(level, file, line);
-  const std::string message(buffer.data());
-  const std::string line_text = prefix + message + "\n";
-
-  std::ostream& stream =
-      level == Level::Error ? std::cerr : std::cout;
-  stream << line_text;
-  stream.flush();
-
-  if (!log_path_.empty() && directory_ready_) {
-    const std::string log_file = log_path_ + "/rtc_agent.log";
-    FILE* file_handle = std::fopen(log_file.c_str(), "a");
-    if (file_handle) {
-      std::fwrite(line_text.data(), 1, line_text.size(), file_handle);
-      std::fflush(file_handle);
-      std::fclose(file_handle);
-    }
-  }
+  logger_->log(spdlog::source_loc{file ? file : "", line, ""},
+               ToSpdlogLevel(level), "{}", message);
 }
 
-void LogManager::EnsureLogDirectoryLocked() {
-  if (directory_ready_ || log_path_.empty()) {
-    return;
+void LogManager::ResetLoggerLocked() {
+  std::vector<spdlog::sink_ptr> sinks;
+  const std::string pattern = BuildPattern();
+
+  if (kStdoutEnabled) {
+    auto stdout_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    stdout_sink->set_level(spdlog::level::info);
+    stdout_sink->set_pattern(pattern);
+    sinks.push_back(stdout_sink);
   }
-  directory_ready_ = EnsureDirectoryExists(log_path_);
-}
 
-std::string LogManager::FormatPrefix(Level level,
-                                     const char* file,
-                                     int line) const {
-  std::ostringstream oss;
-  oss << "[" << LevelTag(level) << "][" << TimestampNow() << "]["
-      << BaseName(file) << ":" << line << "][rtc_agent]:";
-  return oss.str();
-}
-
-const char* LogManager::LevelTag(Level level) const {
-  switch (level) {
-    case Level::Info:
-      return "I";
-    case Level::Warn:
-      return "W";
-    case Level::Error:
-      return "E";
-    default:
-      return "?";
+  const std::string log_file_path = BuildLogFilePath(log_path_);
+  if (EnsureDirectoryExists(DirectoryName(log_file_path))) {
+    auto file_sink =
+        std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            log_file_path, kMaxLogFileSize, kMaxLogFiles);
+    file_sink->set_level(spdlog::level::trace);
+    file_sink->set_pattern(pattern);
+    sinks.push_back(file_sink);
   }
-}
 
-std::string LogManager::BaseName(const char* path) const {
-  if (!path) {
-    return "";
-  }
-  const char* slash = std::strrchr(path, '/');
-  return slash ? std::string(slash + 1) : std::string(path);
+  logger_ = std::make_shared<spdlog::logger>(kLoggerName, sinks.begin(), sinks.end());
+  logger_->set_level(spdlog::level::trace);
+  logger_->flush_on(spdlog::level::trace);
 }
-
-#endif

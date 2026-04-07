@@ -11,7 +11,6 @@ endif(USE_DEFAULT_JETSON_ENCODER)
 
 # 编码性能统计选项（默认关闭，生产环境建议关闭）
 option(ENABLE_ENCODE_PERF_STATS "Enable encode performance statistics" OFF)
-option(USE_LIBVTSLOG "Use external vtslog library for vtsrtc logging" OFF)
 
 list(APPEND CMAKE_MODULE_PATH
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/cmake"
@@ -21,9 +20,6 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	message(STATUS "Build for Aarch64")
 endif()
 
-if(USE_LIBVTSLOG)
-	find_package(Vtslog REQUIRED)
-endif()
 find_package(WebRTC REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT USE_DEFAULT_JETSON_ENCODER)
@@ -145,12 +141,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	message(STATUS "TODO configure for macOS")
 endif()
 
-if(USE_LIBVTSLOG)
-	target_compile_definitions(${target} PRIVATE VTSRTC_USE_LIBVTSLOG=1)
-else()
-	target_compile_definitions(${target} PRIVATE VTSRTC_USE_LIBVTSLOG=0)
-endif()
-
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	target_include_directories(${target}
 	PUBLIC
@@ -159,13 +149,6 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 		${WEBRTC_INCLUDE_DIR}
 	)
 
-	if(USE_LIBVTSLOG)
-		target_include_directories(${target} PRIVATE ${VTSLOG_INCLUDE_DIR})
-	endif()
-
-	if(NOT USE_DEFAULT_JETSON_ENCODER)
-		target_include_directories(${target} PRIVATE "/usr/src/jetson_multimedia_api/include")
-	endif()
 	if(NOT USE_DEFAULT_JETSON_ENCODER)
 		target_include_directories(${target} PRIVATE "/usr/src/jetson_multimedia_api/include")
 	endif()
@@ -187,24 +170,17 @@ else()
 		${NVCODEC_INCLUDE_DIR}
 		${WEBRTC_INCLUDE_DIR}
 	)
-
-	if(USE_LIBVTSLOG)
-		target_include_directories(${target} PRIVATE ${VTSLOG_INCLUDE_DIR})
-	endif()
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 	target_link_libraries(${target}
 	PRIVATE
+		rtc_spdlog
 		simple-web-server
 		simple-websocket-server
 		nlohmann_json::nlohmann_json
 		${WEBRTC_LIBRARY}
 	)
-
-	if(USE_LIBVTSLOG)
-		target_link_libraries(${target} PRIVATE ${VTSLOG_LIBRARY})
-	endif()
 
 	if(NOT USE_DEFAULT_JETSON_ENCODER)
 		target_link_directories(${target} PRIVATE /usr/lib/aarch64-linux-gnu/tegra)
@@ -213,6 +189,7 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 else()
 	target_link_libraries(${target}
 	PRIVATE
+		rtc_spdlog
 		CUDA::cuda_driver
 		${NVCODEC_LIBRARY}
 		simple-web-server
@@ -220,10 +197,6 @@ else()
 		nlohmann_json::nlohmann_json
 		${WEBRTC_LIBRARY}
 	)
-
-	if(USE_LIBVTSLOG)
-		target_link_libraries(${target} PRIVATE ${VTSLOG_LIBRARY})
-	endif()
 endif()
 
 set_target_properties(${target}
@@ -244,28 +217,7 @@ install(TARGETS ${target}
 
 install(FILES "${CMAKE_SOURCE_DIR}/test_data/rtc.cfg" DESTINATION ${target})
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	if(USE_LIBVTSLOG)
-		install(FILES
-			"${CMAKE_SOURCE_DIR}/third_party/vtslog/lib/windows/$<CONFIG>/vtslog.dll"
-			DESTINATION "${target}/bin/$<CONFIG>"
-		)
-	endif()
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	if(USE_LIBVTSLOG)
-		if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-			install(FILES 
-				"${VTSLOG_LIBRARY}"
-				DESTINATION "${target}/lib/$<CONFIG>"
-			)
-		elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-			install(FILES 
-			"${VTSLOG_LIBRARY}"
-			DESTINATION "${target}/lib/$<CONFIG>"
-			)
-		endif()
-	endif()
-
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
 		install(FILES 
 		"${NVCODEC_LIBRARY}"

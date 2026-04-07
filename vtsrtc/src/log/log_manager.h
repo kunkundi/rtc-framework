@@ -1,11 +1,9 @@
 #pragma once
 
 #include <cstdarg>
-#if defined(VTSRTC_USE_LIBVTSLOG) && VTSRTC_USE_LIBVTSLOG
-#include "vtslog.h"
-#endif
-
+#include <memory>
 #include <mutex>
+#include <spdlog/fwd.h>
 #include <string>
 
 class LogManager {
@@ -28,23 +26,12 @@ class LogManager {
   void Log(Level level, const char* file, int line, const char* fmt, ...);
 
  private:
-#if defined(VTSRTC_USE_LIBVTSLOG) && VTSRTC_USE_LIBVTSLOG
-  vts::log::LOG_LEVEL ToVtsLevel(Level level) const;
-  vts::log::vtslog log_;
-  std::string topic_[1] = {"rtc_agent"};
-  std::string log_path_;
-#else
   void VLog(Level level, const char* file, int line, const char* fmt, va_list args);
-  void EnsureLogDirectoryLocked();
-  std::string FormatPrefix(Level level, const char* file, int line) const;
-  const char* LevelTag(Level level) const;
-  std::string BaseName(const char* path) const;
+  void ResetLoggerLocked();
 
-  mutable std::mutex mutex_;
+  std::shared_ptr<spdlog::logger> logger_;
+  std::mutex mutex_;
   std::string log_path_;
-  bool initialized_ = false;
-  bool directory_ready_ = false;
-#endif
 };
 
 #define LogInst LogManager::GetInstance()

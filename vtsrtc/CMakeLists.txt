@@ -1,4 +1,8 @@
 add_subdirectory(src)
 #enable_testing()
 #add_subdirectory(test)
-add_subdirectory(examples)
+option(BUILD_VTSRTC_EXAMPLES "Build vtsrtc Qt examples" ON)
+
+if(BUILD_VTSRTC_EXAMPLES)
+	add_subdirectory(examples)
+endif()
