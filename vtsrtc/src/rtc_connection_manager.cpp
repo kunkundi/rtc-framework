@@ -189,8 +189,12 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
     LOG_INFO("Use jetson default H264 video encoder.");
     video_encoder_factory = webrtc::CreateNvVideoEncoderFactory();
 #else
+#if defined __aarch64__
     LOG_INFO("Use hardware H264 video encoder (%s).",
              rtc_config_.jetson_h264_encoder.c_str());
+#else
+    LOG_INFO("Use hardware H264 video encoder (nvidia-nvenc).");
+#endif
     video_encoder_factory = std::make_unique<webrtc::RtcEncoderFactory>();
     dynamic_cast<webrtc::RtcEncoderFactory*>(video_encoder_factory.get())
         ->setConfig(rtc_config_);
@@ -1411,12 +1415,14 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
 void RtcConnectionManager::SetRtpSendersPriority() {
   RTC_DCHECK_RUN_ON(logic_thread_);
 
-  const int configured_min_bitrate_bps = static_cast<int>(
-      std::min<unsigned int>(rtc_config_.encode_params.bitrate_minmum,
-                             static_cast<unsigned int>(std::numeric_limits<int>::max())));
-  const int configured_max_bitrate_bps = static_cast<int>(
-      std::min<unsigned int>(rtc_config_.encode_params.bitrate_maxmum,
-                             static_cast<unsigned int>(std::numeric_limits<int>::max())));
+  const int configured_min_bitrate_bps =
+      static_cast<int>(std::min<unsigned int>(
+          rtc_config_.encode_params.bitrate_minmum,
+          static_cast<unsigned int>(std::numeric_limits<int>::max())));
+  const int configured_max_bitrate_bps =
+      static_cast<int>(std::min<unsigned int>(
+          rtc_config_.encode_params.bitrate_maxmum,
+          static_cast<unsigned int>(std::numeric_limits<int>::max())));
 
   for (const auto& rtpsender_priority : rtpsender_priority_map_) {
     auto& rtpsender = rtpsender_priority.first;

@@ -1,7 +1,55 @@
 #include "rtc.h"
 #include "log/log_manager.h"
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <nlohmann/json.hpp>
+
+namespace {
+
+std::string NormalizeEncoderName(const std::string& value) {
+	std::string normalized = value;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+		[](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+	return normalized;
+}
+
+bool IsRaspEncoderAlias(const std::string& value) {
+	const auto normalized = NormalizeEncoderName(value);
+	return normalized == "rasp" ||
+		normalized == "raspberrypi" ||
+		normalized == "gstreamer-rasp" ||
+		normalized == "gstreamer-raspberrypi";
+}
+
+void NormalizeHardwareEncoderSelection(vts_rtc::RtcConfig& rtc_config,
+	bool warn_when_fallback) {
+	if (!rtc_config.use_NVENC || !IsRaspEncoderAlias(rtc_config.jetson_h264_encoder)) {
+		return;
+	}
+
+#if !defined __aarch64__
+	if (warn_when_fallback) {
+		LOG_WARN("jetson_h264_encoder=%s is unsupported on this platform, fallback to nvidia-nvenc",
+			rtc_config.jetson_h264_encoder.c_str());
+	}
+	rtc_config.jetson_h264_encoder = "nvidia-nvenc";
+#elif defined(USE_DEFAULT_JETSON_ENCODER)
+	if (warn_when_fallback) {
+		LOG_WARN("jetson_h264_encoder=%s is ignored because USE_DEFAULT_JETSON_ENCODER is enabled, fallback to nvidia-jetson",
+			rtc_config.jetson_h264_encoder.c_str());
+	}
+	rtc_config.jetson_h264_encoder = "nvidia-jetson";
+#elif !defined(VTSRTC_HAS_GSTREAMER)
+	if (warn_when_fallback) {
+		LOG_WARN("jetson_h264_encoder=%s requires GStreamer support, fallback to nvidia-jetson",
+			rtc_config.jetson_h264_encoder.c_str());
+	}
+	rtc_config.jetson_h264_encoder = "nvidia-jetson";
+#endif
+}
+
+}  // namespace
 
 VTS_RTC_NAMESPACE_BEGIN
 
@@ -184,6 +232,8 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		rtc_config.use_NVENC = rtc_cfg_obj["use_NVENC"].get<bool>();
 	}
 
+	const bool has_explicit_jetson_h264_encoder =
+		rtc_cfg_obj.contains("jetson_h264_encoder");
 	if (rtc_cfg_obj.contains("jetson_h264_encoder")) {
 		rtc_config.jetson_h264_encoder =
 			rtc_cfg_obj["jetson_h264_encoder"].get<std::string>();
@@ -205,11 +255,9 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 		rtc_config.reconnect_interval = rtc_cfg_obj["reconnect_interval"].get<long>();
 	}
 
-	const bool use_rasp_encoder =
-		rtc_config.jetson_h264_encoder == "rasp" ||
-		rtc_config.jetson_h264_encoder == "raspberrypi" ||
-		rtc_config.jetson_h264_encoder == "gstreamer-rasp" ||
-		rtc_config.jetson_h264_encoder == "gstreamer-raspberrypi";
+	NormalizeHardwareEncoderSelection(rtc_config, has_explicit_jetson_h264_encoder);
+
+	const bool use_rasp_encoder = IsRaspEncoderAlias(rtc_config.jetson_h264_encoder);
 	if (use_rasp_encoder) {
 		if (rtc_config.encode_params.bitrate_minmum == 0) {
 			rtc_config.encode_params.bitrate_minmum = 300000;
@@ -263,8 +311,13 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	const ChannelNetworkStatsHandler& channel_network_stats_handler) {
 	LogInst->init("");
 
+	auto normalized_rtc_config = rtc_config;
+	NormalizeHardwareEncoderSelection(
+		normalized_rtc_config,
+		IsRaspEncoderAlias(normalized_rtc_config.jetson_h264_encoder));
+
 	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
-		rtc_config,
+		normalized_rtc_config,
 		room_handler,
 		user_handler,
 		P2P_state_handler,

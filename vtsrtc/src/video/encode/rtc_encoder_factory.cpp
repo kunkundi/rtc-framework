@@ -124,6 +124,7 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
         cricket::VideoCodec(format), rtc_config_);
 #endif
 #else
+    LOG_INFO("[WEBRTC] Select runtime H264 encoder: nvidia-nvenc");
     return std::make_unique<NvH264EncoderImpl>(cricket::VideoCodec(format),
                                                rtc_config_);
 #endif
