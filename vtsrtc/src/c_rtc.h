@@ -16,7 +16,9 @@
 #else
 #define RTC_API __declspec(dllimport)
 #endif
-#elif __linux__
+#elif defined(__linux__) && (defined(__GNUC__) || defined(__clang__))
+#define RTC_API __attribute__((visibility("default")))
+#else
 #define RTC_API
 #endif
 

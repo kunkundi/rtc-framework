@@ -426,6 +426,19 @@ local function add_linux_runtime_rpath()
     end
 end
 
+local function add_linux_symbol_visibility(version_script)
+    if not on_linux() then
+        return
+    end
+
+    add_cxflags("-fvisibility=hidden", "-fvisibility-inlines-hidden", {force = true})
+    add_shflags(
+        "-Wl,--exclude-libs,ALL",
+        "-Wl,--version-script=" .. path.absolute(version_script),
+        {force = true}
+    )
+end
+
 local vtsrtc_target = is_aarch64_arch() and "vtsrtc_aarch64" or "vtsrtc"
 
 target(vtsrtc_target)
@@ -474,6 +487,7 @@ target(vtsrtc_target)
     add_spdlog_config()
     add_webrtc_config()
     add_linux_runtime_rpath()
+    add_linux_symbol_visibility(path.join("vtsrtc", "vtsrtc.map"))
 
     if is_aarch64_arch() then
         if not get_config("use_default_jetson_encoder") then
