@@ -8,11 +8,10 @@
 #include <atomic>
 #include <chrono>
 #include <climits>
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -53,33 +52,9 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   void OnLossNotification(const LossNotification& loss_notification) override;
 
  private:
-  struct EncoderSlot {
-    std::unique_ptr<JetsonEncoder> encoder;
-    unsigned int width = 0;
-    unsigned int height = 0;
-    uint64_t token = 0;
-  };
-
-  bool CreateEncoderSlot(unsigned int width,
-                         unsigned int height,
-                         EncoderSlot* slot);
-  bool EnsureActiveEncoderForResolution(unsigned int width,
-                                        unsigned int height);
-  void ResetEncoderSlots();
+  bool EnsureEncoderForResolution(unsigned int width, unsigned int height);
+  JetsonEncoder::StrategyConfig BuildStrategyConfig() const;
   void ApplyRatesToEncoder(JetsonEncoder* encoder);
-  bool PrewarmStandbyForActiveResolution(unsigned int active_width,
-                                         unsigned int active_height);
-  std::pair<unsigned int, unsigned int> SelectPrewarmResolution(
-      unsigned int active_width,
-      unsigned int active_height) const;
-  void StartPrewarmWorker();
-  void StopPrewarmWorker();
-  void RequestAsyncPrewarm(unsigned int active_width,
-                           unsigned int active_height);
-  void PrewarmWorkerLoop();
-
-  void ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate);
-  void ReconfigureEncoderIDR();
   void InitializeResolutionBitrateLimits();
 
   void ReportInit();
@@ -89,19 +64,9 @@ class JetsonH264EncoderImpl : public VideoEncoder {
                  bool is_keyframe, int64_t encode_duration_us = 0);
 
  private:
-  EncoderSlot active_encoder_;
-  EncoderSlot standby_encoder_;
-  std::mutex encoder_slots_mutex_;
-  std::atomic<uint64_t> next_encoder_token_{1};
-  std::atomic<uint64_t> active_encoder_token_{0};
-
-  std::thread prewarm_thread_;
-  std::mutex prewarm_mutex_;
-  std::condition_variable prewarm_cv_;
-  bool prewarm_stop_ = true;
-  bool prewarm_request_pending_ = false;
-  unsigned int prewarm_request_active_width_ = 0;
-  unsigned int prewarm_request_active_height_ = 0;
+  std::unique_ptr<JetsonEncoder> encoder_;
+  std::mutex encoder_mutex_;
+  std::atomic<uint64_t> encoder_generation_{0};
 
   EncodedImage encoded_image_;
   size_t encoded_image_capacity_ = 0;
@@ -123,6 +88,11 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   unsigned int height_ = 0;
   unsigned int fps_ = 30;
   unsigned int bitrate_ = 25000000;
+  unsigned int bitrate_floor_bps_ = 0;
+  unsigned int gop_size_ = 3000;
+  unsigned int bitrate_cap_bps_ = 100000000;
+  std::pair<unsigned int, unsigned int> qp_range_ = {0u, 0u};
+  std::string bitrate_mode_ = "cbr";
   bool has_configured_playout_delay_ = false;
   int configured_playout_delay_min_ms_ = -1;
   int configured_playout_delay_max_ms_ = -1;

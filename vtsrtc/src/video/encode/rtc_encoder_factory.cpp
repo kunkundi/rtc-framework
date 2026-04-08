@@ -48,31 +48,10 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
               "USE_DEFAULT_JETSON_ENCODER is enabled");
     return nullptr;
 #else
-    const bool use_legacy_gstreamer_alias =
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "gstreamer-jetson") ||
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "gstreamer-jetson-experimental") ||
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "gstreamer") ||
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "gstreamer-experimental");
     const bool use_rasp =
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder, "rasp") ||
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "raspberrypi") ||
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "gstreamer-rasp") ||
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "gstreamer-raspberrypi");
-    const bool use_nvidia_jetson =
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "nvidia-jetson") ||
+        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder, "rasp");
+    const bool use_jetson =
         absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder, "jetson");
-    const bool use_legacy_ffmpeg_alias =
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder,
-                               "ffmpeg-jetson") ||
-        absl::EqualsIgnoreCase(rtc_config_.jetson_h264_encoder, "ffmpeg");
 
     if (use_rasp) {
 #ifdef VTSRTC_HAS_GSTREAMER
@@ -84,42 +63,24 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
 #else
       LOG_WARN(
           "[WEBRTC] Raspberry Pi encoder requested but GStreamer support is "
-          "not built in, fallback to nvidia-jetson");
+          "not built in, fallback to jetson");
 #endif
     }
 
-    if (use_legacy_gstreamer_alias) {
-      LOG_WARN(
-          "[WEBRTC] jetson_h264_encoder=%s is deprecated because the "
-          "gstreamer Jetson encoder path has been removed. Falling "
-          "back to nvidia-jetson",
-          rtc_config_.jetson_h264_encoder.c_str());
-    }
-
-    if (use_legacy_ffmpeg_alias) {
-      LOG_WARN(
-          "[WEBRTC] jetson_h264_encoder=%s is deprecated because the ffmpeg "
-          "Jetson encoder path has been removed. Falling back to "
-          "nvidia-jetson",
-          rtc_config_.jetson_h264_encoder.c_str());
-    }
-
-    if (use_nvidia_jetson || use_legacy_ffmpeg_alias) {
-      LOG_INFO("[WEBRTC] Select runtime Jetson H264 encoder: nvidia-jetson");
+    if (use_jetson) {
+      LOG_INFO("[WEBRTC] Select runtime Jetson H264 encoder: jetson");
       return std::make_unique<JetsonH264EncoderImpl>(
           cricket::VideoCodec(format), rtc_config_);
     }
 
-    if (!use_legacy_gstreamer_alias && !use_rasp && !use_nvidia_jetson) {
+    if (!use_rasp) {
       LOG_WARN(
           "[WEBRTC] Unknown jetson_h264_encoder value: %s, supported values "
-          "are nvidia-jetson/jetson, "
-          "rasp/raspberrypi/gstreamer-rasp/gstreamer-raspberrypi. "
-          "Fallback to nvidia-jetson",
+          "are jetson/rasp. Fallback to jetson",
           rtc_config_.jetson_h264_encoder.c_str());
     }
 
-    LOG_INFO("[WEBRTC] Select runtime Jetson H264 encoder: nvidia-jetson");
+    LOG_INFO("[WEBRTC] Select runtime Jetson H264 encoder: jetson");
     return std::make_unique<JetsonH264EncoderImpl>(
         cricket::VideoCodec(format), rtc_config_);
 #endif

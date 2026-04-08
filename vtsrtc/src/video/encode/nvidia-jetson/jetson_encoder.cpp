@@ -22,9 +22,11 @@ const uint32_t DQ_THREAD_WAIT_TIMEOUT_MS = 1000;
 
 std::unique_ptr<JetsonEncoder> JetsonEncoder::Create(int width, int height,
                                                      uint32_t dst_pix_fmt,
-                                                     bool is_dma_src) {
+                                                     bool is_dma_src,
+                                                     const StrategyConfig& config) {
   auto ptr =
       std::make_unique<JetsonEncoder>(width, height, dst_pix_fmt, is_dma_src);
+  ptr->SetStrategyConfig(config);
   if (!ptr->CreateVideoEncoder()) {
     return nullptr;
   }
@@ -48,7 +50,8 @@ JetsonEncoder::JetsonEncoder(int width, int height, uint32_t dst_pix_fmt,
       is_dma_src_(is_dma_src),
       packets_buf_size_(CHUNK_SIZE),
       packets_num_(BUFFER_NUM),
-      buf_index_(0) {
+      buf_index_(0),
+      strategy_config_{} {
   for (int i = 0; i < MAX_BUFFERS; i++) {
     packets_[i] = nullptr;
   }
@@ -176,22 +179,45 @@ bool JetsonEncoder::ApplyCodecSettings() {
     }
   }
 
-  ret = encoder_->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_CBR);
+  ret = encoder_->setRateControlMode(strategy_config_.bitrate_mode);
   if (ret < 0) {
     LOG_ERROR("Could not set rate control mode");
     return false;
   }
 
-  ret = encoder_->setIDRInterval(KEY_FRAME_INTERVAL);
+  if (strategy_config_.bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR) {
+    const uint32_t peak_bitrate = std::max<uint32_t>(
+        static_cast<uint32_t>(bitrate_bps_),
+        static_cast<uint32_t>(bitrate_bps_ + bitrate_bps_ / 2));
+    ret = encoder_->setPeakBitrate(peak_bitrate);
+    if (ret < 0) {
+      LOG_WARN("Could not set encoder peak bitrate");
+    }
+  }
+
+  const uint32_t key_frame_interval =
+      std::max<uint32_t>(1, strategy_config_.gop_size);
+
+  ret = encoder_->setIDRInterval(key_frame_interval);
   if (ret < 0) {
     LOG_ERROR("Could not set IDR interval");
     return false;
   }
 
-  ret = encoder_->setIFrameInterval(KEY_FRAME_INTERVAL);
+  ret = encoder_->setIFrameInterval(key_frame_interval);
   if (ret < 0) {
     LOG_ERROR("Could not set I-frame interval");
     return false;
+  }
+
+  if (strategy_config_.has_qp_range) {
+    ret = encoder_->setQpRange(strategy_config_.qp_min, strategy_config_.qp_max,
+                               strategy_config_.qp_min, strategy_config_.qp_max,
+                               strategy_config_.qp_min,
+                               strategy_config_.qp_max);
+    if (ret < 0) {
+      LOG_WARN("Could not set encoder qp range");
+    }
   }
 
   ret = encoder_->setFrameRate(framerate_, 1);
@@ -214,6 +240,18 @@ bool JetsonEncoder::ApplyCodecSettings() {
   }
 
   return true;
+}
+
+void JetsonEncoder::SetStrategyConfig(const StrategyConfig& config) {
+  strategy_config_ = config;
+  if (strategy_config_.gop_size == 0) {
+    strategy_config_.gop_size = KEY_FRAME_INTERVAL;
+  }
+
+  if (strategy_config_.has_qp_range &&
+      strategy_config_.qp_max < strategy_config_.qp_min) {
+    std::swap(strategy_config_.qp_min, strategy_config_.qp_max);
+  }
 }
 
 bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
@@ -341,6 +379,16 @@ void JetsonEncoder::SetBitrate(int adjusted_bitrate_bps) {
     int ret = encoder_->setBitrate(adjusted_bitrate_bps);
     if (ret < 0) {
       LOG_ERROR("Could not set encoder bitrate");
+    }
+
+    if (strategy_config_.bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR) {
+      const uint32_t peak_bitrate = std::max<uint32_t>(
+          static_cast<uint32_t>(bitrate_bps_),
+          static_cast<uint32_t>(bitrate_bps_ + bitrate_bps_ / 2));
+      ret = encoder_->setPeakBitrate(peak_bitrate);
+      if (ret < 0) {
+        LOG_WARN("Could not set encoder peak bitrate");
+      }
     }
   }
 }

@@ -20,17 +20,28 @@ namespace webrtc {
 
 class JetsonEncoder {
  public:
+  struct StrategyConfig {
+    enum v4l2_mpeg_video_bitrate_mode bitrate_mode =
+        V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
+    uint32_t gop_size = 3000;
+    bool has_qp_range = false;
+    uint32_t qp_min = 0;
+    uint32_t qp_max = 0;
+  };
+
   JetsonEncoder(int width, int height, uint32_t dst_pix_fmt, bool is_dma_src);
   ~JetsonEncoder();
 
   static std::unique_ptr<JetsonEncoder> Create(int width, int height,
                                                 uint32_t dst_pix_fmt,
-                                                bool is_dma_src);
+                                                bool is_dma_src,
+                                                const StrategyConfig& config);
 
   void EmplaceBuffer(rtc::scoped_refptr<I420BufferInterface> i420_buffer,
                      std::function<void(const uint8_t* data, size_t size,
                                         bool is_keyframe, uint64_t timestamp)>
                          on_capture);
+  void SetStrategyConfig(const StrategyConfig& config);
   void ForceKeyFrame();
   void SetFps(int fps);
   void SetBitrate(int bitrate_bps);
@@ -70,6 +81,7 @@ class JetsonEncoder {
   uint32_t packets_buf_size_;
   uint32_t packets_num_;
   int buf_index_;
+  StrategyConfig strategy_config_;
 
   bool CreateVideoEncoder();
   bool ApplyCodecSettings();

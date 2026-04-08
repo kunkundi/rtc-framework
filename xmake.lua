@@ -240,7 +240,6 @@ local function add_jetson_h264_encoder_config()
     add_files(
         "vtsrtc/src/video/encode/nvidia-jetson/jetsonh264_encoder_impl.cpp",
         "vtsrtc/src/video/encode/nvidia-jetson/jetson_encoder.cpp",
-        "vtsrtc/src/video/encode/nvidia-jetson/nvmpi_enc.cpp",
         "vtsrtc/src/video/encode/nvidia-jetson/NvVideoEncoder.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2ElementPlane.cpp",

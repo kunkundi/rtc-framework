@@ -1,0 +1,7 @@
+VTSRTC_1.0 {
+    global:
+        Rtc*;
+
+    local:
+        *;
+};
