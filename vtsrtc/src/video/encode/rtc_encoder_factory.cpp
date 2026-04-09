@@ -12,7 +12,7 @@
 #include "rasp/rasp_h264_encoder_impl.h"
 #endif
 #endif
-#else
+#elif defined(VTSRTC_HAS_CUDA_DRIVER) && VTSRTC_HAS_CUDA_DRIVER
 #include "nvidia/nvh264_encoder_impl.h"
 #endif
 
@@ -34,7 +34,11 @@ VideoEncoderFactory::CodecInfo RtcEncoderFactory::QueryVideoEncoder(
     const SdpVideoFormat& format) const {
   CodecInfo info;
   info.has_internal_source = false;
+#if !defined(__aarch64__) && (!defined(VTSRTC_HAS_CUDA_DRIVER) || !VTSRTC_HAS_CUDA_DRIVER)
+  info.is_hardware_accelerated = false;
+#else
   info.is_hardware_accelerated = true;
+#endif
 
   return info;
 }
@@ -85,9 +89,14 @@ std::unique_ptr<VideoEncoder> RtcEncoderFactory::CreateVideoEncoder(
         cricket::VideoCodec(format), rtc_config_);
 #endif
 #else
+#if defined(VTSRTC_HAS_CUDA_DRIVER) && VTSRTC_HAS_CUDA_DRIVER
     LOG_INFO("[WEBRTC] Select runtime H264 encoder: nvidia-nvenc");
     return std::make_unique<NvH264EncoderImpl>(cricket::VideoCodec(format),
                                                rtc_config_);
+#else
+    LOG_ERROR("[WEBRTC] RtcEncoderFactory was built without CUDA/NVENC support");
+    return nullptr;
+#endif
 #endif
   }
 

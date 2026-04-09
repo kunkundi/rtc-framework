@@ -4,6 +4,9 @@
 #include <cctype>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -17,6 +20,42 @@ std::string NormalizeEncoderName(const std::string& value) {
 bool IsRaspEncoder(const std::string& value) {
 	const auto normalized = NormalizeEncoderName(value);
 	return normalized == "rasp";
+}
+
+bool HasNvCodecRuntimeSupport() {
+#if defined __aarch64__
+	return true;
+#elif !defined(VTSRTC_HAS_CUDA_DRIVER) || !VTSRTC_HAS_CUDA_DRIVER
+	return false;
+#elif defined(_WIN32)
+	const char* const dll_names[] = { "nvcuda.dll", "nvcuvid.dll", "nvEncodeAPI64.dll" };
+	for (const char* dll_name : dll_names) {
+		HMODULE dll_handle = LoadLibraryA(dll_name);
+		if (!dll_handle) {
+			return false;
+		}
+		FreeLibrary(dll_handle);
+	}
+	return true;
+#else
+	return true;
+#endif
+}
+
+void NormalizeHardwareCodecAvailability(vts_rtc::RtcConfig& rtc_config) {
+	const bool has_nvcodec_runtime = HasNvCodecRuntimeSupport();
+	if (rtc_config.use_NVENC && !has_nvcodec_runtime) {
+		LOG_WARN("use_NVENC=true but CUDA/NVENC runtime is unavailable, fallback to builtin video encoder");
+		rtc_config.use_NVENC = false;
+	}
+
+	if (rtc_config.use_NVDEC && !has_nvcodec_runtime) {
+		LOG_WARN("use_NVDEC=true but CUDA/NVDEC runtime is unavailable, fallback to builtin video decoder");
+		rtc_config.use_NVDEC = false;
+	}
+#if defined __aarch64__
+	(void)has_nvcodec_runtime;
+#endif
 }
 
 void NormalizeHardwareEncoderSelection(vts_rtc::RtcConfig& rtc_config,
@@ -253,6 +292,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	}
 
 	NormalizeHardwareEncoderSelection(rtc_config, has_explicit_jetson_h264_encoder);
+	NormalizeHardwareCodecAvailability(rtc_config);
 
 	const bool use_rasp_encoder = IsRaspEncoder(rtc_config.jetson_h264_encoder);
 	if (use_rasp_encoder) {
@@ -312,6 +352,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 	NormalizeHardwareEncoderSelection(
 		normalized_rtc_config,
 		IsRaspEncoder(normalized_rtc_config.jetson_h264_encoder));
+	NormalizeHardwareCodecAvailability(normalized_rtc_config);
 
 	auto rtc_agent = std::shared_ptr<RtcAgent>(new RtcAgent(
 		normalized_rtc_config,

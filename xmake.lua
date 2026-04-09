@@ -140,6 +140,13 @@ local function add_nvcodec_config()
     if on_windows() then
         add_linkdirs(path.join(sdk_root, "Lib", "x64"))
         add_links("nvcuvid", "nvencodeapi")
+        add_syslinks("delayimp")
+        add_ldflags(
+            "/DELAYLOAD:nvcuda.dll",
+            "/DELAYLOAD:nvcuvid.dll",
+            "/DELAYLOAD:nvEncodeAPI64.dll",
+            {force = true}
+        )
     elseif on_linux() then
         local arch_dir = is_aarch64_arch() and "aarch64" or "x86_64"
         add_linkdirs(path.join(sdk_root, "Lib", "linux", "stubs", arch_dir))

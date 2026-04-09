@@ -2,7 +2,9 @@
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
 #include "log/log_manager.h"
+#if defined(VTSRTC_HAS_CUDA_DRIVER) && VTSRTC_HAS_CUDA_DRIVER
 #include "nvidia/nvh264_decoder_impl.h"
+#endif
 #include "rtc_decoder_factory.h"
 
 namespace webrtc {
@@ -21,7 +23,12 @@ std::vector<SdpVideoFormat> RtcDecoderFactory::GetSupportedFormats() const {
 std::unique_ptr<VideoDecoder> RtcDecoderFactory::CreateVideoDecoder(
 	const SdpVideoFormat& format) {
 	if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
+#if defined(VTSRTC_HAS_CUDA_DRIVER) && VTSRTC_HAS_CUDA_DRIVER
 		return std::make_unique<NvH264DecoderImpl>(cricket::VideoCodec(format));
+#else
+		LOG_ERROR("[WEBRTC] RtcDecoderFactory was built without CUDA/NVDEC support");
+		return nullptr;
+#endif
 	}
 
 	LOG_ERROR("[WEBRTC] Trying to created decoder of unsupported format %s",

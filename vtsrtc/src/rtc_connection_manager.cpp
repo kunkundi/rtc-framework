@@ -1,7 +1,3 @@
-﻿#if !defined __aarch64__
-#include <cuda.h>
-#endif
-
 #include "http_status_code.hpp"
 #include "rtc_connection_manager.h"
 #include "video/decode/rtc_decoder_factory.h"
@@ -192,12 +188,17 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 #if defined __aarch64__
     LOG_INFO("Use hardware H264 video encoder (%s).",
              rtc_config_.jetson_h264_encoder.c_str());
-#else
+#elif defined(VTSRTC_HAS_CUDA_DRIVER) && VTSRTC_HAS_CUDA_DRIVER
     LOG_INFO("Use hardware H264 video encoder (nvidia-nvenc).");
+#else
+    LOG_WARN("use_NVENC=true but this build has no CUDA/NVENC support, fallback to builtin video encoder.");
+    video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
 #endif
+#if defined __aarch64__ || (defined(VTSRTC_HAS_CUDA_DRIVER) && VTSRTC_HAS_CUDA_DRIVER)
     video_encoder_factory = std::make_unique<webrtc::RtcEncoderFactory>();
     dynamic_cast<webrtc::RtcEncoderFactory*>(video_encoder_factory.get())
         ->setConfig(rtc_config_);
+#endif
 #endif
   } else {
     LOG_INFO("Use builtin video encoder.");
@@ -205,11 +206,15 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
   }
 
   if (rtc_config_.use_NVDEC) {
-    LOG_INFO("Use Nvidia H264 video decoder.");
 #if defined __aarch64__
+    LOG_INFO("Use Nvidia H264 video decoder.");
     video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
-#else
+#elif defined(VTSRTC_HAS_CUDA_DRIVER) && VTSRTC_HAS_CUDA_DRIVER
+    LOG_INFO("Use Nvidia H264 video decoder.");
     video_decoder_factory = std::make_unique<webrtc::RtcDecoderFactory>();
+#else
+    LOG_WARN("use_NVDEC=true but this build has no CUDA/NVDEC support, fallback to builtin video decoder.");
+    video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
 #endif
   } else {
     LOG_INFO("Use builtin video decoder.");
