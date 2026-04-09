@@ -35,6 +35,12 @@ option("enable_encode_perf_stats")
     set_description("Enable encode performance statistics")
 option_end()
 
+option("enable_cuda")
+    set_default(true)
+    set_showmenu(true)
+    set_description("Enable CUDA/NVENC/NVDEC support when the toolkit is available")
+option_end()
+
 local function is_aarch64_arch()
     return is_arch("aarch64", "arm64")
 end
@@ -279,6 +285,10 @@ local function add_rasp_h264_encoder_config()
 end
 
 local function add_cuda_driver_config()
+    if not get_config("enable_cuda") then
+        return false
+    end
+
     local cuda_include_candidates = {}
     local cuda_path = os.getenv("CUDA_PATH")
     local cuda_home = os.getenv("CUDA_HOME")
@@ -353,6 +363,10 @@ local function add_cuda_driver_config()
 end
 
 local function add_cuda_runtime_config()
+    if not get_config("enable_cuda") then
+        return false
+    end
+
     local cuda_include_candidates = {}
     local cuda_lib_candidates = {}
     local cuda_path = os.getenv("CUDA_PATH")
@@ -516,7 +530,11 @@ target(vtsrtc_target)
             add_nvcodec_config()
         else
             add_defines("VTSRTC_HAS_CUDA_DRIVER=0")
-            print("warning: CUDA toolkit not found, NVENC/NVDEC sources are disabled for this build")
+            if get_config("enable_cuda") then
+                print("warning: CUDA toolkit not found, NVENC/NVDEC sources are disabled for this build")
+            else
+                print("warning: CUDA support disabled by build config, NVENC/NVDEC sources are disabled for this build")
+            end
         end
     end
 
