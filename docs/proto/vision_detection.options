@@ -1,0 +1,8 @@
+vtsrtc.vision.v1.ClassMap.model_name max_size:32
+vtsrtc.vision.v1.ClassMap.model_version max_size:32
+vtsrtc.vision.v1.ClassMap.classes max_count:256
+
+vtsrtc.vision.v1.ClassInfo.label max_size:32
+
+vtsrtc.vision.v1.DetectionFrame.source_id max_size:32
+vtsrtc.vision.v1.DetectionFrame.detections max_count:64

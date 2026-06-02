@@ -1,0 +1,17 @@
+option("use_default_jetson_encoder")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Use default Jetson encoder from WebRTC")
+option_end()
+
+option("enable_encode_perf_stats")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable encode performance statistics")
+option_end()
+
+option("enable_cuda")
+    set_default(true)
+    set_showmenu(true)
+    set_description("Enable CUDA/NVENC/NVDEC support when the toolkit is available")
+option_end()

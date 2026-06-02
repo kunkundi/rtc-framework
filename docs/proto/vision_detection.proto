@@ -1,0 +1,83 @@
+syntax = "proto2";
+
+package vtsrtc.vision.v1;
+
+// Binary protocol for object detection metadata sent over RTC DataChannel.
+// Field numbers must never be reused. Add new optional fields for compatible
+// evolution, and reserve removed field numbers/names.
+
+enum VisionMessageType {
+  VISION_MESSAGE_TYPE_UNKNOWN = 0;
+  VISION_MESSAGE_TYPE_CAPABILITY = 1;
+  VISION_MESSAGE_TYPE_CLASS_MAP = 2;
+  VISION_MESSAGE_TYPE_DETECTION_FRAME = 3;
+}
+
+enum CoordType {
+  COORD_TYPE_UNKNOWN = 0;
+  // x/y/w/h are uint16-normalized to the original frame size.
+  COORD_TYPE_NORM_U16_XYWH = 1;
+  // x1/y1/x2/y2 are uint16-normalized to the original frame size.
+  COORD_TYPE_NORM_U16_XYXY = 2;
+  // x/y/w/h are integer pixels in the original frame.
+  COORD_TYPE_PIXEL_I32_XYWH = 3;
+}
+
+message VisionEnvelope {
+  // ASCII "VDT1" as little-endian uint32: 0x31544456.
+  optional uint32 magic = 1;
+  optional uint32 protocol_major = 2;
+  optional uint32 protocol_minor = 3;
+  optional VisionMessageType type = 4;
+  optional uint32 seq = 5;
+
+  optional Capability capability = 10;
+  optional ClassMap class_map = 11;
+  optional DetectionFrame detection_frame = 12;
+}
+
+message Capability {
+  optional uint32 max_detections_per_frame = 1;
+  optional uint32 supported_coord_types = 2;
+  optional uint32 max_source_id_size = 3;
+  optional uint32 max_label_size = 4;
+}
+
+message ClassMap {
+  optional uint32 map_version = 1;
+  optional string model_name = 2;
+  optional string model_version = 3;
+  repeated ClassInfo classes = 4;
+}
+
+message ClassInfo {
+  optional uint32 class_id = 1;
+  optional string label = 2;
+  // Optional ARGB color for rendering, e.g. 0xff00ff66.
+  optional uint32 color_argb = 3;
+}
+
+message DetectionFrame {
+  optional string source_id = 1;
+  optional uint64 frame_id = 2;
+  optional uint64 capture_ts_ms = 3;
+  optional uint32 frame_width = 4;
+  optional uint32 frame_height = 5;
+  optional uint32 class_map_version = 6;
+  optional CoordType coord_type = 7 [default = COORD_TYPE_NORM_U16_XYWH];
+  repeated Detection detections = 8;
+}
+
+message Detection {
+  optional uint32 class_id = 1;
+  // Confidence is quantized to 0..1000.
+  optional uint32 confidence = 2;
+  // Meaning depends on DetectionFrame.coord_type.
+  optional uint32 x = 3;
+  optional uint32 y = 4;
+  optional uint32 w = 5;
+  optional uint32 h = 6;
+  optional uint32 detection_id = 7;
+  optional uint32 track_id = 8;
+  optional uint32 flags = 9;
+}
