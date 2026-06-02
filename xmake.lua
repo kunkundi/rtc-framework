@@ -41,10 +41,6 @@ option("enable_cuda")
     set_description("Enable CUDA/NVENC/NVDEC support when the toolkit is available")
 option_end()
 
-local function is_aarch64_arch()
-    return is_arch("aarch64", "arm64")
-end
-
 local reported_failures = {}
 local function fail(format, ...)
     local message = string.format(format, ...)
@@ -53,6 +49,19 @@ local function fail(format, ...)
         reported_failures[message] = true
     end
     return nil
+end
+
+local function get_bool_config(name, default)
+    local value = get_config(name)
+    if value == nil then
+        return default
+    end
+    return value
+end
+
+local function is_aarch64_arch()
+    local arch = get_config("arch") or os.arch()
+    return arch == "aarch64" or arch == "arm64"
 end
 
 local function webrtc_root_dir()
@@ -285,7 +294,7 @@ local function add_rasp_h264_encoder_config()
 end
 
 local function add_cuda_driver_config()
-    if not get_config("enable_cuda") then
+    if not get_bool_config("enable_cuda", true) then
         return false
     end
 
@@ -363,7 +372,7 @@ local function add_cuda_driver_config()
 end
 
 local function add_cuda_runtime_config()
-    if not get_config("enable_cuda") then
+    if not get_bool_config("enable_cuda", true) then
         return false
     end
 
@@ -530,7 +539,7 @@ target(vtsrtc_target)
             add_nvcodec_config()
         else
             add_defines("VTSRTC_HAS_CUDA_DRIVER=0")
-            if get_config("enable_cuda") then
+            if get_bool_config("enable_cuda", true) then
                 print("warning: CUDA toolkit not found, NVENC/NVDEC sources are disabled for this build")
             else
                 print("warning: CUDA support disabled by build config, NVENC/NVDEC sources are disabled for this build")
@@ -572,7 +581,7 @@ target("p2p_imgui")
     add_packages("imgui")
 
     add_files(
-        "vtsrtc/examples_imgui/main.cpp"
+        "vtsrtc/p2p_imgui/main.cpp"
     )
 
     add_includedirs("vtsrtc/src")
@@ -598,45 +607,87 @@ if on_linux() then
         add_deps(vtsrtc_target)
 
         add_files(
-            "vtsrtc/examples_imgui/rtc_camera_headless.cpp",
-            "vtsrtc/examples_imgui/rtc_camera_common.cpp",
-            "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
-            "vtsrtc/examples_imgui/rtc_headless_session.cpp",
-            "vtsrtc/examples_imgui/uyvy_to_i420_cuda.cu"
+            "vtsrtc/rtc_camera_headless/app/main.cpp",
+            "vtsrtc/rtc_camera_headless/src/internal/uyvy_to_i420_cuda.cu",
+            "vtsrtc/rtc_headless_common/rtc_camera_common.cpp",
+            "vtsrtc/rtc_headless_common/rtc_headless_session.cpp",
+            "vtsrtc/rtc_headless_common/uyvy_v4l2_camera.cpp"
         )
 
-        add_includedirs("vtsrtc/src")
+        add_includedirs(
+            "vtsrtc/src",
+            "vtsrtc/rtc_camera_headless/src/internal",
+            "vtsrtc/rtc_headless_common"
+        )
         add_linux_runtime_rpath()
         add_syslinks("pthread")
         add_cuflags("--std=c++14")
 
         if not add_cuda_runtime_config() then
-            raise("CUDA runtime not found for rtc_camera_headless")
+            fail("CUDA runtime not found for rtc_camera_headless")
+            set_enabled(false)
         end
 
         after_buildcmd(function(target, batchcmds)
             batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
         end)
 
-    target("rtc_dual_camera_headless")
-        set_kind("binary")
-        add_deps(vtsrtc_target)
+    target("rtc_dual_camera_image_source")
+        set_kind("static")
+        set_policy("build.cuda.devlink", true)
 
         add_files(
-            "vtsrtc/examples_imgui/rtc_dual_camera_headless.cpp",
-            "vtsrtc/examples_imgui/dual_uyvy_to_i420_stitch_cuda.cu",
-            "vtsrtc/examples_imgui/rtc_camera_common.cpp",
-            "vtsrtc/examples_imgui/uyvy_v4l2_camera.cpp",
-            "vtsrtc/examples_imgui/rtc_headless_session.cpp"
+            "vtsrtc/rtc_dual_camera_headless/src/dual_camera_async_image_source.cpp",
+            "vtsrtc/rtc_dual_camera_headless/src/internal/async_dual_camera_video_source.cpp",
+            "vtsrtc/rtc_dual_camera_headless/src/internal/dual_uyvy_to_i420_stitch_cuda.cu",
+            "vtsrtc/rtc_headless_common/rtc_camera_common.cpp",
+            "vtsrtc/rtc_headless_common/uyvy_v4l2_camera.cpp"
         )
 
-        add_includedirs("vtsrtc/src")
-        add_linux_runtime_rpath()
+        add_includedirs(
+            "vtsrtc/rtc_dual_camera_headless/include",
+            {public = true}
+        )
+        add_includedirs(
+            "vtsrtc/rtc_dual_camera_headless/src/internal",
+            "vtsrtc/rtc_headless_common",
+            "vtsrtc/src"
+        )
         add_syslinks("pthread")
         add_cuflags("--std=c++14")
 
         if not add_cuda_runtime_config() then
-            raise("CUDA runtime not found for rtc_dual_camera_headless")
+            fail("CUDA runtime not found for rtc_dual_camera_image_source")
+            set_enabled(false)
+        end
+
+        add_installfiles(
+            "vtsrtc/rtc_dual_camera_headless/include/rtc_dual_camera/dual_camera_async_image_source.h",
+            {prefixdir = "vtsrtc/include/rtc_dual_camera"}
+        )
+
+    target("rtc_dual_camera_headless")
+        set_kind("binary")
+        add_deps(vtsrtc_target, "rtc_dual_camera_image_source")
+
+        add_files(
+            "vtsrtc/rtc_dual_camera_headless/app/main.cpp",
+            "vtsrtc/rtc_dual_camera_headless/consumers/yolo_frame_consumer.cpp",
+            "vtsrtc/rtc_headless_common/rtc_headless_session.cpp"
+        )
+
+        add_includedirs(
+            "vtsrtc/src",
+            "vtsrtc/rtc_headless_common",
+            "vtsrtc/rtc_dual_camera_headless/include",
+            "vtsrtc/rtc_dual_camera_headless/consumers"
+        )
+        add_linux_runtime_rpath()
+        add_syslinks("pthread")
+
+        if not add_cuda_runtime_config() then
+            fail("CUDA runtime not found for rtc_dual_camera_headless")
+            set_enabled(false)
         end
 
         after_buildcmd(function(target, batchcmds)
@@ -648,12 +699,15 @@ if on_linux() then
         add_deps(vtsrtc_target)
 
         add_files(
-            "vtsrtc/examples_imgui/rtc_receiver_headless.cpp",
-            "vtsrtc/examples_imgui/rtc_camera_common.cpp",
-            "vtsrtc/examples_imgui/rtc_headless_session.cpp"
+            "vtsrtc/rtc_receiver_headless/app/main.cpp",
+            "vtsrtc/rtc_headless_common/rtc_camera_common.cpp",
+            "vtsrtc/rtc_headless_common/rtc_headless_session.cpp"
         )
 
-        add_includedirs("vtsrtc/src")
+        add_includedirs(
+            "vtsrtc/src",
+            "vtsrtc/rtc_headless_common"
+        )
         add_linux_runtime_rpath()
         add_syslinks("pthread")
 
