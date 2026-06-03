@@ -7,6 +7,7 @@ namespace rtc_camera_headless {
 namespace {
 
 constexpr const char* kDataChannelLabel = "datachannel";
+constexpr const char* kVisionDetectionChannelLabel = "vision.detect.v1";
 constexpr const char* kExternalVideoSource = "merged_image";
 
 const char* ServerStateText(RtcServerConnectionState state) {
@@ -105,6 +106,10 @@ bool RtcHeadlessSession::Init() {
     const RtcErrorCode dc_code =
         RtcAddDataChannel(kDataChannelLabel, RtcPriorityType::High, true, -1);
     LogRtcCall("RtcAddDataChannel", dc_code);
+
+    const RtcErrorCode vision_dc_code = RtcAddDataChannel(
+        kVisionDetectionChannelLabel, RtcPriorityType::Medium, false, 0);
+    LogRtcCall("RtcAddDataChannel(vision.detect.v1)", vision_dc_code);
   }
 
   if (features_.enable_external_video_source) {

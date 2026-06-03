@@ -1,4 +1,5 @@
 #include "c_rtc.h"
+#include "vision_detection_codec.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
@@ -98,6 +99,18 @@ struct VideoTextureView {
   bool uploaded_with_lr_interleave = false;
   std::vector<unsigned char> remapped_buffer;
 };
+
+struct VisionDetectionOverlayView {
+  vts_rtc::vision::FrameDetections frame_detections;
+  std::chrono::steady_clock::time_point updated_at;
+};
+
+std::string MakeVideoStreamKey(RtcSessionId remote_sessionid,
+                               const std::string& source_id) {
+  std::ostringstream key;
+  key << remote_sessionid << ":" << source_id;
+  return key.str();
+}
 
 size_t ScaleIndexNearest(size_t dst_index, size_t dst_count, size_t src_count) {
   if (src_count <= 1 || dst_count <= 1) {
@@ -719,10 +732,19 @@ class RtcImguiApp {
     const RtcErrorCode dc_code =
         RtcAddDataChannel(kDataChannelLabel, RtcPriorityType::High, true, -1);
     if (dc_code != RtcErrorCode::OK) {
-      AppendLogWithCode("RtcAddDataChannel", dc_code);
+      AppendLogWithCode("RtcAddDataChannel(datachannel)", dc_code);
       return false;
     }
-    AppendLog("RtcAddDataChannel success");
+    AppendLog("RtcAddDataChannel(datachannel) success");
+
+    const RtcErrorCode vision_dc_code = RtcAddDataChannel(
+        vts_rtc::vision::kVisionDetectionChannelLabel, RtcPriorityType::Medium,
+        false, 0);
+    if (vision_dc_code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcAddDataChannel(vision.detect.v1)", vision_dc_code);
+      return false;
+    }
+    AppendLog("RtcAddDataChannel(vision.detect.v1) success");
 
     rtc_inited_ = true;
     LoadVideoSourceList();
@@ -1229,6 +1251,7 @@ class RtcImguiApp {
     draw_list->PushClipRect(box_min, box_max, true);
     draw_list->AddImage((ImTextureID)(intptr_t)tex_it->second.texture, image_min,
                         image_max, ImVec2(0, 0), ImVec2(1, 1));
+    DrawVisionDetectionOverlay(frame, image_min, image_max, draw_list);
     draw_list->PopClipRect();
     draw_list->AddRect(box_min, box_max,
                        hovered || fullscreen_mode
@@ -1262,6 +1285,135 @@ class RtcImguiApp {
                  hint_min.y + kVideoOverlayPadding),
           IM_COL32(235, 235, 235, 255), hint_text);
       draw_list->PopClipRect();
+    }
+  }
+
+  bool DetectionRectInImage(
+      const vts_rtc::vision::FrameDetections& frame_detections,
+      const vts_rtc::vision::Detection& detection,
+      const VideoFrameView& frame,
+      const ImVec2& image_min,
+      const ImVec2& image_max,
+      ImVec2* rect_min,
+      ImVec2* rect_max) const {
+    if (!rect_min || !rect_max || image_max.x <= image_min.x ||
+        image_max.y <= image_min.y) {
+      return false;
+    }
+
+    const float image_width = image_max.x - image_min.x;
+    const float image_height = image_max.y - image_min.y;
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+
+    if (frame_detections.coord_type ==
+        vts_rtc::vision::CoordType::NormU16Xywh) {
+      left = static_cast<float>(detection.x) / 65535.0f;
+      top = static_cast<float>(detection.y) / 65535.0f;
+      right =
+          static_cast<float>(std::min<uint64_t>(
+              static_cast<uint64_t>(detection.x) + detection.w, 65535u)) /
+          65535.0f;
+      bottom =
+          static_cast<float>(std::min<uint64_t>(
+              static_cast<uint64_t>(detection.y) + detection.h, 65535u)) /
+          65535.0f;
+    } else if (frame_detections.coord_type ==
+               vts_rtc::vision::CoordType::NormU16Xyxy) {
+      left = static_cast<float>(detection.x) / 65535.0f;
+      top = static_cast<float>(detection.y) / 65535.0f;
+      right = static_cast<float>(detection.w) / 65535.0f;
+      bottom = static_cast<float>(detection.h) / 65535.0f;
+    } else if (frame_detections.coord_type ==
+               vts_rtc::vision::CoordType::PixelI32Xywh) {
+      const float source_width = static_cast<float>(
+          frame_detections.frame_width > 0 ? frame_detections.frame_width
+                                           : frame.width);
+      const float source_height = static_cast<float>(
+          frame_detections.frame_height > 0 ? frame_detections.frame_height
+                                            : frame.height);
+      if (source_width <= 0.0f || source_height <= 0.0f) {
+        return false;
+      }
+      left = static_cast<float>(detection.x) / source_width;
+      top = static_cast<float>(detection.y) / source_height;
+      right = static_cast<float>(detection.x + detection.w) / source_width;
+      bottom = static_cast<float>(detection.y + detection.h) / source_height;
+    } else {
+      return false;
+    }
+
+    if (right < left) {
+      std::swap(left, right);
+    }
+    if (bottom < top) {
+      std::swap(top, bottom);
+    }
+
+    left = std::max(0.0f, std::min(left, 1.0f));
+    top = std::max(0.0f, std::min(top, 1.0f));
+    right = std::max(0.0f, std::min(right, 1.0f));
+    bottom = std::max(0.0f, std::min(bottom, 1.0f));
+    if (right <= left || bottom <= top) {
+      return false;
+    }
+
+    rect_min->x = image_min.x + left * image_width;
+    rect_min->y = image_min.y + top * image_height;
+    rect_max->x = image_min.x + right * image_width;
+    rect_max->y = image_min.y + bottom * image_height;
+    return true;
+  }
+
+  void DrawVisionDetectionOverlay(const VideoFrameView& frame,
+                                  const ImVec2& image_min,
+                                  const ImVec2& image_max,
+                                  ImDrawList* draw_list) {
+    if (!draw_list) {
+      return;
+    }
+
+    VisionDetectionOverlayView overlay;
+    {
+      std::lock_guard<std::mutex> lock(vision_detection_mutex_);
+      const auto it = vision_detections_by_source_.find(frame.stream_key);
+      if (it == vision_detections_by_source_.end()) {
+        return;
+      }
+      overlay = it->second;
+    }
+
+    const auto age = std::chrono::steady_clock::now() - overlay.updated_at;
+    if (age > std::chrono::seconds(2)) {
+      return;
+    }
+
+    const ImU32 box_color = IM_COL32(0, 255, 102, 255);
+    const ImU32 label_bg = IM_COL32(0, 0, 0, 190);
+    for (const vts_rtc::vision::Detection& detection :
+         overlay.frame_detections.detections) {
+      ImVec2 rect_min;
+      ImVec2 rect_max;
+      if (!DetectionRectInImage(overlay.frame_detections, detection, frame,
+                                image_min, image_max, &rect_min, &rect_max)) {
+        continue;
+      }
+
+      draw_list->AddRect(rect_min, rect_max, box_color, 0.0f, 0, 2.0f);
+
+      char label[64] = {0};
+      std::snprintf(label, sizeof(label), "cls %u %.1f%%", detection.class_id,
+                    static_cast<double>(detection.confidence) / 10.0);
+      const ImVec2 text_size = ImGui::CalcTextSize(label);
+      const ImVec2 label_min(rect_min.x, std::max(image_min.y, rect_min.y - text_size.y - 4.0f));
+      const ImVec2 label_max(
+          std::min(image_max.x, label_min.x + text_size.x + 6.0f),
+          std::min(image_max.y, label_min.y + text_size.y + 4.0f));
+      draw_list->AddRectFilled(label_min, label_max, label_bg);
+      draw_list->AddText(ImVec2(label_min.x + 3.0f, label_min.y + 2.0f),
+                         box_color, label);
     }
   }
 
@@ -1594,6 +1746,10 @@ class RtcImguiApp {
       std::lock_guard<std::mutex> lock(video_mutex_);
       remote_video_frames_by_source_.clear();
     }
+    {
+      std::lock_guard<std::mutex> lock(vision_detection_mutex_);
+      vision_detections_by_source_.clear();
+    }
 
     remote_video_frames_.store(0);
     remote_audio_frames_.store(0);
@@ -1908,6 +2064,12 @@ class RtcImguiApp {
     if (!instance_) {
       return;
     }
+    if (label &&
+        std::strcmp(label, vts_rtc::vision::kVisionDetectionChannelLabel) == 0) {
+      instance_->HandleVisionDetectionMessage(remote_sessionid, msg, msg_size);
+      return;
+    }
+
     std::ostringstream oss;
     oss << "Recv msg from " << remote_sessionid << " [" << (label ? label : "")
         << "] bytes=" << msg_size;
@@ -1916,6 +2078,44 @@ class RtcImguiApp {
       oss << " preview='" << std::string(msg, msg + preview) << "'";
     }
     instance_->AppendLog(oss.str());
+  }
+
+  void HandleVisionDetectionMessage(RtcSessionId remote_sessionid,
+                                    const char* msg,
+                                    size_t msg_size) {
+    if (!msg || msg_size == 0) {
+      return;
+    }
+
+    const vts_rtc::vision::DecodeResult decoded =
+        vts_rtc::vision::DecodeEnvelope(
+            reinterpret_cast<const uint8_t*>(msg), msg_size);
+    if (!decoded) {
+      AppendLog(std::string("Vision detection decode failed: ") +
+                decoded.error_message);
+      return;
+    }
+
+    if (decoded.envelope.type != vts_rtc::vision::MessageType::FrameDetections) {
+      return;
+    }
+
+    const vts_rtc::vision::FrameDetections& frame_detections =
+        decoded.envelope.frame_detections;
+    if (frame_detections.source_id.empty()) {
+      return;
+    }
+
+    VisionDetectionOverlayView overlay;
+    overlay.frame_detections = frame_detections;
+    overlay.updated_at = std::chrono::steady_clock::now();
+
+    const std::string stream_key =
+        MakeVideoStreamKey(remote_sessionid, frame_detections.source_id);
+    {
+      std::lock_guard<std::mutex> lock(vision_detection_mutex_);
+      vision_detections_by_source_[stream_key] = overlay;
+    }
   }
 
   static void OnRecvAudioFrame(RtcSessionId,
@@ -1954,9 +2154,7 @@ class RtcImguiApp {
     }
 
     auto view = std::make_shared<VideoFrameView>();
-    std::ostringstream key;
-    key << remote_sessionid << ":" << sourceid;
-    view->stream_key = key.str();
+    view->stream_key = MakeVideoStreamKey(remote_sessionid, sourceid);
     view->source_id = sourceid;
     view->remote_sessionid = remote_sessionid;
     view->source_type = source_type;
@@ -2035,6 +2233,8 @@ class RtcImguiApp {
   std::mutex video_mutex_;
   std::map<std::string, std::shared_ptr<VideoFrameView>> remote_video_frames_by_source_;
   std::map<std::string, VideoTextureView> video_textures_;
+  std::mutex vision_detection_mutex_;
+  std::map<std::string, VisionDetectionOverlayView> vision_detections_by_source_;
   bool render_lr_pixel_interleave_ = false;
   std::string fullscreen_video_stream_key_;
   bool focus_fullscreen_video_ = false;

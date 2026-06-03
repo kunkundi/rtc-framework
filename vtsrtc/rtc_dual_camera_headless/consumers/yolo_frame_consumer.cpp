@@ -9,12 +9,34 @@
 namespace rtc_camera_headless {
 namespace {
 
-constexpr bool kSendYoloDetections = false;
+constexpr bool kSendYoloDetections = true;
 
 std::vector<YoloDetectionBox> RunYoloInference(
     const rtc_dual_camera::ImageFrame& frame) {
-  (void)frame;
-  return {};
+  const uint32_t phase =
+      static_cast<uint32_t>((frame.sequence * 1800) % 24000);
+
+  YoloDetectionBox primary_box;
+  primary_box.class_id = 0;
+  primary_box.confidence = 920;
+  primary_box.x = 6000 + phase;
+  primary_box.y = 11000;
+  primary_box.w = 18000;
+  primary_box.h = 22000;
+  primary_box.has_detection_id = true;
+  primary_box.detection_id = static_cast<uint32_t>(frame.sequence * 2);
+
+  YoloDetectionBox secondary_box;
+  secondary_box.class_id = 1;
+  secondary_box.confidence = 780;
+  secondary_box.x = 38000 - phase / 2;
+  secondary_box.y = 26000;
+  secondary_box.w = 14000;
+  secondary_box.h = 18000;
+  secondary_box.has_detection_id = true;
+  secondary_box.detection_id = static_cast<uint32_t>(frame.sequence * 2 + 1);
+
+  return {primary_box, secondary_box};
 }
 
 void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame) {

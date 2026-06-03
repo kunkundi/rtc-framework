@@ -4,10 +4,17 @@ target("p2p_imgui")
     add_packages("imgui")
 
     add_files(
-        vtsrtc_path("vtsrtc", "p2p_imgui", "main.cpp")
+        vtsrtc_path("vtsrtc", "p2p_imgui", "main.cpp"),
+        vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated", "vision_detection.pb.c"),
+        vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "vision_detection_codec.cpp")
     )
 
-    add_includedirs(vtsrtc_path("vtsrtc", "src"))
+    add_includedirs(
+        vtsrtc_path("vtsrtc", "src"),
+        vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto"),
+        vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated")
+    )
+    add_packages("nanopb")
     vtsrtc_add_linux_runtime_rpath()
     if vtsrtc_on_windows() then
         add_syslinks("opengl32")
