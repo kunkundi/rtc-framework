@@ -1,14 +1,31 @@
 #include "yolo_frame_consumer.h"
 
 #include "rtc_camera_common.h"
+#include "vision_detection_sender.h"
 
 #include <chrono>
+#include <vector>
 
 namespace rtc_camera_headless {
 namespace {
 
-void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame) {
+constexpr bool kSendYoloDetections = false;
+
+std::vector<YoloDetectionBox> RunYoloInference(
+    const rtc_dual_camera::ImageFrame& frame) {
   (void)frame;
+  return {};
+}
+
+void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame) {
+  if (!kSendYoloDetections) {
+    (void)frame;
+    return;
+  }
+
+  const std::vector<YoloDetectionBox> yolo_boxes =
+      RunYoloInference(frame);
+  SendYoloDetections(yolo_boxes);
 }
 
 }  // namespace

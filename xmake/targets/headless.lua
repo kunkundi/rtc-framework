@@ -72,6 +72,7 @@ if vtsrtc_on_linux() then
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_frame_consumer.cpp"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated", "vision_detection.pb.c"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "vision_detection_codec.cpp"),
+            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "vision_detection_sender.cpp"),
             vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_headless_session.cpp")
         )
 

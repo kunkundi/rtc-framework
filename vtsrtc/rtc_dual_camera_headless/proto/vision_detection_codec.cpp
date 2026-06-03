@@ -65,7 +65,7 @@ PbMessageType ToPbMessageType(MessageType type) {
       return vtsrtc_vision_v1_VisionMessageType_VISION_MESSAGE_TYPE_CAPABILITY;
     case MessageType::ClassMap:
       return vtsrtc_vision_v1_VisionMessageType_VISION_MESSAGE_TYPE_CLASS_MAP;
-    case MessageType::DetectionFrame:
+    case MessageType::FrameDetections:
       return vtsrtc_vision_v1_VisionMessageType_VISION_MESSAGE_TYPE_DETECTION_FRAME;
     case MessageType::Unknown:
     default:
@@ -80,7 +80,7 @@ MessageType FromPbMessageType(PbMessageType type) {
     case vtsrtc_vision_v1_VisionMessageType_VISION_MESSAGE_TYPE_CLASS_MAP:
       return MessageType::ClassMap;
     case vtsrtc_vision_v1_VisionMessageType_VISION_MESSAGE_TYPE_DETECTION_FRAME:
-      return MessageType::DetectionFrame;
+      return MessageType::FrameDetections;
     case vtsrtc_vision_v1_VisionMessageType_VISION_MESSAGE_TYPE_UNKNOWN:
     default:
       return MessageType::Unknown;
@@ -117,7 +117,7 @@ CoordType FromPbCoordType(PbCoordType type) {
 
 bool IsKnownMessageType(MessageType type) {
   return type == MessageType::Capability || type == MessageType::ClassMap ||
-         type == MessageType::DetectionFrame;
+         type == MessageType::FrameDetections;
 }
 
 bool IsKnownCoordType(CoordType type) {
@@ -244,9 +244,9 @@ bool FillDetection(const Detection& source,
   return true;
 }
 
-bool FillDetectionFrame(const DetectionFrame& source,
-                        PbDetectionFrame* target,
-                        std::string* error) {
+bool FillFrameDetections(const FrameDetections& source,
+                         PbDetectionFrame* target,
+                         std::string* error) {
   if (!IsKnownCoordType(source.coord_type)) {
     *error = MakeError("detection_frame.coord_type", "unknown coordinate type");
     return false;
@@ -358,8 +358,8 @@ Detection FromPbDetection(const PbDetection& source) {
   return result;
 }
 
-DetectionFrame FromPbDetectionFrame(const PbDetectionFrame& source) {
-  DetectionFrame result;
+FrameDetections FromPbDetectionFrame(const PbDetectionFrame& source) {
+  FrameDetections result;
   result.source_id = ReadString(source.has_source_id, source.source_id);
   result.frame_id = source.has_frame_id ? source.frame_id : 0;
   result.capture_ts_ms = source.has_capture_ts_ms ? source.capture_ts_ms : 0;
@@ -418,14 +418,16 @@ EncodeResult EncodeClassMapEnvelope(uint32_t seq, const ClassMap& class_map) {
   return EncodeEnvelope(envelope);
 }
 
-EncodeResult EncodeDetectionFrameEnvelope(uint32_t seq,
-                                          const DetectionFrame& frame) {
+EncodeResult EncodeFrameDetectionsEnvelope(
+    uint32_t seq,
+    const FrameDetections& frame_detections) {
   PbEnvelope envelope = vtsrtc_vision_v1_VisionEnvelope_init_zero;
-  FillEnvelopeHeader(&envelope, MessageType::DetectionFrame, seq);
+  FillEnvelopeHeader(&envelope, MessageType::FrameDetections, seq);
   envelope.has_detection_frame = true;
 
   std::string error;
-  if (!FillDetectionFrame(frame, &envelope.detection_frame, &error)) {
+  if (!FillFrameDetections(frame_detections, &envelope.detection_frame,
+                           &error)) {
     return EncodeResult{{}, error};
   }
 
@@ -488,13 +490,13 @@ DecodeResult DecodeEnvelope(const uint8_t* data, size_t size) {
       }
       result.envelope.class_map = FromPbClassMap(pb_envelope.class_map);
       break;
-    case MessageType::DetectionFrame:
+    case MessageType::FrameDetections:
       if (!pb_envelope.has_detection_frame) {
         return DecodeError(
             DecodeStatus::UnexpectedPayload,
             "detection_frame envelope has no detection_frame payload");
       }
-      result.envelope.detection_frame =
+      result.envelope.frame_detections =
           FromPbDetectionFrame(pb_envelope.detection_frame);
       break;
     case MessageType::Unknown:

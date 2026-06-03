@@ -22,7 +22,7 @@ enum class MessageType : uint32_t {
   Unknown = 0,
   Capability = 1,
   ClassMap = 2,
-  DetectionFrame = 3,
+  FrameDetections = 3,
 };
 
 enum class CoordType : uint32_t {
@@ -76,7 +76,7 @@ struct Detection {
   uint32_t flags = 0;
 };
 
-struct DetectionFrame {
+struct FrameDetections {
   std::string source_id;
   uint64_t frame_id = 0;
   uint64_t capture_ts_ms = 0;
@@ -92,7 +92,7 @@ struct Envelope {
   MessageType type = MessageType::Unknown;
   Capability capability;
   ClassMap class_map;
-  DetectionFrame detection_frame;
+  FrameDetections frame_detections;
 };
 
 struct EncodeResult {
@@ -119,8 +119,9 @@ Capability DefaultCapability();
 EncodeResult EncodeCapabilityEnvelope(uint32_t seq,
                                       const Capability& capability);
 EncodeResult EncodeClassMapEnvelope(uint32_t seq, const ClassMap& class_map);
-EncodeResult EncodeDetectionFrameEnvelope(uint32_t seq,
-                                          const DetectionFrame& frame);
+EncodeResult EncodeFrameDetectionsEnvelope(
+    uint32_t seq,
+    const FrameDetections& frame_detections);
 
 DecodeResult DecodeEnvelope(const uint8_t* data, size_t size);
 
