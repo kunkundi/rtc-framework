@@ -105,6 +105,13 @@ struct VisionDetectionOverlayView {
   std::chrono::steady_clock::time_point updated_at;
 };
 
+struct NormalizedRect {
+  float left = 0.0f;
+  float top = 0.0f;
+  float right = 0.0f;
+  float bottom = 0.0f;
+};
+
 std::string MakeVideoStreamKey(RtcSessionId remote_sessionid,
                                const std::string& source_id) {
   std::ostringstream key;
@@ -1251,7 +1258,8 @@ class RtcImguiApp {
     draw_list->PushClipRect(box_min, box_max, true);
     draw_list->AddImage((ImTextureID)(intptr_t)tex_it->second.texture, image_min,
                         image_max, ImVec2(0, 0), ImVec2(1, 1));
-    DrawVisionDetectionOverlay(frame, image_min, image_max, draw_list);
+    DrawVisionDetectionOverlay(frame, image_min, image_max, draw_list,
+                               tex_it->second.uploaded_with_lr_interleave);
     draw_list->PopClipRect();
     draw_list->AddRect(box_min, box_max,
                        hovered || fullscreen_mode
@@ -1288,21 +1296,15 @@ class RtcImguiApp {
     }
   }
 
-  bool DetectionRectInImage(
+  bool DetectionToNormalizedRect(
       const vts_rtc::vision::FrameDetections& frame_detections,
       const vts_rtc::vision::Detection& detection,
       const VideoFrameView& frame,
-      const ImVec2& image_min,
-      const ImVec2& image_max,
-      ImVec2* rect_min,
-      ImVec2* rect_max) const {
-    if (!rect_min || !rect_max || image_max.x <= image_min.x ||
-        image_max.y <= image_min.y) {
+      NormalizedRect* rect) const {
+    if (!rect) {
       return false;
     }
 
-    const float image_width = image_max.x - image_min.x;
-    const float image_height = image_max.y - image_min.y;
     float left = 0.0f;
     float top = 0.0f;
     float right = 0.0f;
@@ -1360,6 +1362,34 @@ class RtcImguiApp {
       return false;
     }
 
+    rect->left = left;
+    rect->top = top;
+    rect->right = right;
+    rect->bottom = bottom;
+    return true;
+  }
+
+  bool NormalizedRectInImage(const NormalizedRect& source_rect,
+                             const ImVec2& image_min,
+                             const ImVec2& image_max,
+                             ImVec2* rect_min,
+                             ImVec2* rect_max) const {
+    if (!rect_min || !rect_max || image_max.x <= image_min.x ||
+        image_max.y <= image_min.y || source_rect.right <= source_rect.left ||
+        source_rect.bottom <= source_rect.top) {
+      return false;
+    }
+
+    const float image_width = image_max.x - image_min.x;
+    const float image_height = image_max.y - image_min.y;
+    const float left = std::max(0.0f, std::min(source_rect.left, 1.0f));
+    const float top = std::max(0.0f, std::min(source_rect.top, 1.0f));
+    const float right = std::max(0.0f, std::min(source_rect.right, 1.0f));
+    const float bottom = std::max(0.0f, std::min(source_rect.bottom, 1.0f));
+    if (right <= left || bottom <= top) {
+      return false;
+    }
+
     rect_min->x = image_min.x + left * image_width;
     rect_min->y = image_min.y + top * image_height;
     rect_max->x = image_min.x + right * image_width;
@@ -1367,10 +1397,195 @@ class RtcImguiApp {
     return true;
   }
 
+  bool MapSideBySideRectToInterleavedEye(const NormalizedRect& source_rect,
+                                         bool left_eye,
+                                         NormalizedRect* eye_rect) const {
+    if (!eye_rect || source_rect.right <= source_rect.left ||
+        source_rect.bottom <= source_rect.top) {
+      return false;
+    }
+
+    const float source_half_left = left_eye ? 0.0f : 0.5f;
+    const float source_half_right = left_eye ? 0.5f : 1.0f;
+    const float overlap_left = std::max(source_rect.left, source_half_left);
+    const float overlap_right = std::min(source_rect.right, source_half_right);
+    if (overlap_right <= overlap_left) {
+      return false;
+    }
+
+    eye_rect->left = (overlap_left - source_half_left) * 2.0f;
+    eye_rect->right = (overlap_right - source_half_left) * 2.0f;
+    eye_rect->top = source_rect.top;
+    eye_rect->bottom = source_rect.bottom;
+    return eye_rect->right > eye_rect->left && eye_rect->bottom > eye_rect->top;
+  }
+
+  void DrawInterleavedFilledRect(ImDrawList* draw_list,
+                                const ImVec2& area_min,
+                                const ImVec2& area_max,
+                                const ImVec2& image_min,
+                                const ImVec2& image_max,
+                                int column_phase,
+                                ImU32 color) const {
+    if (!draw_list || area_max.x <= area_min.x || area_max.y <= area_min.y ||
+        image_max.x <= image_min.x || image_max.y <= image_min.y) {
+      return;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    const float fb_scale_x =
+        io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
+    const int first_column = std::max(
+        0, static_cast<int>(std::floor((area_min.x - image_min.x) * fb_scale_x)));
+    const int last_column = std::max(
+        first_column,
+        static_cast<int>(std::ceil((area_max.x - image_min.x) * fb_scale_x)));
+
+    const float clipped_y_min = std::max(area_min.y, image_min.y);
+    const float clipped_y_max = std::min(area_max.y, image_max.y);
+    if (clipped_y_max <= clipped_y_min) {
+      return;
+    }
+
+    const int phase = column_phase & 1;
+    for (int column = first_column; column < last_column; ++column) {
+      if ((column & 1) != phase) {
+        continue;
+      }
+
+      const float column_min_x = image_min.x + static_cast<float>(column) / fb_scale_x;
+      const float column_max_x =
+          image_min.x + static_cast<float>(column + 1) / fb_scale_x;
+      const float clipped_x_min =
+          std::max(area_min.x, std::max(column_min_x, image_min.x));
+      const float clipped_x_max =
+          std::min(area_max.x, std::min(column_max_x, image_max.x));
+      if (clipped_x_max <= clipped_x_min) {
+        continue;
+      }
+
+      draw_list->AddRectFilled(ImVec2(clipped_x_min, clipped_y_min),
+                               ImVec2(clipped_x_max, clipped_y_max), color);
+    }
+  }
+
+  void DrawInterleavedRect(ImDrawList* draw_list,
+                           const ImVec2& rect_min,
+                           const ImVec2& rect_max,
+                           const ImVec2& image_min,
+                           const ImVec2& image_max,
+                           int column_phase,
+                           ImU32 color) const {
+    if (!draw_list || rect_max.x <= rect_min.x || rect_max.y <= rect_min.y) {
+      return;
+    }
+
+    const float thickness = 2.0f;
+    DrawInterleavedFilledRect(
+        draw_list, rect_min, ImVec2(rect_max.x, std::min(rect_max.y, rect_min.y + thickness)),
+        image_min, image_max, column_phase, color);
+    DrawInterleavedFilledRect(
+        draw_list, ImVec2(rect_min.x, std::max(rect_min.y, rect_max.y - thickness)),
+        rect_max, image_min, image_max, column_phase, color);
+    DrawInterleavedFilledRect(
+        draw_list, rect_min, ImVec2(std::min(rect_max.x, rect_min.x + thickness), rect_max.y),
+        image_min, image_max, column_phase, color);
+    DrawInterleavedFilledRect(
+        draw_list, ImVec2(std::max(rect_min.x, rect_max.x - thickness), rect_min.y),
+        rect_max, image_min, image_max, column_phase, color);
+  }
+
+  void DrawInterleavedText(ImDrawList* draw_list,
+                           const ImVec2& text_pos,
+                           ImU32 color,
+                           const char* text,
+                           const ImVec2& clip_min,
+                           const ImVec2& clip_max,
+                           const ImVec2& image_min,
+                           const ImVec2& image_max,
+                           int column_phase) const {
+    if (!draw_list || !text || text[0] == '\0' || clip_max.x <= clip_min.x ||
+        clip_max.y <= clip_min.y) {
+      return;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    const float fb_scale_x =
+        io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
+    const int first_column = std::max(
+        0, static_cast<int>(std::floor((clip_min.x - image_min.x) * fb_scale_x)));
+    const int last_column = std::max(
+        first_column,
+        static_cast<int>(std::ceil((clip_max.x - image_min.x) * fb_scale_x)));
+    const int phase = column_phase & 1;
+
+    for (int column = first_column; column < last_column; ++column) {
+      if ((column & 1) != phase) {
+        continue;
+      }
+
+      const float column_min_x = image_min.x + static_cast<float>(column) / fb_scale_x;
+      const float column_max_x =
+          image_min.x + static_cast<float>(column + 1) / fb_scale_x;
+      const float clipped_x_min =
+          std::max(clip_min.x, std::max(column_min_x, image_min.x));
+      const float clipped_x_max =
+          std::min(clip_max.x, std::min(column_max_x, image_max.x));
+      const float clipped_y_min = std::max(clip_min.y, image_min.y);
+      const float clipped_y_max = std::min(clip_max.y, image_max.y);
+      if (clipped_x_max <= clipped_x_min || clipped_y_max <= clipped_y_min) {
+        continue;
+      }
+
+      draw_list->PushClipRect(ImVec2(clipped_x_min, clipped_y_min),
+                              ImVec2(clipped_x_max, clipped_y_max), true);
+      draw_list->AddText(text_pos, color, text);
+      draw_list->PopClipRect();
+    }
+  }
+
+  void DrawDetectionLabel(ImDrawList* draw_list,
+                          const ImVec2& image_min,
+                          const ImVec2& image_max,
+                          const ImVec2& rect_min,
+                          ImU32 text_color,
+                          ImU32 label_bg,
+                          const char* label,
+                          bool interleaved,
+                          int column_phase) const {
+    if (!draw_list || !label || label[0] == '\0') {
+      return;
+    }
+
+    const ImVec2 text_size = ImGui::CalcTextSize(label);
+    const ImVec2 label_min(
+        rect_min.x, std::max(image_min.y, rect_min.y - text_size.y - 4.0f));
+    const ImVec2 label_max(
+        std::min(image_max.x, label_min.x + text_size.x + 6.0f),
+        std::min(image_max.y, label_min.y + text_size.y + 4.0f));
+    if (label_max.x <= label_min.x || label_max.y <= label_min.y) {
+      return;
+    }
+
+    if (interleaved) {
+      DrawInterleavedFilledRect(draw_list, label_min, label_max, image_min,
+                                image_max, column_phase, label_bg);
+      DrawInterleavedText(draw_list,
+                          ImVec2(label_min.x + 3.0f, label_min.y + 2.0f),
+                          text_color, label, label_min, label_max, image_min,
+                          image_max, column_phase);
+    } else {
+      draw_list->AddRectFilled(label_min, label_max, label_bg);
+      draw_list->AddText(ImVec2(label_min.x + 3.0f, label_min.y + 2.0f),
+                         text_color, label);
+    }
+  }
+
   void DrawVisionDetectionOverlay(const VideoFrameView& frame,
                                   const ImVec2& image_min,
                                   const ImVec2& image_max,
-                                  ImDrawList* draw_list) {
+                                  ImDrawList* draw_list,
+                                  bool interleaved_overlay) {
     if (!draw_list) {
       return;
     }
@@ -1394,26 +1609,50 @@ class RtcImguiApp {
     const ImU32 label_bg = IM_COL32(0, 0, 0, 190);
     for (const vts_rtc::vision::Detection& detection :
          overlay.frame_detections.detections) {
-      ImVec2 rect_min;
-      ImVec2 rect_max;
-      if (!DetectionRectInImage(overlay.frame_detections, detection, frame,
-                                image_min, image_max, &rect_min, &rect_max)) {
+      NormalizedRect source_rect;
+      if (!DetectionToNormalizedRect(overlay.frame_detections, detection, frame,
+                                     &source_rect)) {
         continue;
       }
-
-      draw_list->AddRect(rect_min, rect_max, box_color, 0.0f, 0, 2.0f);
 
       char label[64] = {0};
       std::snprintf(label, sizeof(label), "cls %u %.1f%%", detection.class_id,
                     static_cast<double>(detection.confidence) / 10.0);
-      const ImVec2 text_size = ImGui::CalcTextSize(label);
-      const ImVec2 label_min(rect_min.x, std::max(image_min.y, rect_min.y - text_size.y - 4.0f));
-      const ImVec2 label_max(
-          std::min(image_max.x, label_min.x + text_size.x + 6.0f),
-          std::min(image_max.y, label_min.y + text_size.y + 4.0f));
-      draw_list->AddRectFilled(label_min, label_max, label_bg);
-      draw_list->AddText(ImVec2(label_min.x + 3.0f, label_min.y + 2.0f),
-                         box_color, label);
+
+      if (interleaved_overlay) {
+        for (int eye = 0; eye < 2; ++eye) {
+          const bool left_eye = eye == 0;
+          NormalizedRect eye_rect;
+          if (!MapSideBySideRectToInterleavedEye(source_rect, left_eye,
+                                                 &eye_rect)) {
+            continue;
+          }
+
+          ImVec2 rect_min;
+          ImVec2 rect_max;
+          if (!NormalizedRectInImage(eye_rect, image_min, image_max, &rect_min,
+                                     &rect_max)) {
+            continue;
+          }
+
+          const int column_phase = left_eye ? 0 : 1;
+          DrawInterleavedRect(draw_list, rect_min, rect_max, image_min,
+                              image_max, column_phase, box_color);
+          DrawDetectionLabel(draw_list, image_min, image_max, rect_min,
+                             box_color, label_bg, label, true, column_phase);
+        }
+      } else {
+        ImVec2 rect_min;
+        ImVec2 rect_max;
+        if (!NormalizedRectInImage(source_rect, image_min, image_max, &rect_min,
+                                   &rect_max)) {
+          continue;
+        }
+
+        draw_list->AddRect(rect_min, rect_max, box_color, 0.0f, 0, 2.0f);
+        DrawDetectionLabel(draw_list, image_min, image_max, rect_min, box_color,
+                           label_bg, label, false, 0);
+      }
     }
   }
 
