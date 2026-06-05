@@ -20,6 +20,8 @@ struct YoloDetectionBox {
   uint32_t flags = 0;
 };
 
-void SendYoloDetections(const std::vector<YoloDetectionBox>& yolo_boxes);
+void SendYoloDetections(const std::vector<YoloDetectionBox>& yolo_boxes,
+                        uint32_t frame_width = 0,
+                        uint32_t frame_height = 0);
 
 }  // namespace rtc_camera_headless

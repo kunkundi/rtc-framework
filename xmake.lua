@@ -12,6 +12,7 @@ vtsrtc_configure_targetdir()
 includes("xmake/options.lua")
 includes("xmake/dependencies.lua")
 includes("xmake/encoders.lua")
+includes("xmake/yolo.lua")
 
 includes("xmake/targets/vtsrtc.lua")
 includes("xmake/targets/signaling_server.lua")

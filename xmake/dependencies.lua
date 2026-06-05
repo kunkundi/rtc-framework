@@ -3,6 +3,10 @@ add_requires("asio 1.32.0")
 add_requires("spdlog 1.14.1")
 add_requires("nanopb 0.4.9", {configs = {generator = true}})
 
+if get_config("enable_yolo") then
+    add_requires("onnxruntime 1.22.0", {configs = {shared = true}})
+end
+
 function vtsrtc_webrtc_root_dir()
     if vtsrtc_on_windows() then
         return vtsrtc_path("third_party", "webrtc", "webrtc-win")

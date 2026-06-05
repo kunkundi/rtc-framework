@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <sstream>
 
 namespace rtc_camera_headless {
@@ -13,6 +14,29 @@ namespace {
 
 constexpr uint32_t kClassMapVersion = 1;
 constexpr const char* kSourceId = "merged_image";
+
+constexpr const char* kCocoLabels[] = {
+    "person",        "bicycle",      "car",           "motorcycle",
+    "airplane",      "bus",          "train",         "truck",
+    "boat",          "traffic light", "fire hydrant",  "stop sign",
+    "parking meter", "bench",        "bird",          "cat",
+    "dog",           "horse",        "sheep",         "cow",
+    "elephant",      "bear",         "zebra",         "giraffe",
+    "backpack",      "umbrella",     "handbag",       "tie",
+    "suitcase",      "frisbee",      "skis",          "snowboard",
+    "sports ball",   "kite",         "baseball bat",  "baseball glove",
+    "skateboard",    "surfboard",    "tennis racket", "bottle",
+    "wine glass",    "cup",          "fork",          "knife",
+    "spoon",         "bowl",         "banana",        "apple",
+    "sandwich",      "orange",       "broccoli",      "carrot",
+    "hot dog",       "pizza",        "donut",         "cake",
+    "chair",         "couch",        "potted plant",  "bed",
+    "dining table",  "toilet",       "tv",            "laptop",
+    "mouse",         "remote",       "keyboard",      "cell phone",
+    "microwave",     "oven",         "toaster",       "sink",
+    "refrigerator",  "book",         "clock",         "vase",
+    "scissors",      "teddy bear",   "hair drier",    "toothbrush",
+};
 
 std::atomic<uint32_t> g_vision_seq{1};
 std::atomic<uint64_t> g_detection_frame_id{1};
@@ -67,7 +91,16 @@ bool SendVisionMetadata() {
 
   vts_rtc::vision::ClassMap class_map;
   class_map.map_version = kClassMapVersion;
-  class_map.model_name = "yolo";
+  class_map.model_name = "yolo26n";
+  class_map.model_version = "coco";
+  class_map.classes.reserve(
+      sizeof(kCocoLabels) / sizeof(kCocoLabels[0]));
+  for (size_t i = 0; i < sizeof(kCocoLabels) / sizeof(kCocoLabels[0]); ++i) {
+    vts_rtc::vision::ClassInfo class_info;
+    class_info.class_id = static_cast<uint32_t>(i);
+    class_info.label = kCocoLabels[i];
+    class_map.classes.push_back(class_info);
+  }
 
   return BroadcastVisionPayload(
       "vision class map",
@@ -91,12 +124,16 @@ vts_rtc::vision::Detection ConvertYoloBox(const YoloDetectionBox& box) {
 }
 
 vts_rtc::vision::FrameDetections BuildYoloFrameDetections(
-    const std::vector<YoloDetectionBox>& yolo_boxes) {
+    const std::vector<YoloDetectionBox>& yolo_boxes,
+    uint32_t frame_width,
+    uint32_t frame_height) {
   vts_rtc::vision::FrameDetections frame_detections;
   frame_detections.source_id = kSourceId;
   frame_detections.frame_id =
       g_detection_frame_id.fetch_add(1, std::memory_order_relaxed);
   frame_detections.capture_ts_ms = NowMs();
+  frame_detections.frame_width = frame_width;
+  frame_detections.frame_height = frame_height;
   frame_detections.class_map_version = kClassMapVersion;
   frame_detections.coord_type = vts_rtc::vision::CoordType::NormU16Xywh;
   frame_detections.detections.reserve(yolo_boxes.size());
@@ -108,7 +145,9 @@ vts_rtc::vision::FrameDetections BuildYoloFrameDetections(
 
 }  // namespace
 
-void SendYoloDetections(const std::vector<YoloDetectionBox>& yolo_boxes) {
+void SendYoloDetections(const std::vector<YoloDetectionBox>& yolo_boxes,
+                        uint32_t frame_width,
+                        uint32_t frame_height) {
   static bool metadata_sent = false;
   if (!metadata_sent) {
     metadata_sent = SendVisionMetadata();
@@ -118,7 +157,7 @@ void SendYoloDetections(const std::vector<YoloDetectionBox>& yolo_boxes) {
   }
 
   const vts_rtc::vision::FrameDetections frame_detections =
-      BuildYoloFrameDetections(yolo_boxes);
+      BuildYoloFrameDetections(yolo_boxes, frame_width, frame_height);
   BroadcastVisionPayload(
       "vision frame detections",
       vts_rtc::vision::EncodeFrameDetectionsEnvelope(NextVisionSeq(),

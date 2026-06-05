@@ -1,42 +1,71 @@
 #include "yolo_frame_consumer.h"
 
-#include "rtc_camera_common.h"
-#include "vision_detection_sender.h"
-
 #include <chrono>
 #include <vector>
+
+#include "rtc_camera_common.h"
+#include "vision_detection_sender.h"
+#ifdef VTSRTC_ENABLE_YOLO_ONNXRUNTIME
+#include "yolo_onnx_detector.h"
+#endif
 
 namespace rtc_camera_headless {
 namespace {
 
 constexpr bool kSendYoloDetections = true;
 
-std::vector<YoloDetectionBox> RunYoloInference(
-    const rtc_dual_camera::ImageFrame& frame) {
-  const uint32_t phase =
-      static_cast<uint32_t>((frame.sequence * 1800) % 24000);
+bool RunYoloInference(const rtc_dual_camera::ImageFrame& frame,
+                      std::vector<YoloDetectionBox>* yolo_boxes) {
+#ifdef VTSRTC_ENABLE_YOLO_ONNXRUNTIME
+  static bool detector_initialized = false;
+  static bool detector_missing_logged = false;
+  static bool inference_error_logged = false;
+  static std::unique_ptr<YoloOnnxDetector> detector;
 
-  YoloDetectionBox primary_box;
-  primary_box.class_id = 0;
-  primary_box.confidence = 920;
-  primary_box.x = 6000 + phase;
-  primary_box.y = 11000;
-  primary_box.w = 18000;
-  primary_box.h = 22000;
-  primary_box.has_detection_id = true;
-  primary_box.detection_id = static_cast<uint32_t>(frame.sequence * 2);
+  if (!detector_initialized) {
+    detector_initialized = true;
+    std::string error_message;
+    detector = YoloOnnxDetector::CreateDefault(&error_message);
+    if (detector) {
+      LogInfo(std::string("YOLO ONNX model loaded: ") +
+              detector->model_path());
+    } else if (!detector_missing_logged) {
+      detector_missing_logged = true;
+      LogError(
+          "YOLO ONNX model is unavailable: " + error_message +
+          ". Run `xmake yolo_model` or set VTSRTC_YOLO_MODEL to "
+          "models/yolo26n.onnx.");
+    }
+  }
 
-  YoloDetectionBox secondary_box;
-  secondary_box.class_id = 1;
-  secondary_box.confidence = 780;
-  secondary_box.x = 38000 - phase / 2;
-  secondary_box.y = 26000;
-  secondary_box.w = 14000;
-  secondary_box.h = 18000;
-  secondary_box.has_detection_id = true;
-  secondary_box.detection_id = static_cast<uint32_t>(frame.sequence * 2 + 1);
+  if (!detector) {
+    return false;
+  }
 
-  return {primary_box, secondary_box};
+  std::string error_message;
+  if (!detector->Detect(frame, yolo_boxes, &error_message)) {
+    if (!inference_error_logged) {
+      inference_error_logged = true;
+      LogError(std::string("YOLO inference disabled after error: ") +
+               error_message);
+    }
+    detector.reset();
+    return false;
+  }
+
+  return true;
+#else
+  static bool yolo_disabled_logged = false;
+  (void)frame;
+  if (yolo_boxes) {
+    yolo_boxes->clear();
+  }
+  if (!yolo_disabled_logged) {
+    yolo_disabled_logged = true;
+    LogInfo("YOLO inference is not enabled; configure with --enable_yolo=true.");
+  }
+  return false;
+#endif
 }
 
 void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame) {
@@ -45,9 +74,11 @@ void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame) {
     return;
   }
 
-  const std::vector<YoloDetectionBox> yolo_boxes =
-      RunYoloInference(frame);
-  SendYoloDetections(yolo_boxes);
+  std::vector<YoloDetectionBox> yolo_boxes;
+  if (RunYoloInference(frame, &yolo_boxes)) {
+    SendYoloDetections(yolo_boxes, static_cast<uint32_t>(frame.width),
+                       static_cast<uint32_t>(frame.height));
+  }
 }
 
 }  // namespace
@@ -56,9 +87,7 @@ YoloFrameConsumer::YoloFrameConsumer(
     const std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription>& frames)
     : frames_(frames) {}
 
-YoloFrameConsumer::~YoloFrameConsumer() {
-  Stop();
-}
+YoloFrameConsumer::~YoloFrameConsumer() { Stop(); }
 
 void YoloFrameConsumer::Start() {
   if (thread_.joinable()) {
@@ -82,8 +111,7 @@ void YoloFrameConsumer::Run() {
   bool first_frame_logged = false;
   while (!stop_requested_.load() && !StopRequested()) {
     rtc_dual_camera::ImageFrame frame;
-    if (!frames_ ||
-        !frames_->WaitNext(&frame, std::chrono::milliseconds(50))) {
+    if (!frames_ || !frames_->WaitNext(&frame, std::chrono::milliseconds(50))) {
       continue;
     }
 

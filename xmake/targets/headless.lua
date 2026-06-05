@@ -88,6 +88,12 @@ if vtsrtc_on_linux() then
         vtsrtc_add_linux_runtime_rpath()
         add_syslinks("pthread")
 
+        if get_config("enable_yolo") then
+            add_defines("VTSRTC_ENABLE_YOLO_ONNXRUNTIME")
+            add_files(vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_onnx_detector.cpp"))
+            add_packages("onnxruntime")
+        end
+
         if not vtsrtc_add_cuda_runtime_config() then
             vtsrtc_fail("CUDA runtime not found for rtc_dual_camera_headless")
             set_enabled(false)
@@ -95,6 +101,21 @@ if vtsrtc_on_linux() then
 
         after_buildcmd(function(target, batchcmds)
             batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+            if get_config("enable_yolo") then
+                local model_path = path.join(os.projectdir(), "models", "yolo26n.onnx")
+                if os.isfile(model_path) then
+                    local model_dir = path.join(target:targetdir(), "models")
+                    batchcmds:mkdir(model_dir)
+                    batchcmds:cp(model_path, model_dir)
+                end
+                local onnxruntime_pkg = target:pkg("onnxruntime")
+                if onnxruntime_pkg then
+                    local onnxruntime_libdir = path.join(onnxruntime_pkg:installdir(), "lib")
+                    for _, shared_lib in ipairs(os.files(path.join(onnxruntime_libdir, "libonnxruntime*.so*"))) do
+                        batchcmds:cp(shared_lib, target:targetdir())
+                    end
+                end
+            end
         end)
 
     target("rtc_receiver_headless")
