@@ -1,6 +1,5 @@
 #include "async_dual_camera_video_source.h"
 
-#include "dual_uyvy_to_i420_stitch_cuda.h"
 #include "uyvy_v4l2_camera.h"
 
 #include <algorithm>
@@ -254,17 +253,6 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
           "camera heights do not match, unable to stitch side-by-side");
     }
 
-    DualUyvyToI420StitchCudaConverter converter;
-    std::string cuda_error;
-    if (!converter.Init(left_device.width(), left_device.height(),
-                        left_device.bytes_per_line(), right_device.width(),
-                        right_device.height(), right_device.bytes_per_line(),
-                        &cuda_error)) {
-      throw std::runtime_error(
-          "failed to init CUDA dual-camera stitch converter: " + cuda_error);
-    }
-    LogInfo("using CUDA dual-camera UYVY->I420 stitch converter");
-
     LogInfo(std::string("sampled left output: ") +
             std::to_string(left_device.width() / 2) + "x" +
             std::to_string(left_device.height()));
@@ -272,8 +260,8 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
             std::to_string(right_device.width() / 2) + "x" +
             std::to_string(right_device.height()));
     LogInfo(std::string("stitched output: ") +
-            std::to_string(converter.output_width()) + "x" +
-            std::to_string(converter.output_height()));
+            std::to_string(left_device.width() / 2 + right_device.width() / 2) +
+            "x" + std::to_string(left_device.height()));
 
     RunDualWarmup(left_device, right_device, config_.options, this);
 
@@ -292,28 +280,24 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
       }
       CapturedFrameGuard right_guard(&right_device, &right_frame);
 
-      const uint8_t* stitched_i420 = nullptr;
-      size_t stitched_i420_size = 0;
-      if (!converter.Convert(left_frame.data, left_frame.bytes_used,
-                             right_frame.data, right_frame.bytes_used,
-                             &stitched_i420, &stitched_i420_size,
-                             &cuda_error)) {
-        throw std::runtime_error(
-            "failed to convert and stitch dual UYVY frames on CUDA: " +
-            cuda_error);
-      }
-
       std::shared_ptr<VideoFrame> frame(new VideoFrame());
-      frame->format = VideoFrameFormat::kI420;
+      frame->format = VideoFrameFormat::kDualUyvy;
       frame->sequence = ++sequence;
       frame->timestamp_us = NowMicros();
-      frame->width = converter.output_width();
-      frame->height = converter.output_height();
-      frame->stride_y = converter.y_stride();
-      frame->stride_u = converter.u_stride();
-      frame->stride_v = converter.v_stride();
-      frame->data.resize(stitched_i420_size);
-      std::memcpy(frame->data.data(), stitched_i420, stitched_i420_size);
+      frame->width = left_device.width() / 2 + right_device.width() / 2;
+      frame->height = left_device.height();
+      frame->left_width = left_device.width();
+      frame->left_height = left_device.height();
+      frame->left_stride_bytes = left_device.bytes_per_line();
+      frame->left_data.resize(left_frame.bytes_used);
+      std::memcpy(frame->left_data.data(), left_frame.data,
+                  left_frame.bytes_used);
+      frame->right_width = right_device.width();
+      frame->right_height = right_device.height();
+      frame->right_stride_bytes = right_device.bytes_per_line();
+      frame->right_data.resize(right_frame.bytes_used);
+      std::memcpy(frame->right_data.data(), right_frame.data,
+                  right_frame.bytes_used);
 
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -322,7 +306,7 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
 
       if (!first_frame_logged) {
         first_frame_logged = true;
-        LogInfo("first stitched frame captured");
+        LogInfo("first dual UYVY frame pair captured");
       }
 
       Publish(frame);

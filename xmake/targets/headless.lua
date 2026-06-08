@@ -31,12 +31,10 @@ if vtsrtc_on_linux() then
 
     target("rtc_dual_camera_image_source")
         set_kind("static")
-        set_policy("build.cuda.devlink", true)
 
         add_files(
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "dual_camera_async_image_source.cpp"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal", "async_dual_camera_video_source.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
             vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_camera_common.cpp"),
             vtsrtc_path("vtsrtc", "rtc_headless_common", "uyvy_v4l2_camera.cpp")
         )
@@ -51,12 +49,6 @@ if vtsrtc_on_linux() then
             vtsrtc_path("vtsrtc", "src")
         )
         add_syslinks("pthread")
-        add_cuflags("--std=c++14")
-
-        if not vtsrtc_add_cuda_runtime_config() then
-            vtsrtc_fail("CUDA runtime not found for rtc_dual_camera_image_source")
-            set_enabled(false)
-        end
 
         add_installfiles(
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "include", "rtc_dual_camera", "dual_camera_async_image_source.h"),
@@ -69,7 +61,9 @@ if vtsrtc_on_linux() then
 
         add_files(
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "app", "main.cpp"),
+            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "dual_uyvy_frame_converter.cpp"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_frame_consumer.cpp"),
+            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated", "vision_detection.pb.c"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "vision_detection_codec.cpp"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "vision_detection_sender.cpp"),
@@ -81,12 +75,14 @@ if vtsrtc_on_linux() then
             vtsrtc_path("vtsrtc", "rtc_headless_common"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "include"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers"),
+            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated")
         )
         add_packages("nanopb")
         vtsrtc_add_linux_runtime_rpath()
         add_syslinks("pthread")
+        add_cuflags("--std=c++14")
 
         if get_config("enable_yolo") then
             add_defines("VTSRTC_ENABLE_YOLO_ONNXRUNTIME")

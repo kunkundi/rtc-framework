@@ -1,4 +1,5 @@
 #include "rtc_dual_camera/dual_camera_async_image_source.h"
+#include "dual_uyvy_frame_converter.h"
 #include "rtc_camera_common.h"
 #include "rtc_headless_session.h"
 #include "yolo_frame_consumer.h"
@@ -36,9 +37,8 @@ void PrintDualUsage(const char* program) {
       << "Usage: " << program << " [options]\n"
       << "\n"
       << "Headless dual-camera RTC client. Captures two UYVY cameras,\n"
-      << "converts both streams to I420, samples every other horizontal pixel\n"
-      << "to halve each camera width, stitches them side-by-side, and sends\n"
-      << "the merged frame through the external RTC video source.\n"
+      << "publishes raw camera pairs, and lets consumers convert them for RTC\n"
+      << "or vision workloads.\n"
       << "\n"
       << "Local options:\n"
       << "  --left-device /dev/video0   Left camera node\n"
@@ -148,6 +148,7 @@ int main(int argc, char** argv) {
 
     YoloFrameConsumer yolo_consumer(yolo_frames);
     yolo_consumer.Start();
+    DualUyvyFrameConverter rtc_frame_converter;
 
     RtcHeadlessSession rtc_session(options);
     if (!rtc_session.Init()) {
@@ -171,21 +172,30 @@ int main(int argc, char** argv) {
       rtc_session.NoteCapturedFrame();
       if (!first_frame_logged) {
         first_frame_logged = true;
-        LogInfo("first stitched frame received by RTC consumer");
+        LogInfo("first raw frame received by RTC consumer");
       }
 
       if (!rtc_session.IsReadyToSend()) {
         continue;
       }
 
-      if (frame.format != rtc_dual_camera::ImagePixelFormat::kI420 ||
-          frame.empty()) {
+      if (frame.empty()) {
         throw std::runtime_error("video source returned an invalid frame");
       }
 
+      ConvertedI420Frame converted_frame;
+      std::string convert_error;
+      if (!rtc_frame_converter.ConvertToI420(frame, &converted_frame,
+                                             &convert_error)) {
+        throw std::runtime_error("failed to convert RTC frame to I420: " +
+                                 convert_error);
+      }
+
       if (!rtc_session.SendI420Frame(
-              frame.data, frame.data_size, frame.width,
-              frame.height, frame.stride_y, frame.stride_u, frame.stride_v)) {
+              converted_frame.data, converted_frame.data_size,
+              converted_frame.width, converted_frame.height,
+              converted_frame.stride_y, converted_frame.stride_u,
+              converted_frame.stride_v)) {
         throw std::runtime_error("failed to send stitched I420 frame");
       }
 

@@ -18,18 +18,32 @@ namespace rtc_camera_headless {
 
 enum class VideoFrameFormat {
   kI420,
+  kDualUyvy,
 };
 
 struct VideoFrame {
-  VideoFrameFormat format = VideoFrameFormat::kI420;
+  VideoFrameFormat format = VideoFrameFormat::kDualUyvy;
   uint64_t sequence = 0;
   int64_t timestamp_us = 0;
+  // Logical output size for consumers after side-by-side sampled conversion.
   size_t width = 0;
   size_t height = 0;
+
+  // I420 fields.
   size_t stride_y = 0;
   size_t stride_u = 0;
   size_t stride_v = 0;
   std::vector<uint8_t> data;
+
+  // kDualUyvy fields.
+  size_t left_width = 0;
+  size_t left_height = 0;
+  size_t left_stride_bytes = 0;
+  std::vector<uint8_t> left_data;
+  size_t right_width = 0;
+  size_t right_height = 0;
+  size_t right_stride_bytes = 0;
+  std::vector<uint8_t> right_data;
 };
 
 using VideoFramePtr = std::shared_ptr<const VideoFrame>;

@@ -24,6 +24,8 @@ ImagePixelFormat ConvertFormat(
   switch (source_format) {
     case rtc_camera_headless::VideoFrameFormat::kI420:
       return ImagePixelFormat::kI420;
+    case rtc_camera_headless::VideoFrameFormat::kDualUyvy:
+      return ImagePixelFormat::kDualUyvy;
   }
   return ImagePixelFormat::kI420;
 }
@@ -40,11 +42,27 @@ void CopyFrame(const rtc_camera_headless::VideoFrame& source,
   destination->stride_v = source.stride_v;
   destination->data = source.data.empty() ? nullptr : source.data.data();
   destination->data_size = source.data.size();
+  destination->left_width = source.left_width;
+  destination->left_height = source.left_height;
+  destination->left_stride_bytes = source.left_stride_bytes;
+  destination->left_data =
+      source.left_data.empty() ? nullptr : source.left_data.data();
+  destination->left_data_size = source.left_data.size();
+  destination->right_width = source.right_width;
+  destination->right_height = source.right_height;
+  destination->right_stride_bytes = source.right_stride_bytes;
+  destination->right_data =
+      source.right_data.empty() ? nullptr : source.right_data.data();
+  destination->right_data_size = source.right_data.size();
 }
 
 }  // namespace
 
 bool ImageFrame::empty() const {
+  if (format == ImagePixelFormat::kDualUyvy) {
+    return !left_data || left_data_size == 0 || !right_data ||
+           right_data_size == 0;
+  }
   return !data || data_size == 0;
 }
 

@@ -1,8 +1,10 @@
 #include "yolo_frame_consumer.h"
 
 #include <chrono>
+#include <string>
 #include <vector>
 
+#include "dual_uyvy_frame_converter.h"
 #include "rtc_camera_common.h"
 #include "vision_detection_sender.h"
 #ifdef VTSRTC_ENABLE_YOLO_ONNXRUNTIME
@@ -15,6 +17,7 @@ namespace {
 constexpr bool kSendYoloDetections = true;
 
 bool RunYoloInference(const rtc_dual_camera::ImageFrame& frame,
+                      DualUyvyFrameConverter* frame_converter,
                       std::vector<YoloDetectionBox>* yolo_boxes) {
 #ifdef VTSRTC_ENABLE_YOLO_ONNXRUNTIME
   static bool detector_initialized = false;
@@ -42,8 +45,41 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& frame,
     return false;
   }
 
+  if (!frame_converter) {
+    if (!inference_error_logged) {
+      inference_error_logged = true;
+      LogError("YOLO inference disabled after error: null frame converter");
+    }
+    detector.reset();
+    return false;
+  }
+
+  ConvertedI420Frame converted_frame;
   std::string error_message;
-  if (!detector->Detect(frame, yolo_boxes, &error_message)) {
+  if (!frame_converter->ConvertToI420(frame, &converted_frame,
+                                      &error_message)) {
+    if (!inference_error_logged) {
+      inference_error_logged = true;
+      LogError(std::string("YOLO inference disabled after error: ") +
+               error_message);
+    }
+    detector.reset();
+    return false;
+  }
+
+  rtc_dual_camera::ImageFrame i420_frame;
+  i420_frame.format = rtc_dual_camera::ImagePixelFormat::kI420;
+  i420_frame.sequence = frame.sequence;
+  i420_frame.timestamp_us = frame.timestamp_us;
+  i420_frame.width = converted_frame.width;
+  i420_frame.height = converted_frame.height;
+  i420_frame.stride_y = converted_frame.stride_y;
+  i420_frame.stride_u = converted_frame.stride_u;
+  i420_frame.stride_v = converted_frame.stride_v;
+  i420_frame.data = converted_frame.data;
+  i420_frame.data_size = converted_frame.data_size;
+
+  if (!detector->Detect(i420_frame, yolo_boxes, &error_message)) {
     if (!inference_error_logged) {
       inference_error_logged = true;
       LogError(std::string("YOLO inference disabled after error: ") +
@@ -57,6 +93,7 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& frame,
 #else
   static bool yolo_disabled_logged = false;
   (void)frame;
+  (void)frame_converter;
   if (yolo_boxes) {
     yolo_boxes->clear();
   }
@@ -68,14 +105,16 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& frame,
 #endif
 }
 
-void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame) {
+void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame,
+                      DualUyvyFrameConverter* frame_converter) {
   if (!kSendYoloDetections) {
     (void)frame;
+    (void)frame_converter;
     return;
   }
 
   std::vector<YoloDetectionBox> yolo_boxes;
-  if (RunYoloInference(frame, &yolo_boxes)) {
+  if (RunYoloInference(frame, frame_converter, &yolo_boxes)) {
     SendYoloDetections(yolo_boxes, static_cast<uint32_t>(frame.width),
                        static_cast<uint32_t>(frame.height));
   }
@@ -109,23 +148,23 @@ void YoloFrameConsumer::Stop() {
 
 void YoloFrameConsumer::Run() {
   bool first_frame_logged = false;
+  DualUyvyFrameConverter frame_converter;
   while (!stop_requested_.load() && !StopRequested()) {
     rtc_dual_camera::ImageFrame frame;
     if (!frames_ || !frames_->WaitNext(&frame, std::chrono::milliseconds(50))) {
       continue;
     }
 
-    if (frame.format != rtc_dual_camera::ImagePixelFormat::kI420 ||
-        frame.empty()) {
+    if (frame.empty()) {
       continue;
     }
 
     if (!first_frame_logged) {
       first_frame_logged = true;
-      LogInfo("first stitched frame received by YOLO consumer");
+      LogInfo("first raw frame received by YOLO consumer");
     }
 
-    ProcessYoloFrame(frame);
+    ProcessYoloFrame(frame, &frame_converter);
   }
 }
 
