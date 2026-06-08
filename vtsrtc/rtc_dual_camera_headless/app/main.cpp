@@ -9,11 +9,14 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 using namespace rtc_camera_headless;
 
@@ -22,7 +25,67 @@ namespace {
 struct DualCaptureOptions {
   CaptureOptions rtc_options;
   rtc_dual_camera::AsyncDualCameraImageSourceOptions image_options;
+  YoloFrameConsumerOptions yolo_options;
 };
+
+size_t ClampYoloDownscaleFromConfig(size_t value) {
+  if (value < 1) {
+    return 1;
+  }
+  if (value > 8) {
+    return 8;
+  }
+  return value;
+}
+
+bool TryReadDownscale(const nlohmann::json& object,
+                      const char* key,
+                      size_t* downscale) {
+  if (!object.is_object() || !object.contains(key) || !downscale) {
+    return false;
+  }
+
+  const nlohmann::json& value = object.at(key);
+  if (value.is_number_unsigned()) {
+    *downscale = ClampYoloDownscaleFromConfig(value.get<size_t>());
+    return true;
+  }
+  if (value.is_number_integer()) {
+    const int parsed = value.get<int>();
+    *downscale =
+        ClampYoloDownscaleFromConfig(parsed > 0 ? static_cast<size_t>(parsed)
+                                                : 1);
+    return true;
+  }
+  return false;
+}
+
+YoloFrameConsumerOptions LoadYoloOptionsFromConfig(
+    const std::string& config_path) {
+  YoloFrameConsumerOptions options;
+  if (config_path.empty() || !FileExists(config_path)) {
+    return options;
+  }
+
+  std::ifstream input(config_path);
+  if (!input.good()) {
+    return options;
+  }
+
+  nlohmann::json root;
+  input >> root;
+
+  size_t downscale = options.processing_downscale;
+  if (root.contains("vision_processing") &&
+      TryReadDownscale(root.at("vision_processing"), "downscale",
+                       &downscale)) {
+    options.processing_downscale = downscale;
+  } else if (TryReadDownscale(root, "yolo_opencv_downscale", &downscale)) {
+    options.processing_downscale = downscale;
+  }
+
+  return options;
+}
 
 bool CommonOptionTakesValue(const std::string& arg) {
   return arg == "--device" || arg == "--room" || arg == "--config" ||
@@ -125,6 +188,8 @@ DualCaptureOptions ParseDualArgs(int argc, char** argv) {
   options.image_options.warmup_frames = options.rtc_options.warmup_frames;
   options.image_options.warmup_delay_ms =
       options.rtc_options.warmup_delay_ms;
+  options.yolo_options = LoadYoloOptionsFromConfig(
+      ResolveConfigPath(options.rtc_options.config_path));
 
   return options;
 }
@@ -146,7 +211,7 @@ int main(int argc, char** argv) {
         video_source.Subscribe(1);
     video_source.Start();
 
-    YoloFrameConsumer yolo_consumer(yolo_frames);
+    YoloFrameConsumer yolo_consumer(yolo_frames, dual_options.yolo_options);
     yolo_consumer.Start();
     DualUyvyFrameConverter rtc_frame_converter;
 

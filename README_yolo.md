@@ -49,6 +49,18 @@ xmake b -vy rtc_dual_camera_headless
 VTSRTC_YOLO_MODEL=/path/to/yolo26n.onnx xmake r rtc_dual_camera_headless --room zhejianglab
 ```
 
+# 降低视觉处理分辨率
+
+`rtc.cfg` 中可以配置 YOLO/OpenCV 消费端的工作帧缩放倍数，不影响 RTC 实际推流分辨率：
+
+```json
+"vision_processing": {
+    "downscale": 2
+}
+```
+
+`downscale` 取值会限制在 `1..8`，`1` 表示不缩放。该缩放会先把拼接后的 I420 工作帧降采样，再送入 YOLO 和 OpenCV ORB/RANSAC，用于减轻处理压力并降低框抖动。
+
 # 编译并运行
  xmake b -vy rtc_dual_camera_headless && xmake r rtc_dual_camera_headless --room zhejianglab
 

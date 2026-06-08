@@ -62,6 +62,7 @@ if vtsrtc_on_linux() then
         add_files(
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "app", "main.cpp"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "dual_uyvy_frame_converter.cpp"),
+            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "stereo_detection_fuser.cpp"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_frame_consumer.cpp"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated", "vision_detection.pb.c"),
@@ -80,9 +81,18 @@ if vtsrtc_on_linux() then
             vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated")
         )
         add_packages("nanopb")
+        vtsrtc_add_json_config()
         vtsrtc_add_linux_runtime_rpath()
         add_syslinks("pthread")
         add_cuflags("--std=c++14")
+        add_includedirs("/usr/include/opencv4")
+        add_linkdirs("/usr/local/lib")
+        add_links(
+            "opencv_calib3d",
+            "opencv_features2d",
+            "opencv_core"
+        )
+        add_rpathdirs("/usr/local/lib")
 
         if get_config("enable_yolo") then
             add_defines("VTSRTC_ENABLE_YOLO_ONNXRUNTIME")
