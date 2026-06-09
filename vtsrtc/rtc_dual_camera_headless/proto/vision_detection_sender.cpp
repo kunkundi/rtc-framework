@@ -14,6 +14,7 @@ namespace {
 
 constexpr uint32_t kClassMapVersion = 1;
 constexpr const char* kSourceId = "merged_image";
+constexpr int kVisionMetadataRefreshSeconds = 5;
 
 constexpr const char* kCocoLabels[] = {
     "person",        "bicycle",      "car",           "motorcycle",
@@ -149,11 +150,16 @@ void SendYoloDetections(const std::vector<YoloDetectionBox>& yolo_boxes,
                         uint32_t frame_width,
                         uint32_t frame_height) {
   static bool metadata_sent = false;
-  if (!metadata_sent) {
+  static std::chrono::steady_clock::time_point last_metadata_sent;
+  const auto now = std::chrono::steady_clock::now();
+  if (!metadata_sent ||
+      now - last_metadata_sent >=
+          std::chrono::seconds(kVisionMetadataRefreshSeconds)) {
     metadata_sent = SendVisionMetadata();
     if (!metadata_sent) {
       return;
     }
+    last_metadata_sent = now;
   }
 
   const vts_rtc::vision::FrameDetections frame_detections =

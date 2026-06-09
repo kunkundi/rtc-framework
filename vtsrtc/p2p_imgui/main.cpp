@@ -105,6 +105,11 @@ struct VisionDetectionOverlayView {
   std::chrono::steady_clock::time_point updated_at;
 };
 
+struct VisionOverlaySnapshot {
+  VisionDetectionOverlayView overlay;
+  std::map<uint32_t, std::string> class_labels_by_id;
+};
+
 struct NormalizedRect {
   float left = 0.0f;
   float top = 0.0f;
@@ -1590,16 +1595,18 @@ class RtcImguiApp {
       return;
     }
 
-    VisionDetectionOverlayView overlay;
+    VisionOverlaySnapshot snapshot;
     {
       std::lock_guard<std::mutex> lock(vision_detection_mutex_);
       const auto it = vision_detections_by_source_.find(frame.stream_key);
       if (it == vision_detections_by_source_.end()) {
         return;
       }
-      overlay = it->second;
+      snapshot.overlay = it->second;
+      snapshot.class_labels_by_id = vision_class_labels_by_id_;
     }
 
+    const VisionDetectionOverlayView& overlay = snapshot.overlay;
     const auto age = std::chrono::steady_clock::now() - overlay.updated_at;
     if (age > std::chrono::seconds(2)) {
       return;
@@ -1616,8 +1623,18 @@ class RtcImguiApp {
       }
 
       char label[64] = {0};
-      std::snprintf(label, sizeof(label), "cls %u %.1f%%", detection.class_id,
-                    static_cast<double>(detection.confidence) / 10.0);
+      const auto label_it =
+          snapshot.class_labels_by_id.find(detection.class_id);
+      if (label_it != snapshot.class_labels_by_id.end() &&
+          !label_it->second.empty()) {
+        std::snprintf(label, sizeof(label), "%s %.1f%%",
+                      label_it->second.c_str(),
+                      static_cast<double>(detection.confidence) / 10.0);
+      } else {
+        std::snprintf(label, sizeof(label), "cls %u %.1f%%",
+                      detection.class_id,
+                      static_cast<double>(detection.confidence) / 10.0);
+      }
 
       if (interleaved_overlay) {
         for (int eye = 0; eye < 2; ++eye) {
@@ -2335,6 +2352,28 @@ class RtcImguiApp {
       return;
     }
 
+    if (decoded.envelope.type == vts_rtc::vision::MessageType::ClassMap) {
+      const vts_rtc::vision::ClassMap& class_map =
+          decoded.envelope.class_map;
+      std::map<uint32_t, std::string> labels_by_id;
+      for (const vts_rtc::vision::ClassInfo& class_info :
+           class_map.classes) {
+        if (!class_info.label.empty()) {
+          labels_by_id[class_info.class_id] = class_info.label;
+        }
+      }
+      {
+        std::lock_guard<std::mutex> lock(vision_detection_mutex_);
+        vision_class_labels_by_id_ = labels_by_id;
+      }
+      std::ostringstream oss;
+      oss << "Vision class map received: model=" << class_map.model_name
+          << " version=" << class_map.model_version
+          << " classes=" << labels_by_id.size();
+      AppendLog(oss.str());
+      return;
+    }
+
     if (decoded.envelope.type != vts_rtc::vision::MessageType::FrameDetections) {
       return;
     }
@@ -2474,6 +2513,7 @@ class RtcImguiApp {
   std::map<std::string, VideoTextureView> video_textures_;
   std::mutex vision_detection_mutex_;
   std::map<std::string, VisionDetectionOverlayView> vision_detections_by_source_;
+  std::map<uint32_t, std::string> vision_class_labels_by_id_;
   bool render_lr_pixel_interleave_ = false;
   std::string fullscreen_video_stream_key_;
   bool focus_fullscreen_video_ = false;

@@ -95,9 +95,16 @@ if vtsrtc_on_linux() then
         add_rpathdirs("/usr/local/lib")
 
         if get_config("enable_yolo") then
-            add_defines("VTSRTC_ENABLE_YOLO_ONNXRUNTIME")
-            add_files(vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_onnx_detector.cpp"))
-            add_packages("onnxruntime")
+            add_defines("VTSRTC_ENABLE_YOLO_TENSORRT")
+            add_files(vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_onnx_detector.cu"))
+            add_includedirs("/usr/include/aarch64-linux-gnu")
+            add_linkdirs("/lib/aarch64-linux-gnu")
+            add_links(
+                "nvinfer",
+                "nvinfer_plugin",
+                "nvonnxparser"
+            )
+            add_rpathdirs("/lib/aarch64-linux-gnu")
         end
 
         if not vtsrtc_add_cuda_runtime_config() then
@@ -113,13 +120,6 @@ if vtsrtc_on_linux() then
                     local model_dir = path.join(target:targetdir(), "models")
                     batchcmds:mkdir(model_dir)
                     batchcmds:cp(model_path, model_dir)
-                end
-                local onnxruntime_pkg = target:pkg("onnxruntime")
-                if onnxruntime_pkg then
-                    local onnxruntime_libdir = path.join(onnxruntime_pkg:installdir(), "lib")
-                    for _, shared_lib in ipairs(os.files(path.join(onnxruntime_libdir, "libonnxruntime*.so*"))) do
-                        batchcmds:cp(shared_lib, target:targetdir())
-                    end
                 end
             end
         end)

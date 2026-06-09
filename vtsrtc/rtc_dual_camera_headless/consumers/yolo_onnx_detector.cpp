@@ -1,7 +1,5 @@
 #include "yolo_onnx_detector.h"
 
-#include "rtc_camera_common.h"
-
 #include <onnxruntime_cxx_api.h>
 
 #include <algorithm>
@@ -13,6 +11,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+
+#include "rtc_camera_common.h"
 
 namespace rtc_camera_headless {
 namespace {
@@ -59,13 +59,9 @@ uint8_t ClampToByte(int value) {
   return static_cast<uint8_t>(Clamp(value, 0, 255));
 }
 
-float Sigmoid(float value) {
-  return 1.0f / (1.0f + std::exp(-value));
-}
+float Sigmoid(float value) { return 1.0f / (1.0f + std::exp(-value)); }
 
-bool LooksLikeLogit(float value) {
-  return value < 0.0f || value > 1.0f;
-}
+bool LooksLikeLogit(float value) { return value < 0.0f || value > 1.0f; }
 
 float ScoreValue(float value) {
   return LooksLikeLogit(value) ? Sigmoid(value) : value;
@@ -115,12 +111,9 @@ std::string ResolveDefaultModelPath() {
   return candidates.front();
 }
 
-bool BuildInputTensor(const rtc_dual_camera::ImageFrame& frame,
-                      int input_width,
-                      int input_height,
-                      std::vector<float>* input,
-                      PreprocessInfo* info,
-                      std::string* error_message) {
+bool BuildInputTensor(const rtc_dual_camera::ImageFrame& frame, int input_width,
+                      int input_height, std::vector<float>* input,
+                      PreprocessInfo* info, std::string* error_message) {
   if (!input || !info) {
     if (error_message) {
       *error_message = "null output buffer";
@@ -146,9 +139,8 @@ bool BuildInputTensor(const rtc_dual_camera::ImageFrame& frame,
     return false;
   }
 
-  const float scale =
-      std::min(static_cast<float>(input_width) / frame.width,
-               static_cast<float>(input_height) / frame.height);
+  const float scale = std::min(static_cast<float>(input_width) / frame.width,
+                               static_cast<float>(input_height) / frame.height);
   const int resized_width =
       std::max(1, static_cast<int>(std::lround(frame.width * scale)));
   const int resized_height =
@@ -179,17 +171,15 @@ bool BuildInputTensor(const rtc_dual_camera::ImageFrame& frame,
   float* b_plane = g_plane + image_size;
 
   for (int y = 0; y < resized_height; ++y) {
-    const size_t src_y =
-        std::min(frame.height - 1,
-                 static_cast<size_t>(static_cast<double>(y) * frame.height /
-                                     resized_height));
+    const size_t src_y = std::min(
+        frame.height - 1, static_cast<size_t>(static_cast<double>(y) *
+                                              frame.height / resized_height));
     const size_t src_uv_y = src_y / 2;
     const int dst_y = y + pad_y;
     for (int x = 0; x < resized_width; ++x) {
-      const size_t src_x =
-          std::min(frame.width - 1,
-                   static_cast<size_t>(static_cast<double>(x) * frame.width /
-                                       resized_width));
+      const size_t src_x = std::min(
+          frame.width - 1, static_cast<size_t>(static_cast<double>(x) *
+                                               frame.width / resized_width));
       const size_t src_uv_x = src_x / 2;
       const int dst_x = x + pad_x;
       const size_t dst_index =
@@ -221,32 +211,25 @@ float IoU(const Candidate& a, const Candidate& b) {
   const float y1 = std::max(a.y1, b.y1);
   const float x2 = std::min(a.x2, b.x2);
   const float y2 = std::min(a.y2, b.y2);
-  const float intersection =
-      std::max(0.0f, x2 - x1) * std::max(0.0f, y2 - y1);
-  const float a_area = std::max(0.0f, a.x2 - a.x1) *
-                       std::max(0.0f, a.y2 - a.y1);
-  const float b_area = std::max(0.0f, b.x2 - b.x1) *
-                       std::max(0.0f, b.y2 - b.y1);
+  const float intersection = std::max(0.0f, x2 - x1) * std::max(0.0f, y2 - y1);
+  const float a_area =
+      std::max(0.0f, a.x2 - a.x1) * std::max(0.0f, a.y2 - a.y1);
+  const float b_area =
+      std::max(0.0f, b.x2 - b.x1) * std::max(0.0f, b.y2 - b.y1);
   const float union_area = a_area + b_area - intersection;
   return union_area > 0.0f ? intersection / union_area : 0.0f;
 }
 
-void AddCandidate(float x1,
-                  float y1,
-                  float x2,
-                  float y2,
-                  float score,
-                  int class_id,
-                  const PreprocessInfo& info,
+void AddCandidate(float x1, float y1, float x2, float y2, float score,
+                  int class_id, const PreprocessInfo& info,
                   std::vector<Candidate>* candidates) {
-  if (!std::isfinite(score) || score < kConfidenceThreshold ||
-      class_id < 0 || !candidates) {
+  if (!std::isfinite(score) || score < kConfidenceThreshold || class_id < 0 ||
+      !candidates) {
     return;
   }
 
-  const float max_coord =
-      std::max(std::max(std::fabs(x1), std::fabs(y1)),
-               std::max(std::fabs(x2), std::fabs(y2)));
+  const float max_coord = std::max(std::max(std::fabs(x1), std::fabs(y1)),
+                                   std::max(std::fabs(x2), std::fabs(y2)));
   if (max_coord <= 2.0f) {
     x1 *= info.input_width;
     x2 *= info.input_width;
@@ -285,22 +268,15 @@ void AddCandidate(float x1,
   candidates->push_back(candidate);
 }
 
-void AddCxcywhCandidate(float cx,
-                        float cy,
-                        float width,
-                        float height,
-                        float score,
-                        int class_id,
-                        const PreprocessInfo& info,
+void AddCxcywhCandidate(float cx, float cy, float width, float height,
+                        float score, int class_id, const PreprocessInfo& info,
                         std::vector<Candidate>* candidates) {
   AddCandidate(cx - width * 0.5f, cy - height * 0.5f, cx + width * 0.5f,
                cy + height * 0.5f, score, class_id, info, candidates);
 }
 
 template <typename ValueAt>
-void ParseBoxScoreRows(size_t rows,
-                       size_t attrs,
-                       const ValueAt& value_at,
+void ParseBoxScoreRows(size_t rows, size_t attrs, const ValueAt& value_at,
                        const PreprocessInfo& info,
                        std::vector<Candidate>* candidates) {
   if (attrs < 6) {
@@ -346,8 +322,7 @@ void ParseBoxScoreRows(size_t rows,
   }
 }
 
-bool ParseTensorOutput(const Ort::Value& output,
-                       const PreprocessInfo& info,
+bool ParseTensorOutput(const Ort::Value& output, const PreprocessInfo& info,
                        std::vector<Candidate>* candidates,
                        std::string* error_message) {
   if (!output.IsTensor()) {
@@ -422,10 +397,9 @@ std::vector<Candidate> ApplyNms(std::vector<Candidate>* candidates) {
     return selected;
   }
 
-  std::sort(candidates->begin(), candidates->end(),
-            [](const Candidate& a, const Candidate& b) {
-              return a.score > b.score;
-            });
+  std::sort(
+      candidates->begin(), candidates->end(),
+      [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
 
   for (const Candidate& candidate : *candidates) {
     bool suppress = false;
@@ -450,8 +424,7 @@ std::vector<Candidate> ApplyNms(std::vector<Candidate>* candidates) {
 }
 
 std::vector<YoloDetectionBox> ToDetectionBoxes(
-    const std::vector<Candidate>& candidates,
-    const PreprocessInfo& info,
+    const std::vector<Candidate>& candidates, const PreprocessInfo& info,
     uint64_t frame_sequence) {
   std::vector<YoloDetectionBox> boxes;
   boxes.reserve(candidates.size());
@@ -460,9 +433,8 @@ std::vector<YoloDetectionBox> ToDetectionBoxes(
     const Candidate& candidate = candidates[i];
     YoloDetectionBox box;
     box.class_id = static_cast<uint32_t>(candidate.class_id);
-    box.confidence =
-        static_cast<uint32_t>(std::lround(Clamp(candidate.score, 0.0f, 1.0f) *
-                                          1000.0f));
+    box.confidence = static_cast<uint32_t>(
+        std::lround(Clamp(candidate.score, 0.0f, 1.0f) * 1000.0f));
     box.x = ToNormU16(candidate.x1, static_cast<float>(info.original_width));
     box.y = ToNormU16(candidate.y1, static_cast<float>(info.original_height));
     box.w = ToNormU16(candidate.x2 - candidate.x1,
@@ -482,8 +454,7 @@ std::vector<YoloDetectionBox> ToDetectionBoxes(
 
 struct YoloOnnxDetector::Impl {
   explicit Impl(const std::string& path)
-      : env(ORT_LOGGING_LEVEL_WARNING, "vtsrtc_yolo"),
-        model_path(path) {}
+      : env(ORT_LOGGING_LEVEL_WARNING, "vtsrtc_yolo"), model_path(path) {}
 
   Ort::Env env;
   Ort::SessionOptions session_options;
@@ -507,8 +478,7 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::CreateDefault(
 }
 
 std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
-    const std::string& model_path,
-    std::string* error_message) {
+    const std::string& model_path, std::string* error_message) {
   if (!FileExists(model_path)) {
     if (error_message) {
       *error_message = "YOLO model not found: " + model_path;
@@ -521,8 +491,8 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
     impl->session_options.SetIntraOpNumThreads(1);
     impl->session_options.SetGraphOptimizationLevel(
         GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
-    impl->session.reset(new Ort::Session(
-        impl->env, model_path.c_str(), impl->session_options));
+    impl->session.reset(
+        new Ort::Session(impl->env, model_path.c_str(), impl->session_options));
 
     Ort::AllocatorWithDefaultOptions allocator;
     const size_t input_count = impl->session->GetInputCount();
@@ -541,14 +511,13 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
       impl->input_names.push_back(name.get());
     }
 
-    const Ort::TypeInfo input_type =
-        impl->session->GetInputTypeInfo(0);
+    const Ort::TypeInfo input_type = impl->session->GetInputTypeInfo(0);
     const std::vector<int64_t> input_shape =
         input_type.GetTensorTypeAndShapeInfo().GetShape();
     if (input_shape.size() != 4) {
       if (error_message) {
-        *error_message = "expected NCHW YOLO input, got shape " +
-                         ShapeToString(input_shape);
+        *error_message =
+            "expected NCHW YOLO input, got shape " + ShapeToString(input_shape);
       }
       return std::unique_ptr<YoloOnnxDetector>();
     }
@@ -581,8 +550,8 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
         new YoloOnnxDetector(std::move(impl)));
   } catch (const std::exception& ex) {
     if (error_message) {
-      *error_message = std::string("failed to load YOLO ONNX model: ") +
-                       ex.what();
+      *error_message =
+          std::string("failed to load YOLO ONNX model: ") + ex.what();
     }
     return std::unique_ptr<YoloOnnxDetector>();
   }
@@ -606,8 +575,8 @@ bool YoloOnnxDetector::Detect(const rtc_dual_camera::ImageFrame& frame,
   }
 
   try {
-    std::array<int64_t, 4> input_shape = {
-        1, 3, impl_->input_height, impl_->input_width};
+    std::array<int64_t, 4> input_shape = {1, 3, impl_->input_height,
+                                          impl_->input_width};
     Ort::MemoryInfo memory_info =
         Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
     Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
@@ -627,9 +596,9 @@ bool YoloOnnxDetector::Detect(const rtc_dual_camera::ImageFrame& frame,
     }
 
     Ort::RunOptions run_options;
-    std::vector<Ort::Value> outputs = impl_->session->Run(
-        run_options, input_names.data(), &input_tensor, 1, output_names.data(),
-        output_names.size());
+    std::vector<Ort::Value> outputs =
+        impl_->session->Run(run_options, input_names.data(), &input_tensor, 1,
+                            output_names.data(), output_names.size());
 
     std::vector<Candidate> candidates;
     for (const Ort::Value& output : outputs) {
