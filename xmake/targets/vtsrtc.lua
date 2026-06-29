@@ -79,3 +79,19 @@ target(vtsrtc_target)
 
     add_installfiles(vtsrtc_path("vtsrtc", "src", "c_rtc.h"), {prefixdir = "vtsrtc/include"})
     add_installfiles(vtsrtc_path("test_data", "rtc.cfg"), {prefixdir = "vtsrtc"})
+
+    after_build(function(target)
+        local lib_dir = path.join(os.projectdir(), "lib")
+        os.mkdir(lib_dir)
+        local src_file = target:targetfile()
+        os.cp(src_file, lib_dir)
+        print("vtsrtc: copied to " .. path.join(lib_dir, path.filename(src_file)))
+        if is_plat("windows") then
+            local dll_name = path.basename(src_file)
+            local implib_src = path.join(target:targetdir(), dll_name .. ".lib")
+            if os.isfile(implib_src) then
+                os.cp(implib_src, lib_dir)
+                print("vtsrtc: copied import library to " .. lib_dir)
+            end
+        end
+    end)

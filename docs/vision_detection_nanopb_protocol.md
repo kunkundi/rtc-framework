@@ -110,15 +110,15 @@ Generate C sources like this:
 ```bash
 nanopb_generator.py \
   -I docs/proto \
-  -D vtsrtc/rtc_dual_camera_headless/proto/generated \
+  -D client/rtc_dual_camera_headless/proto/generated \
   docs/proto/vision_detection.proto
 ```
 
 Expected generated files:
 
 ```text
-vtsrtc/rtc_dual_camera_headless/proto/generated/vision_detection.pb.h
-vtsrtc/rtc_dual_camera_headless/proto/generated/vision_detection.pb.c
+client/rtc_dual_camera_headless/proto/generated/vision_detection.pb.h
+client/rtc_dual_camera_headless/proto/generated/vision_detection.pb.c
 ```
 
 Add the generated `.pb.c` file and generated include directory to the target:
@@ -127,12 +127,12 @@ Add the generated `.pb.c` file and generated include directory to the target:
 target("rtc_dual_camera_headless")
     add_packages("nanopb")
     add_includedirs(
-        "vtsrtc/rtc_dual_camera_headless/proto",
-        "vtsrtc/rtc_dual_camera_headless/proto/generated"
+        "client/rtc_dual_camera_headless/proto",
+        "client/rtc_dual_camera_headless/proto/generated"
     )
     add_files(
-        "vtsrtc/rtc_dual_camera_headless/proto/generated/vision_detection.pb.c",
-        "vtsrtc/rtc_dual_camera_headless/proto/vision_detection_codec.cpp"
+        "client/rtc_dual_camera_headless/proto/generated/vision_detection.pb.c",
+        "client/rtc_dual_camera_headless/proto/vision_detection_codec.cpp"
     )
 ```
 

@@ -14,7 +14,9 @@ includes("xmake/dependencies.lua")
 includes("xmake/encoders.lua")
 includes("xmake/yolo.lua")
 
-includes("xmake/targets/vtsrtc.lua")
+if not vtsrtc_has_prebuilt_lib() then
+    includes("xmake/targets/vtsrtc.lua")
+end
 includes("xmake/targets/signaling_server.lua")
 includes("xmake/targets/p2p_imgui.lua")
 includes("xmake/targets/headless.lua")

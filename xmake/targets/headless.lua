@@ -1,20 +1,19 @@
 if vtsrtc_on_linux() then
     target("rtc_camera_headless")
         set_kind("binary")
-        add_deps(vtsrtc_target_name())
+        vtsrtc_add_client_dependency()
 
         add_files(
-            vtsrtc_path("vtsrtc", "rtc_camera_headless", "app", "main.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_camera_headless", "src", "internal", "uyvy_to_i420_cuda.cu"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_camera_common.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_headless_session.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "uyvy_v4l2_camera.cpp")
+            vtsrtc_path("client", "rtc_camera_headless", "app", "main.cpp"),
+            vtsrtc_path("client", "rtc_camera_headless", "src", "internal", "uyvy_to_i420_cuda.cu"),
+            vtsrtc_path("client", "rtc_headless_common", "rtc_camera_common.cpp"),
+            vtsrtc_path("client", "rtc_headless_common", "rtc_headless_session.cpp"),
+            vtsrtc_path("client", "rtc_headless_common", "uyvy_v4l2_camera.cpp")
         )
 
         add_includedirs(
-            vtsrtc_path("vtsrtc", "src"),
-            vtsrtc_path("vtsrtc", "rtc_camera_headless", "src", "internal"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common")
+            vtsrtc_path("client", "rtc_camera_headless", "src", "internal"),
+            vtsrtc_path("client", "rtc_headless_common")
         )
         vtsrtc_add_linux_runtime_rpath()
         add_syslinks("pthread")
@@ -33,52 +32,51 @@ if vtsrtc_on_linux() then
         set_kind("static")
 
         add_files(
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "dual_camera_async_image_source.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal", "async_dual_camera_video_source.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_camera_common.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "uyvy_v4l2_camera.cpp")
+            vtsrtc_path("client", "rtc_dual_camera_headless", "src", "dual_camera_async_image_source.cpp"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "src", "internal", "async_dual_camera_video_source.cpp"),
+            vtsrtc_path("client", "rtc_headless_common", "rtc_camera_common.cpp"),
+            vtsrtc_path("client", "rtc_headless_common", "uyvy_v4l2_camera.cpp")
         )
 
         add_includedirs(
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "include"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "include"),
             {public = true}
         )
         add_includedirs(
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common"),
-            vtsrtc_path("vtsrtc", "src")
+            vtsrtc_path("client", "rtc_dual_camera_headless", "src", "internal"),
+            vtsrtc_path("client", "rtc_headless_common")
         )
         add_syslinks("pthread")
 
         add_installfiles(
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "include", "rtc_dual_camera", "dual_camera_async_image_source.h"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "include", "rtc_dual_camera", "dual_camera_async_image_source.h"),
             {prefixdir = "vtsrtc/include/rtc_dual_camera"}
         )
 
     target("rtc_dual_camera_headless")
         set_kind("binary")
-        add_deps(vtsrtc_target_name(), "rtc_dual_camera_image_source")
+        vtsrtc_add_client_dependency()
+        add_deps("rtc_dual_camera_image_source")
 
         add_files(
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "app", "main.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "dual_uyvy_frame_converter.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "stereo_detection_fuser.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_frame_consumer.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated", "vision_detection.pb.c"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "vision_detection_codec.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "vision_detection_sender.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_headless_session.cpp")
+            vtsrtc_path("client", "rtc_dual_camera_headless", "app", "main.cpp"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "consumers", "dual_uyvy_frame_converter.cpp"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "consumers", "stereo_detection_fuser.cpp"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "consumers", "yolo_frame_consumer.cpp"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "proto", "generated", "vision_detection.pb.c"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "proto", "vision_detection_codec.cpp"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "proto", "vision_detection_sender.cpp"),
+            vtsrtc_path("client", "rtc_headless_common", "rtc_headless_session.cpp")
         )
 
         add_includedirs(
-            vtsrtc_path("vtsrtc", "src"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "include"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "src", "internal"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto"),
-            vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "proto", "generated")
+            vtsrtc_path("client", "rtc_headless_common"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "include"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "consumers"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "src", "internal"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "proto"),
+            vtsrtc_path("client", "rtc_dual_camera_headless", "proto", "generated")
         )
         add_packages("nanopb")
         vtsrtc_add_json_config()
@@ -96,7 +94,7 @@ if vtsrtc_on_linux() then
 
         if get_config("enable_yolo") then
             add_defines("VTSRTC_ENABLE_YOLO_TENSORRT")
-            add_files(vtsrtc_path("vtsrtc", "rtc_dual_camera_headless", "consumers", "yolo_onnx_detector.cu"))
+            add_files(vtsrtc_path("client", "rtc_dual_camera_headless", "consumers", "yolo_onnx_detector.cu"))
             add_includedirs("/usr/include/aarch64-linux-gnu")
             add_linkdirs("/lib/aarch64-linux-gnu")
             add_links(
@@ -126,17 +124,16 @@ if vtsrtc_on_linux() then
 
     target("rtc_receiver_headless")
         set_kind("binary")
-        add_deps(vtsrtc_target_name())
+        vtsrtc_add_client_dependency()
 
         add_files(
-            vtsrtc_path("vtsrtc", "rtc_receiver_headless", "app", "main.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_camera_common.cpp"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common", "rtc_headless_session.cpp")
+            vtsrtc_path("client", "rtc_receiver_headless", "app", "main.cpp"),
+            vtsrtc_path("client", "rtc_headless_common", "rtc_camera_common.cpp"),
+            vtsrtc_path("client", "rtc_headless_common", "rtc_headless_session.cpp")
         )
 
         add_includedirs(
-            vtsrtc_path("vtsrtc", "src"),
-            vtsrtc_path("vtsrtc", "rtc_headless_common")
+            vtsrtc_path("client", "rtc_headless_common")
         )
         vtsrtc_add_linux_runtime_rpath()
         add_syslinks("pthread")
