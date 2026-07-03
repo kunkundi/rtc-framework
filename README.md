@@ -27,13 +27,44 @@ sudo apt-get install libasio-dev
 
 #### 拷贝代码与更新子模块
 ```
-Clone代码
-    git clone ssh://git@10.11.16.35:2022/zhujian/rtc-framework.git
-切换到v0.2.0 tag
-    git checkout v0.2.0
-更新子模块
+# 克隆仓库
+    git clone git@github.com:kunkundi/rtc-framework.git
+    cd rtc-framework
+
+# 初始化基础子模块（Simple-Web-Server、Simple-WebSocket-Server）
     git submodule update --init
 ```
+
+#### 下载第三方依赖（webrtc + Video_Codec_SDK）
+由于 webrtc 预编译库和 Video_Codec_SDK 体积较大（~2.7 GB），
+采用 **GitHub Releases** 方式管理，不再作为 git 子模块。
+
+**首次克隆后执行以下命令：**
+
+**Linux / macOS:**
+```bash
+bash scripts/download_third_party.sh
+```
+
+**Windows (双击运行或命令行):**
+```bat
+scripts\download_third_party.bat
+```
+
+> 脚本会自动从 GitHub Release 下载并解压到 `third_party/` 目录。
+>
+> **更新依赖版本**：修改脚本中的 `RELEASE_URL` 版本号即可。
+>
+> **上传新依赖包到 Release**：
+> ```bash
+> cd third_party/webrtc
+> for d in webrtc-linux webrtc-jetson webrtc-jetson-default webrtc-win; do
+>     tar -czf "scripts/packages/${d}.tar.gz" "$d/"
+> done
+> cd ../Video_Codec_SDK_11.0.10
+> tar -czf scripts/packages/Video_Codec_SDK_11.0.10.tar.gz .
+> ```
+> 然后在 GitHub → Releases → 创建新 Release 并上传 `scripts/packages/` 下的压缩包。
 
 #### Windows平台
 1. 运行 `run_xmake.bat`，会分别构建Debug/Release并安装到 `install` 目录

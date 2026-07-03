@@ -20,13 +20,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # ==============================
-# 配置：修改为你的实际下载地址
+# 配置：固定 Release 下载地址，更新依赖时改版本号即可
 # ==============================
-# 方式一：设置环境变量
-#   export RTC_THIRDPARTY_URL="https://github.com/kunkundi/rtc-framework/releases/download/v1.0.0"
-#
-# 方式二：直接修改这里
-RELEASE_URL="${RTC_THIRDPARTY_URL:-}"
+RELEASE_URL="https://github.com/kunkundi/rtc-framework/releases/download/v1.0.0"
 
 # ==============================
 # 下载 webrtc（include + lib 完整目录）
@@ -39,12 +35,6 @@ download_webrtc() {
     # 检查是否已存在
     if [ -d "$TARGET_DIR/include" ] && [ "$(ls -A "$TARGET_DIR/include" 2>/dev/null)" != "" ]; then
         echo "[SKIP] webrtc-${PLATFORM} already exists"
-        return
-    fi
-
-    if [ -z "$RELEASE_URL" ]; then
-        echo "[WARN] RELEASE_URL 未设置，跳过 webrtc-${PLATFORM} 下载"
-        echo "       请将 ${ARCHIVE} 解压到: $PROJECT_ROOT/third_party/webrtc/"
         return
     fi
 
@@ -69,12 +59,6 @@ download_video_codec_sdk() {
         return
     fi
 
-    if [ -z "$RELEASE_URL" ]; then
-        echo "[WARN] RELEASE_URL 未设置，跳过 Video_Codec_SDK 下载"
-        echo "       请将 ${ARCHIVE} 解压到: $PROJECT_ROOT/third_party/"
-        return
-    fi
-
     echo "[INFO] Downloading ${ARCHIVE}..."
     curl -L --progress-bar -o "/tmp/${ARCHIVE}" "${RELEASE_URL}/${ARCHIVE}"
     echo "[INFO] Extracting..."
@@ -93,11 +77,7 @@ main() {
     echo "=========================================="
     echo ""
 
-    if [ -n "$RELEASE_URL" ]; then
-        echo "Release URL: $RELEASE_URL"
-    else
-        echo "提示: 设置 RTC_THIRDPARTY_URL 环境变量或修改脚本中的 RELEASE_URL"
-    fi
+    echo "Release URL: $RELEASE_URL"
     echo ""
 
     download_webrtc "linux"
