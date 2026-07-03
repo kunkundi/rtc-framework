@@ -1,4 +1,4 @@
-set_project("rtc-solutions")
+set_project("rtc-framework")
 set_version("0.5.0")
 
 includes("@builtin/check")

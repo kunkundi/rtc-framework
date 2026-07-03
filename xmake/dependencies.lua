@@ -2,6 +2,8 @@ add_requires("imgui v1.92.6", {configs = {opengl3 = true, sdl3 = true}})
 add_requires("asio 1.32.0")
 add_requires("spdlog 1.14.1")
 add_requires("nanopb 0.4.9", {configs = {generator = true}})
+add_requires("nlohmann_json 3.12.0")
+add_requires("openssl 1.1.1-h")
 
 function vtsrtc_webrtc_root_dir()
     if vtsrtc_on_windows() then
@@ -69,16 +71,9 @@ function vtsrtc_add_spdlog_config()
 end
 
 function vtsrtc_add_json_config()
-    add_includedirs(vtsrtc_path("third_party", "json", "include"))
+    add_packages("nlohmann_json")
 end
 
 function vtsrtc_add_openssl_config()
-    if vtsrtc_on_windows() then
-        local openssl_dir = vtsrtc_path("third_party", "Openssl-Win64")
-        add_includedirs(path.join(openssl_dir, "include"))
-        add_linkdirs(path.join(openssl_dir, "lib"))
-        add_links("libcrypto", "libssl")
-    else
-        add_syslinks("ssl", "crypto")
-    end
+    add_packages("openssl")
 end

@@ -650,7 +650,7 @@ class RtcImguiApp {
 
   void Run() {
     SDLOpenGLWindow window;
-    if (!window.Init("rtc-solutions | p2p_imgui", kMainWindowWidth,
+    if (!window.Init("rtc-framework | p2p_imgui", kMainWindowWidth,
                      kMainWindowHeight)) {
       AppendLog("SDLOpenGLWindow init failed");
       return;

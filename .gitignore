@@ -8,3 +8,22 @@ models/*.engine
 models/*.onnx
 models/*.plan
 models/*.pt
+
+# third_party large binaries — download via script instead
+third_party/webrtc/
+third_party/Video_Codec_SDK_11.0.10/
+
+# test data (large binary files)
+test_data/zjlabs.yuv
+test_data/*.pcm
+
+# lib binaries (managed separately)
+lib/*.dll
+lib/*.so
+lib/*.lib
+
+# dockerfiles dependencies
+signaling-server/dockerfiles/
+
+# local packages for upload (do not commit)
+scripts/packages/

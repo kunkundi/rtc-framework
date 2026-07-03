@@ -22,7 +22,7 @@ systemd
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/nvidia/.local/bin
 export HOME=/home/nvidia
 
-cd /home/nvidia/workspace/rtc-solutions
+cd /home/nvidia/workspace/rtc-framework
 
 echo "PATH=$PATH" >> /tmp/rtc.log
 echo "whoami=$(whoami)" >> /tmp/rtc.log
@@ -51,7 +51,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=nvidia
-WorkingDirectory=/home/nvidia/workspace/rtc-solutions
+WorkingDirectory=/home/nvidia/workspace/rtc-framework
 
 ExecStart=/bin/bash /home/nvidia/startup.sh
 

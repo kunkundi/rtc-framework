@@ -1,7 +1,7 @@
-## rtc-solutions
+## rtc-framework
 
 ### 简介
-rtc-solutions是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台的实时音视频通信的项目，包括三个子工程：
+rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台的实时音视频通信的项目，包括三个子工程：
 * signaling-server是WebRTC建立P2P连接的信令服务器，以及管理房间的业务服务器
 * vtsrtc是基于WebRTC封装的实时音视频通信库，包括：
    - 视频设备查询
@@ -28,7 +28,7 @@ sudo apt-get install libasio-dev
 #### 拷贝代码与更新子模块
 ```
 Clone代码
-    git clone ssh://git@10.11.16.35:2022/zhujian/rtc-solutions.git
+    git clone ssh://git@10.11.16.35:2022/zhujian/rtc-framework.git
 切换到v0.2.0 tag
     git checkout v0.2.0
 更新子模块

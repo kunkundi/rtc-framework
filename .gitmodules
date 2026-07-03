@@ -4,14 +4,5 @@
 [submodule "third_party/Simple-WebSocket-Server"]
 	path = third_party/Simple-WebSocket-Server
 	url = http://114.215.189.252/zhujian/Simple-Websocket-Server.git
-[submodule "third_party/Openssl-Win64"]
-	path = third_party/Openssl-Win64
-	url = http://114.215.189.252/zhujian/Openssl-Win64.git
-[submodule "third_party/webrtc"]
-	path = third_party/webrtc
-	url = http://114.215.189.252/zhujian/webrtc.git
-	branch = M85
-[submodule "third_party/json"]
-	path = third_party/json
-	url = http://114.215.189.252/zhujian/json.git
-	branch = develop
+
+
