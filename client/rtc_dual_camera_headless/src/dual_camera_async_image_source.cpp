@@ -42,6 +42,8 @@ void CopyFrame(const rtc_camera_headless::VideoFrame& source,
   destination->stride_v = source.stride_v;
   destination->data = source.data.empty() ? nullptr : source.data.data();
   destination->data_size = source.data.size();
+  destination->left_pixel_format = source.left_pixel_format;
+  destination->right_pixel_format = source.right_pixel_format;
   destination->left_width = source.left_width;
   destination->left_height = source.left_height;
   destination->left_stride_bytes = source.left_stride_bytes;

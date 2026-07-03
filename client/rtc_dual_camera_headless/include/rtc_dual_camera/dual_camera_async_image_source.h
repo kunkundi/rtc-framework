@@ -34,6 +34,8 @@ struct ImageFrame {
 
   // kDualUyvy fields. The two raw camera frames are kept separate so each
   // consumer can choose its own conversion path.
+  uint32_t left_pixel_format = 0;
+  uint32_t right_pixel_format = 0;
   size_t left_width = 0;
   size_t left_height = 0;
   size_t left_stride_bytes = 0;

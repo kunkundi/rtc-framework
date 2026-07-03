@@ -27,6 +27,12 @@ int Xioctl(int fd, unsigned long request, void* arg) {
   return result;
 }
 
+bool IsSupportedPixelFormat(uint32_t pixelformat) {
+  return pixelformat == V4L2_PIX_FMT_UYVY ||
+         pixelformat == V4L2_PIX_FMT_YUYV ||
+         pixelformat == V4L2_PIX_FMT_NV12;
+}
+
 bool CurrentFormatMatchesRequest(const v4l2_format& current,
                                  const CaptureOptions& options) {
   if (options.width > 0 &&
@@ -37,7 +43,18 @@ bool CurrentFormatMatchesRequest(const v4l2_format& current,
       current.fmt.pix.height != static_cast<uint32_t>(options.height)) {
     return false;
   }
-  return current.fmt.pix.pixelformat == V4L2_PIX_FMT_UYVY;
+  // Prefer YUYV on Jetson; never short-circuit on UYVY alone.
+  if (!IsSupportedPixelFormat(current.fmt.pix.pixelformat)) {
+    return false;
+  }
+  // Only accept the current format as-is if it's already YUYV or NV12.
+  // UYVY may be a driver default that actually outputs YUYV byte order.
+  if (current.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV ||
+      current.fmt.pix.pixelformat == V4L2_PIX_FMT_NV12) {
+    return true;
+  }
+  // UYVY: still try to negotiate a better format.
+  return false;
 }
 
 }  // namespace
@@ -172,8 +189,17 @@ uint32_t UyvyV4l2CaptureDevice::height() const {
 }
 
 size_t UyvyV4l2CaptureDevice::bytes_per_line() const {
-  return format_.fmt.pix.bytesperline ? format_.fmt.pix.bytesperline
-                                      : static_cast<size_t>(width()) * 2;
+  if (format_.fmt.pix.bytesperline) {
+    return format_.fmt.pix.bytesperline;
+  }
+  if (format_.fmt.pix.pixelformat == V4L2_PIX_FMT_NV12) {
+    return static_cast<size_t>(width());
+  }
+  return static_cast<size_t>(width()) * 2;
+}
+
+bool UyvyV4l2CaptureDevice::is_nv12() const {
+  return format_.fmt.pix.pixelformat == V4L2_PIX_FMT_NV12;
 }
 
 const std::string& UyvyV4l2CaptureDevice::device_path() const {
@@ -191,6 +217,10 @@ void UyvyV4l2CaptureDevice::ConfigureFormat(const CaptureOptions& options) {
   }
 
   if (CurrentFormatMatchesRequest(format_, options)) {
+    LogInfo(std::string("camera ") + options.device + " using native format " +
+            FourccToString(format_.fmt.pix.pixelformat) + " " +
+            std::to_string(format_.fmt.pix.width) + "x" +
+            std::to_string(format_.fmt.pix.height));
     return;
   }
 
@@ -202,20 +232,34 @@ void UyvyV4l2CaptureDevice::ConfigureFormat(const CaptureOptions& options) {
   if (options.height > 0) {
     desired.fmt.pix.height = static_cast<uint32_t>(options.height);
   }
-  desired.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY;
   desired.fmt.pix.field = V4L2_FIELD_ANY;
 
-  if (Xioctl(fd_, VIDIOC_S_FMT, &desired) < 0 ||
-      desired.fmt.pix.pixelformat != V4L2_PIX_FMT_UYVY) {
-    throw std::runtime_error(
-        "unable to apply the requested width/height/UYVY pixel-format");
+  // Try formats in preference order: YUYV (Jetson V4L2 default), UYVY, NV12
+  static const uint32_t kPreferredFormats[] = {
+      V4L2_PIX_FMT_YUYV,
+      V4L2_PIX_FMT_UYVY,
+      V4L2_PIX_FMT_NV12,
+  };
+
+  bool format_set = false;
+  for (uint32_t fmt : kPreferredFormats) {
+    desired.fmt.pix.pixelformat = fmt;
+    if (Xioctl(fd_, VIDIOC_S_FMT, &desired) == 0 &&
+        desired.fmt.pix.pixelformat == fmt) {
+      format_ = desired;
+      format_set = true;
+      LogInfo(std::string("camera ") + options.device + " set to " +
+              FourccToString(fmt) + " " +
+              std::to_string(format_.fmt.pix.width) + "x" +
+              std::to_string(format_.fmt.pix.height));
+      break;
+    }
   }
 
-  format_ = desired;
-  if (format_.fmt.pix.pixelformat != V4L2_PIX_FMT_UYVY) {
-    throw std::runtime_error("selected pixel format " +
-                             FourccToString(format_.fmt.pix.pixelformat) +
-                             " is not supported, only UYVY is supported");
+  if (!format_set) {
+    throw std::runtime_error(
+        "unable to apply the requested pixel format on " + options.device +
+        " (tried UYVY, YUYV, NV12)");
   }
 }
 

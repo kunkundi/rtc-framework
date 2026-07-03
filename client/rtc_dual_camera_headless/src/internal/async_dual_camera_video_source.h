@@ -23,6 +23,8 @@ enum class VideoFrameFormat {
 
 struct VideoFrame {
   VideoFrameFormat format = VideoFrameFormat::kDualUyvy;
+  uint32_t left_pixel_format = 0;
+  uint32_t right_pixel_format = 0;
   uint64_t sequence = 0;
   int64_t timestamp_us = 0;
   // Logical output size for consumers after side-by-side sampled conversion.

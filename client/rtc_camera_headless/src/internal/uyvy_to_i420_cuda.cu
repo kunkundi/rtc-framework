@@ -23,7 +23,8 @@ __global__ void UYVYToI420Kernel(const uint8_t* src,
                                  uint8_t* dst_v,
                                  int dst_stride_v,
                                  int width,
-                                 int height) {
+                                 int height,
+                                 int is_yuyv) {
   const int chroma_x = blockIdx.x * blockDim.x + threadIdx.x;
   const int chroma_y = blockIdx.y * blockDim.y + threadIdx.y;
   const int uv_width = width / 2;
@@ -36,10 +37,14 @@ __global__ void UYVYToI420Kernel(const uint8_t* src,
   const int y = chroma_y * 2;
 
   const uint8_t* row0 = src + y * src_stride + x * 2;
-  const uint8_t u0 = row0[0];
-  const uint8_t y00 = row0[1];
-  const uint8_t v0 = row0[2];
-  const uint8_t y01 = row0[3];
+  uint8_t y00, u0, y01, v0;
+  if (is_yuyv) {
+    // YUYV: Y0 U0 Y1 V0
+    y00 = row0[0]; u0 = row0[1]; y01 = row0[2]; v0 = row0[3];
+  } else {
+    // UYVY: U0 Y0 V0 Y1
+    u0 = row0[0]; y00 = row0[1]; v0 = row0[2]; y01 = row0[3];
+  }
 
   dst_y[y * dst_stride_y + x] = y00;
   dst_y[y * dst_stride_y + x + 1] = y01;
@@ -48,10 +53,12 @@ __global__ void UYVYToI420Kernel(const uint8_t* src,
   uint8_t v_out = v0;
   if (y + 1 < height) {
     const uint8_t* row1 = src + (y + 1) * src_stride + x * 2;
-    const uint8_t u1 = row1[0];
-    const uint8_t y10 = row1[1];
-    const uint8_t v1 = row1[2];
-    const uint8_t y11 = row1[3];
+    uint8_t y10, u1, y11, v1;
+    if (is_yuyv) {
+      y10 = row1[0]; u1 = row1[1]; y11 = row1[2]; v1 = row1[3];
+    } else {
+      u1 = row1[0]; y10 = row1[1]; v1 = row1[2]; y11 = row1[3];
+    }
 
     dst_y[(y + 1) * dst_stride_y + x] = y10;
     dst_y[(y + 1) * dst_stride_y + x + 1] = y11;
@@ -80,6 +87,7 @@ struct UyvyToI420CudaConverter::Impl {
   uint8_t* host_output = nullptr;
   cudaStream_t stream = nullptr;
   bool initialized = false;
+  bool is_yuyv = false;
 };
 
 UyvyToI420CudaConverter::UyvyToI420CudaConverter() : impl_(new Impl()) {}
@@ -111,6 +119,7 @@ UyvyToI420CudaConverter::~UyvyToI420CudaConverter() {
 bool UyvyToI420CudaConverter::Init(size_t width,
                                    size_t height,
                                    size_t input_stride_bytes,
+                                   bool is_yuyv,
                                    std::string* error_message) {
   if (!impl_) {
     if (error_message) {
@@ -164,6 +173,7 @@ bool UyvyToI420CudaConverter::Init(size_t width,
   impl_->width = width;
   impl_->height = height;
   impl_->input_stride_bytes = input_stride_bytes;
+  impl_->is_yuyv = is_yuyv;
   impl_->y_stride = width;
   impl_->u_stride = width / 2;
   impl_->v_stride = width / 2;
@@ -251,7 +261,8 @@ bool UyvyToI420CudaConverter::Convert(const uint8_t* src_host,
       impl_->device_input, static_cast<int>(impl_->input_stride_bytes), dst_y,
       static_cast<int>(impl_->y_stride), dst_u, static_cast<int>(impl_->u_stride),
       dst_v, static_cast<int>(impl_->v_stride), static_cast<int>(impl_->width),
-      static_cast<int>(impl_->height));
+      static_cast<int>(impl_->height),
+      impl_->is_yuyv ? 1 : 0);
 
   cuda_code = cudaGetLastError();
   if (cuda_code != cudaSuccess) {

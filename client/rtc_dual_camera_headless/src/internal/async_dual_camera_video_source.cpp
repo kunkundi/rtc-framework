@@ -284,6 +284,8 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
       frame->format = VideoFrameFormat::kDualUyvy;
       frame->sequence = ++sequence;
       frame->timestamp_us = NowMicros();
+      frame->left_pixel_format = left_device.pixel_format();
+      frame->right_pixel_format = right_device.pixel_format();
       frame->width = left_device.width() / 2 + right_device.width() / 2;
       frame->height = left_device.height();
       frame->left_width = left_device.width();

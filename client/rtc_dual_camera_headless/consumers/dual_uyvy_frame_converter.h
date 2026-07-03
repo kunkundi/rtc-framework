@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 class DualUyvyToI420StitchCudaConverter;
 
@@ -37,6 +38,9 @@ class DualUyvyFrameConverter {
  private:
   bool EnsureConverter(const rtc_dual_camera::ImageFrame& frame,
                        std::string* error_message);
+  bool ConvertNv12DualToI420(const rtc_dual_camera::ImageFrame& frame,
+                             ConvertedI420Frame* output,
+                             std::string* error_message);
 
   std::unique_ptr<DualUyvyToI420StitchCudaConverter> converter_;
   size_t left_width_ = 0;
@@ -45,6 +49,15 @@ class DualUyvyFrameConverter {
   size_t right_width_ = 0;
   size_t right_height_ = 0;
   size_t right_stride_bytes_ = 0;
+
+  // NV12 CPU conversion buffers.
+  std::vector<uint8_t> left_y_;
+  std::vector<uint8_t> left_u_;
+  std::vector<uint8_t> left_v_;
+  std::vector<uint8_t> right_y_;
+  std::vector<uint8_t> right_u_;
+  std::vector<uint8_t> right_v_;
+  std::vector<uint8_t> stitched_i420_;
 };
 
 }  // namespace rtc_camera_headless

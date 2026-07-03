@@ -3,18 +3,34 @@ if vtsrtc_on_linux() then
         set_kind("binary")
         vtsrtc_add_client_dependency()
 
-        add_files(
-            vtsrtc_path("client", "rtc_camera_headless", "app", "main.cpp"),
-            vtsrtc_path("client", "rtc_camera_headless", "src", "internal", "uyvy_to_i420_cuda.cu"),
-            vtsrtc_path("client", "rtc_headless_common", "rtc_camera_common.cpp"),
-            vtsrtc_path("client", "rtc_headless_common", "rtc_headless_session.cpp"),
-            vtsrtc_path("client", "rtc_headless_common", "uyvy_v4l2_camera.cpp")
-        )
+        if get_config("enable_miivii_sdk") then
+            add_defines("VTSRTC_USE_MIIVII_SDK")
+            add_files(
+                vtsrtc_path("client", "rtc_camera_headless", "app", "main.cpp"),
+                vtsrtc_path("client", "rtc_camera_headless", "src", "internal", "uyvy_to_i420_cuda.cu"),
+                vtsrtc_path("client", "rtc_headless_common", "rtc_camera_common.cpp"),
+                vtsrtc_path("client", "rtc_headless_common", "rtc_headless_session.cpp"),
+                vtsrtc_path("client", "rtc_headless_common", "mv_gmsl_camera.cpp")
+            )
+        else
+            add_files(
+                vtsrtc_path("client", "rtc_camera_headless", "app", "main.cpp"),
+                vtsrtc_path("client", "rtc_camera_headless", "src", "internal", "uyvy_to_i420_cuda.cu"),
+                vtsrtc_path("client", "rtc_headless_common", "rtc_camera_common.cpp"),
+                vtsrtc_path("client", "rtc_headless_common", "rtc_headless_session.cpp"),
+                vtsrtc_path("client", "rtc_headless_common", "uyvy_v4l2_camera.cpp")
+            )
+        end
 
         add_includedirs(
             vtsrtc_path("client", "rtc_camera_headless", "src", "internal"),
             vtsrtc_path("client", "rtc_headless_common")
         )
+        if get_config("enable_miivii_sdk") then
+            add_includedirs("/opt/miivii/include")
+            add_linkdirs("/opt/miivii/lib")
+            add_links("mvgmslcamera_noopencv")
+        end
         vtsrtc_add_linux_runtime_rpath()
         add_syslinks("pthread")
         add_cuflags("--std=c++14")

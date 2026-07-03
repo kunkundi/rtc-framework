@@ -18,9 +18,11 @@ class DualUyvyToI420StitchCudaConverter {
   bool Init(size_t left_width,
             size_t left_height,
             size_t left_input_stride_bytes,
+            bool left_is_yuyv,
             size_t right_width,
             size_t right_height,
             size_t right_input_stride_bytes,
+            bool right_is_yuyv,
             std::string* error_message);
   bool Convert(const uint8_t* left_src_host,
                size_t left_src_size,

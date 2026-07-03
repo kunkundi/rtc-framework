@@ -16,6 +16,7 @@ class UyvyToI420CudaConverter {
   bool Init(size_t width,
             size_t height,
             size_t input_stride_bytes,
+            bool is_yuyv,
             std::string* error_message);
   bool Convert(const uint8_t* src_host,
                size_t src_size,

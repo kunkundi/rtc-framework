@@ -1,10 +1,20 @@
 #include "rtc_camera_common.h"
 #include "rtc_headless_session.h"
 #include "uyvy_to_i420_cuda.h"
-#include "uyvy_v4l2_camera.h"
 
+#ifdef VTSRTC_USE_MIIVII_SDK
+#include "mv_gmsl_camera.h"
+using CaptureDevice = MvGmslCaptureDevice;
+#else
+#include "uyvy_v4l2_camera.h"
+using CaptureDevice = UyvyV4l2CaptureDevice;
+#endif
+
+#include <linux/videodev2.h>
 #include <chrono>
+#include <cstring>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -153,6 +163,63 @@ void RunWarmup(Yuv420FileSource& source, const CaptureOptions& options) {
   }
 }
 
+// Convert NV12 to I420 on CPU.
+// NV12 layout: Y plane (stride*height bytes) + interleaved UV plane (stride*height/2 bytes).
+// I420 layout: Y plane + U plane + V plane (all contiguous).
+bool ConvertNv12ToI420OnCpu(const uint8_t* nv12_data,
+                            size_t nv12_size,
+                            size_t width,
+                            size_t height,
+                            size_t stride_bytes,
+                            std::vector<uint8_t>* i420_out,
+                            size_t* y_stride,
+                            size_t* u_stride,
+                            size_t* v_stride) {
+  if (!nv12_data || !i420_out) {
+    return false;
+  }
+
+  const size_t y_plane_size = stride_bytes * height;
+  const size_t uv_plane_size = stride_bytes * (height / 2);
+  if (nv12_size < y_plane_size + uv_plane_size) {
+    return false;
+  }
+
+  const size_t out_y_stride = width;
+  const size_t out_u_stride = width / 2;
+  const size_t out_v_stride = width / 2;
+  const size_t chroma_height = (height + 1) / 2;
+  const size_t out_size =
+      out_y_stride * height + out_u_stride * chroma_height * 2;
+
+  i420_out->resize(out_size);
+  uint8_t* dst_y = i420_out->data();
+  uint8_t* dst_u = dst_y + out_y_stride * height;
+  uint8_t* dst_v = dst_u + out_u_stride * chroma_height;
+
+  // Copy Y plane row-by-row (handles stride > width)
+  for (size_t row = 0; row < height; ++row) {
+    std::memcpy(dst_y + row * out_y_stride,
+                nv12_data + row * stride_bytes, width);
+  }
+
+  // Deinterleave UV plane
+  const uint8_t* uv_src = nv12_data + y_plane_size;
+  for (size_t row = 0; row < chroma_height; ++row) {
+    for (size_t col = 0; col < width / 2; ++col) {
+      const size_t src_off = row * stride_bytes + col * 2;
+      const size_t dst_off = row * out_u_stride + col;
+      dst_u[dst_off] = uv_src[src_off];
+      dst_v[dst_off] = uv_src[src_off + 1];
+    }
+  }
+
+  if (y_stride) *y_stride = out_y_stride;
+  if (u_stride) *u_stride = out_u_stride;
+  if (v_stride) *v_stride = out_v_stride;
+  return true;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -238,21 +305,39 @@ int main(int argc, char** argv) {
     CaptureOptions camera_options = options;
     camera_options.device = camera_device_path;
 
-    UyvyV4l2CaptureDevice capture_device;
+    CaptureDevice capture_device;
     capture_device.Open(camera_options);
     LogInfo(std::string("camera: ") + capture_device.device_path() + " " +
             std::to_string(capture_device.width()) + "x" +
             std::to_string(capture_device.height()) + " " +
             FourccToString(capture_device.pixel_format()));
 
-    UyvyToI420CudaConverter converter;
-    std::string cuda_error;
-    if (!converter.Init(capture_device.width(), capture_device.height(),
-                        capture_device.bytes_per_line(), &cuda_error)) {
-      throw std::runtime_error("failed to init CUDA UYVY converter: " +
-                               cuda_error);
+    const bool camera_is_nv12 = capture_device.is_nv12();
+    const bool camera_is_yuyv =
+        capture_device.pixel_format() == V4L2_PIX_FMT_YUYV;
+
+    // CUDA converter for UYVY / YUYV cameras.
+    std::unique_ptr<UyvyToI420CudaConverter> converter;
+    if (!camera_is_nv12) {
+      converter.reset(new UyvyToI420CudaConverter());
+      std::string cuda_error;
+      if (!converter->Init(capture_device.width(), capture_device.height(),
+                           capture_device.bytes_per_line(), camera_is_yuyv,
+                           &cuda_error)) {
+        throw std::runtime_error("failed to init CUDA UYVY converter: " +
+                                 cuda_error);
+      }
+      LogInfo(std::string("using CUDA ") +
+              (camera_is_yuyv ? "YUYV" : "UYVY") + "->I420 converter");
+    } else {
+      LogInfo("using CPU NV12->I420 converter");
     }
-    LogInfo("using CUDA UYVY->I420 converter");
+
+    // NV12 intermediate buffers.
+    std::vector<uint8_t> nv12_i420_buffer;
+    size_t nv12_y_stride = 0;
+    size_t nv12_u_stride = 0;
+    size_t nv12_v_stride = 0;
 
     RunWarmup(capture_device, options);
 
@@ -261,8 +346,10 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    UyvyV4l2CaptureDevice::CapturedFrame raw_frame;
+    CaptureDevice::CapturedFrame raw_frame;
+    std::string cuda_error;
     bool first_frame_logged = false;
+    bool i420_dumped = false;
 
     while (!StopRequested()) {
       rtc_session.Tick();
@@ -275,6 +362,14 @@ int main(int argc, char** argv) {
       if (!first_frame_logged) {
         first_frame_logged = true;
         LogInfo("first camera frame captured");
+        // Dump raw camera frame for debugging
+        {
+          std::ofstream dump("first_frame_raw.bin", std::ios::binary);
+          dump.write(reinterpret_cast<const char*>(raw_frame.data),
+                     static_cast<std::streamsize>(raw_frame.bytes_used));
+          LogInfo("dumped raw frame to first_frame_raw.bin (" +
+                  std::to_string(raw_frame.bytes_used) + " bytes)");
+        }
       }
 
       if (!rtc_session.IsReadyToSend()) {
@@ -282,20 +377,62 @@ int main(int argc, char** argv) {
         continue;
       }
 
-      const uint8_t* i420_data = nullptr;
-      size_t i420_size = 0;
-      if (!converter.Convert(raw_frame.data, raw_frame.bytes_used, &i420_data,
-                             &i420_size, &cuda_error)) {
+      bool send_ok = false;
+      if (camera_is_nv12) {
+        // NV12 → I420 CPU conversion
+        if (!ConvertNv12ToI420OnCpu(
+                raw_frame.data, raw_frame.bytes_used,
+                capture_device.width(), capture_device.height(),
+                capture_device.bytes_per_line(), &nv12_i420_buffer,
+                &nv12_y_stride, &nv12_u_stride, &nv12_v_stride)) {
+          capture_device.RequeueCapturedFrame(&raw_frame);
+          throw std::runtime_error("failed to convert NV12 to I420 on CPU");
+        }
         capture_device.RequeueCapturedFrame(&raw_frame);
-        throw std::runtime_error("failed to convert UYVY to I420 on CUDA: " +
-                                 cuda_error);
-      }
-      capture_device.RequeueCapturedFrame(&raw_frame);
 
-      if (!rtc_session.SendI420Frame(
-          i420_data, i420_size, capture_device.width(),
-          capture_device.height(), converter.y_stride(),
-          converter.u_stride(), converter.v_stride())) {
+        // Dump first converted I420 for debugging
+        if (!i420_dumped) {
+          i420_dumped = true;
+          std::ofstream dump("first_frame_i420.yuv", std::ios::binary);
+          dump.write(reinterpret_cast<const char*>(nv12_i420_buffer.data()),
+                     static_cast<std::streamsize>(nv12_i420_buffer.size()));
+          LogInfo("dumped I420 frame to first_frame_i420.yuv (" +
+                  std::to_string(nv12_i420_buffer.size()) + " bytes)");
+        }
+
+        send_ok = rtc_session.SendI420Frame(
+            nv12_i420_buffer.data(), nv12_i420_buffer.size(),
+            capture_device.width(), capture_device.height(),
+            nv12_y_stride, nv12_u_stride, nv12_v_stride);
+      } else {
+        // UYVY / YUYV → I420 CUDA conversion
+        const uint8_t* i420_data = nullptr;
+        size_t i420_size = 0;
+        if (!converter->Convert(raw_frame.data, raw_frame.bytes_used,
+                               &i420_data, &i420_size, &cuda_error)) {
+          capture_device.RequeueCapturedFrame(&raw_frame);
+          throw std::runtime_error(
+              "failed to convert UYVY to I420 on CUDA: " + cuda_error);
+        }
+        capture_device.RequeueCapturedFrame(&raw_frame);
+
+        // Dump first converted I420 for debugging
+        if (!i420_dumped) {
+          i420_dumped = true;
+          std::ofstream dump("first_frame_i420.yuv", std::ios::binary);
+          dump.write(reinterpret_cast<const char*>(i420_data),
+                     static_cast<std::streamsize>(i420_size));
+          LogInfo("dumped I420 frame to first_frame_i420.yuv (" +
+                  std::to_string(i420_size) + " bytes)");
+        }
+
+        send_ok = rtc_session.SendI420Frame(
+            i420_data, i420_size, capture_device.width(),
+            capture_device.height(), converter->y_stride(),
+            converter->u_stride(), converter->v_stride());
+      }
+
+      if (!send_ok) {
         throw std::runtime_error("failed to send I420 frame");
       }
 

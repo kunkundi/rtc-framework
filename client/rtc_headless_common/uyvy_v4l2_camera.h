@@ -28,6 +28,7 @@ class UyvyV4l2CaptureDevice {
   void RequeueCapturedFrame(CapturedFrame* frame);
 
   uint32_t pixel_format() const;
+  bool is_nv12() const;
   uint32_t width() const;
   uint32_t height() const;
   size_t bytes_per_line() const;
