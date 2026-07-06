@@ -2,6 +2,8 @@
 #include "rtc_headless_session.h"
 #include "uyvy_to_i420_cuda.h"
 
+using namespace rtc_camera_headless;
+
 #ifdef VTSRTC_USE_MIIVII_SDK
 #include "mv_gmsl_camera.h"
 using CaptureDevice = MvGmslCaptureDevice;
@@ -19,8 +21,6 @@ using CaptureDevice = UyvyV4l2CaptureDevice;
 #include <string>
 #include <thread>
 #include <vector>
-
-using namespace rtc_camera_headless;
 
 namespace {
 

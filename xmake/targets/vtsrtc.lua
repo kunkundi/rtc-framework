@@ -39,6 +39,7 @@ target(vtsrtc_target)
         add_syslinks("winmm", "Secur32", "Msdmo", "Dmoguids", "wmcodecdspuuid", "Strmiids", "Advapi32")
     elseif vtsrtc_on_linux() then
         add_defines("WEBRTC_LINUX", "WEBRTC_POSIX")
+        add_syslinks("X11", "rt")
     end
 
     vtsrtc_add_simple_web_config()
