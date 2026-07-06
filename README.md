@@ -25,15 +25,14 @@ sudo apt-get install build-essential
 sudo apt-get install libasio-dev
 ```
 
-#### 拷贝代码与更新子模块
+#### 克隆仓库并下载依赖
 ```
 # 克隆仓库
     git clone git@github.com:kunkundi/rtc-framework.git
     cd rtc-framework
-
-# 初始化基础子模块（Simple-Web-Server、Simple-WebSocket-Server）
-    git submodule update --init
 ```
+
+> 不再需要 `git submodule update --init`，Simple-Web-Server 和 Simple-WebSocket-Server 已转为普通文件直接包含在仓库中。
 
 #### 下载第三方依赖（webrtc + Video_Codec_SDK）
 由于 webrtc 预编译库和 Video_Codec_SDK 体积较大（~2.7 GB），
