@@ -13,6 +13,7 @@ rem    webrtc-jetson.tar.gz
 rem    webrtc-jetson-default.tar.gz
 rem    webrtc-win.tar.gz
 rem    Video_Codec_SDK_11.0.10.tar.gz
+rem    zjlabs.yuv.tar.gz
 rem =============================================================================
 
 setlocal enabledelayedexpansion
@@ -60,6 +61,11 @@ rem ==============================
 rem 下载 Video_Codec_SDK
 rem ==============================
 call :download_sdk
+
+rem ==============================
+rem 下载 zjlabs.yuv 测试视频
+rem ==============================
+call :download_zjlabs_yuv
 
 rem 清理临时目录
 rmdir /s /q "%TEMP_DIR%" 2>nul
@@ -138,4 +144,35 @@ if %errorlevel% neq 0 (
 
 del /q "%TEMP_DIR%\%ARCHIVE%" 2>nul
 echo [OK] Video_Codec_SDK done
+exit /b 0
+
+rem ==============================
+rem 子函数：下载 zjlabs.yuv 测试视频
+rem ==============================
+:download_zjlabs_yuv
+set "YUV_FILE=%PROJECT_ROOT%\test_data\zjlabs.yuv"
+set "ARCHIVE=zjlabs.yuv.tar.gz"
+
+if exist "%YUV_FILE%" (
+    echo [SKIP] zjlabs.yuv already exists
+    exit /b 0
+)
+
+echo [INFO] Downloading %ARCHIVE% ...
+curl -L --progress-bar -o "%TEMP_DIR%\%ARCHIVE%" "%RELEASE_URL%/%ARCHIVE%"
+if %errorlevel% neq 0 (
+    echo [ERROR] 下载失败: %ARCHIVE%
+    exit /b 1
+)
+
+echo [INFO] Extracting ...
+if not exist "%PROJECT_ROOT%\test_data" mkdir "%PROJECT_ROOT%\test_data"
+tar -xzf "%TEMP_DIR%\%ARCHIVE%" -C "%PROJECT_ROOT%\test_data"
+if %errorlevel% neq 0 (
+    echo [ERROR] 解压失败: %ARCHIVE%
+    exit /b 1
+)
+
+del /q "%TEMP_DIR%\%ARCHIVE%" 2>nul
+echo [OK] zjlabs.yuv done
 exit /b 0

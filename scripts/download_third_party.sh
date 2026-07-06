@@ -13,6 +13,7 @@
 #   webrtc-jetson-default.tar.gz
 #   webrtc-win.tar.gz
 #   Video_Codec_SDK_11.0.10.tar.gz
+#   zjlabs.yuv.tar.gz
 # =============================================================================
 
 set -euo pipefail
@@ -69,6 +70,27 @@ download_video_codec_sdk() {
 }
 
 # ==============================
+# 下载 zjlabs.yuv 测试视频
+# ==============================
+download_zjlabs_yuv() {
+    local YUV_FILE="$PROJECT_ROOT/test_data/zjlabs.yuv"
+    local ARCHIVE="zjlabs.yuv.tar.gz"
+
+    if [ -f "$YUV_FILE" ]; then
+        echo "[SKIP] zjlabs.yuv already exists"
+        return
+    fi
+
+    echo "[INFO] Downloading ${ARCHIVE}..."
+    curl -L --progress-bar -o "/tmp/${ARCHIVE}" "${RELEASE_URL}/${ARCHIVE}"
+    echo "[INFO] Extracting..."
+    mkdir -p "$PROJECT_ROOT/test_data"
+    tar -xzf "/tmp/${ARCHIVE}" -C "$PROJECT_ROOT/test_data/"
+    rm -f "/tmp/${ARCHIVE}"
+    echo "[OK] zjlabs.yuv done"
+}
+
+# ==============================
 # 主流程
 # ==============================
 main() {
@@ -85,6 +107,7 @@ main() {
     download_webrtc "jetson-default"
     download_webrtc "win"
     download_video_codec_sdk
+    download_zjlabs_yuv
 
     echo ""
     echo "=========================================="
