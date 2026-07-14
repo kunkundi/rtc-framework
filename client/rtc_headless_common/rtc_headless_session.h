@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace rtc_camera_headless {
 
@@ -22,16 +23,29 @@ class RtcHeadlessSession {
     Open,
   };
 
+  struct DataChannelConfig {
+    std::string label;
+    RtcPriorityType priority = RtcPriorityType::Medium;
+    bool ordered = true;
+    int max_retransmits = -1;
+  };
+
   struct Features {
     bool enable_data_channel = true;
     bool enable_external_video_source = true;
     RoomAction room_action = RoomAction::Join;
     RtcRoomType open_room_type = RtcRoomType::VideoBroadcasting;
     bool open_room_force = false;
+    std::vector<DataChannelConfig> additional_data_channels;
   };
 
   using RecvMessageCallback =
       std::function<void(RtcSessionId, RtcDataChannelLabel, const char*, size_t)>;
+  using P2PStateCallback = std::function<void(RtcSessionId, RtcP2PState)>;
+  using DataChannelStateCallback = std::function<void(
+      RtcSessionId, RtcDataChannelLabel, RtcDataChannelState)>;
+  using ServerConnectionStateCallback =
+      std::function<void(RtcServerConnectionState)>;
   using RecvAudioFrameCallback = std::function<void(
       RtcSessionId,
       RtcAudioSourceId,
@@ -53,6 +67,9 @@ class RtcHeadlessSession {
 
   struct Callbacks {
     RecvMessageCallback recv_message;
+    P2PStateCallback p2p_state;
+    DataChannelStateCallback datachannel_state;
+    ServerConnectionStateCallback server_connection_state;
     RecvAudioFrameCallback recv_audio_frame;
     RecvFrameCallback recv_frame;
   };

@@ -112,6 +112,19 @@ bool RtcHeadlessSession::Init() {
     LogRtcCall("RtcAddDataChannel(vision.detect.v1)", vision_dc_code);
   }
 
+  for (const DataChannelConfig& channel :
+       features_.additional_data_channels) {
+    const RtcErrorCode channel_code = RtcAddDataChannel(
+        channel.label.c_str(), channel.priority, channel.ordered,
+        channel.max_retransmits);
+    const std::string action =
+        std::string("RtcAddDataChannel(") + channel.label + ")";
+    LogRtcCall(action.c_str(), channel_code);
+    if (channel_code != RtcErrorCode::OK) {
+      return false;
+    }
+  }
+
   if (features_.enable_external_video_source) {
     const RtcErrorCode video_code =
         RtcAddExternalVideoSource(kExternalVideoSource, RtcPriorityType::High);
@@ -329,6 +342,9 @@ void RtcHeadlessSession::OnP2PState(RtcSessionId sessionid, RtcP2PState state) {
   std::ostringstream oss;
   oss << "p2p: session=" << sessionid << " state=" << P2PStateText(state);
   LogInfo(oss.str());
+  if (instance_->callbacks_.p2p_state) {
+    instance_->callbacks_.p2p_state(sessionid, state);
+  }
 }
 
 void RtcHeadlessSession::OnDataChannelState(RtcSessionId sessionid,
@@ -342,6 +358,9 @@ void RtcHeadlessSession::OnDataChannelState(RtcSessionId sessionid,
       << " label=" << (label ? label : "")
       << " state=" << static_cast<int>(state);
   LogInfo(oss.str());
+  if (instance_->callbacks_.datachannel_state) {
+    instance_->callbacks_.datachannel_state(sessionid, label, state);
+  }
 }
 
 void RtcHeadlessSession::OnServerConnectionState(RtcServerConnectionState state) {
@@ -362,6 +381,9 @@ void RtcHeadlessSession::OnServerConnectionState(RtcServerConnectionState state)
   std::ostringstream oss;
   oss << "server state: " << ServerStateText(state);
   LogInfo(oss.str());
+  if (instance_->callbacks_.server_connection_state) {
+    instance_->callbacks_.server_connection_state(state);
+  }
 }
 
 void RtcHeadlessSession::OnRecvMessage(RtcSessionId remote_sessionid,
