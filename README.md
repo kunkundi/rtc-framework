@@ -1,7 +1,7 @@
 ## rtc-framework
 
 ### 简介
-rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台的实时音视频通信的项目，包括三个子工程：
+rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台实时音视频通信工程，主要由以下部分组成：
 * signaling-server是WebRTC建立P2P连接的信令服务器，以及管理房间的业务服务器
 * vtsrtc是基于WebRTC封装的实时音视频通信库，包括：
    - 视频设备查询
@@ -11,6 +11,22 @@ rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
    - 实时数据通信
 * p2p_imgui是使用vtsrtc + Dear ImGui开发的DEMO
 * rtc_vehicle_headless是车辆端主程序，将双目摄像头采集和车辆控制接收作为独立子模块统一编排
+
+### 工程结构
+
+```text
+client/
+  apps/                 可执行程序入口与应用专属代码
+  modules/              headless、双摄像头、视觉和车辆业务模块
+protocol/
+  control/              车辆控制协议、生成代码和 codec
+  vision/               视觉检测协议、生成代码和 codec
+signaling-server/       HTTP 房间管理和 WebSocket 信令服务
+vtsrtc/                 RTC 动态库及稳定 C ABI
+xmake/                  构建选项、依赖和目标定义
+```
+
+客户端详细分层见 `client/README.md`，协议目录说明见 `protocol/README.md`。
 
 ### 构建与编译
 工程使用xmake组织管理，目前支持：Windows和Linux平台。

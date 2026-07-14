@@ -8,7 +8,7 @@ Use a dedicated RTC DataChannel label:
 constexpr const char* kVisionDetectionChannelLabel = "vision.detect.v1";
 ```
 
-Detection metadata is encoded with nanopb from `docs/proto/vision_detection.proto`
+Detection metadata is encoded with nanopb from `protocol/vision/schema/vision_detection.proto`
 and sent through `RtcBroadcastData`. The payload is binary, so pass the encoded
 buffer and its exact byte size.
 
@@ -85,7 +85,7 @@ For v1.x evolution:
 - Add new fields only as `optional` or `repeated`.
 - Never reuse field numbers.
 - Reserve field numbers/names when a field is removed.
-- Keep bounded nanopb fields updated in `docs/proto/vision_detection.options`.
+- Keep bounded nanopb fields updated in `protocol/vision/schema/vision_detection.options`.
 - Receivers must ignore unknown fields and unknown optional submessages.
 
 Increment `protocol_major` only for incompatible changes, such as changing the
@@ -105,34 +105,33 @@ target("your_target")
 The `generator = true` config enables the nanopb code generator package
 environment. Runtime-only users can omit that config.
 
-Generate C sources like this:
+Generate C sources through the repository wrapper. It locates nanopb 0.4.9 from
+the xmake package and keeps output deterministic across platforms:
 
 ```bash
-nanopb_generator.py \
-  -I docs/proto \
-  -D client/rtc_dual_camera_headless/proto/generated \
-  docs/proto/vision_detection.proto
+python tools/generate_nanopb.py --protocol vision
+python tools/generate_nanopb.py --protocol vision --check
 ```
 
 Expected generated files:
 
 ```text
-client/rtc_dual_camera_headless/proto/generated/vision_detection.pb.h
-client/rtc_dual_camera_headless/proto/generated/vision_detection.pb.c
+protocol/vision/generated/vision_detection.pb.h
+protocol/vision/generated/vision_detection.pb.c
 ```
 
 Add the generated `.pb.c` file and generated include directory to the target:
 
 ```lua
-target("rtc_dual_camera_headless")
+target("rtc_vision_detection_protocol")
     add_packages("nanopb")
     add_includedirs(
-        "client/rtc_dual_camera_headless/proto",
-        "client/rtc_dual_camera_headless/proto/generated"
+        "protocol/vision/include",
+        "protocol/vision/generated"
     )
     add_files(
-        "client/rtc_dual_camera_headless/proto/generated/vision_detection.pb.c",
-        "client/rtc_dual_camera_headless/proto/vision_detection_codec.cpp"
+        "protocol/vision/generated/vision_detection.pb.c",
+        "protocol/vision/src/vision_detection_codec.cpp"
     )
 ```
 

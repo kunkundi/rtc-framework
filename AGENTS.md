@@ -8,8 +8,9 @@
 
 - `signaling-server/`：HTTP 房间管理和 WebSocket 信令服务。
 - `vtsrtc/`：可复用的 RTC 动态库，通过 `c_rtc.h` 提供稳定的 C ABI。
-- `client/`：ImGui、摄像头、双摄像头和无界面客户端示例。
-- `protocol/control/`：基于 nanopb 的车辆控制协议和编解码库。
+- `client/apps/`：ImGui、摄像头、接收端和车辆端可执行程序入口。
+- `client/modules/`：headless、双摄像头、视觉和车辆业务的可复用客户端模块。
+- `protocol/`：基于 nanopb 的车辆控制与视觉检测协议、生成代码和编解码库。
 - `docs/`：信令、视觉检测元数据和车辆控制协议文档。
 - `xmake/`：构建选项、依赖辅助函数和目标定义。
 
@@ -56,6 +57,8 @@ Linux 构建脚本要求系统已安装 `libasio-dev`，或者通过 `ASIO_PATH`
 - 遵循当前文件已有的代码风格。较新的代码通常使用两个空格缩进，较早的 WebRTC 封装代码可能使用制表符。
 - 修改应保持聚焦，不要进行无关的格式化或重构。
 - 优先复用 `xmake/` 中已有的辅助函数和目标配置，不要重复实现平台检测或依赖配置。
+- 可执行程序入口放在 `client/apps/`，可复用代码放在 `client/modules/`；应用不得拥有其他应用需要直接引用的公共实现。
+- 模块公共头文件放在 `include/<命名空间>/`，跨模块包含应使用 `rtc_headless/...`、`rtc_dual_camera/...`、`rtc_vision/...` 或 `rtc_vehicle/...` 前缀。
 - 处理 JSON 和 protobuf 时使用结构化 API，不要手工拼接线协议。
 - 代码注释必须使用中文。仅为不明显的行为、协议约束和安全要求添加注释；API 名称、协议字段、标准术语和第三方代码中的原文可以保留英文。
 - 不要为了翻译而修改第三方代码或自动生成代码中的注释。
@@ -87,7 +90,7 @@ feat(control): 增加车辆控制协议编解码
 
 ## Protobuf 与生成代码
 
-工程使用 nanopb 0.4.9。`docs/proto/` 下的 `.proto` 和 `.options` 文件是协议定义的唯一事实来源。
+工程使用 nanopb 0.4.9。`protocol/*/schema/` 下的 `.proto` 和 `.options` 文件是协议定义的唯一事实来源。
 
 - 不得手工修改生成的 `.pb.h` 或 `.pb.c` 文件。
 - 修改 schema 后必须重新生成并提交对应的两个生成文件。
@@ -98,7 +101,8 @@ feat(control): 增加车辆控制协议编解码
 生成示例：
 
 ```powershell
-nanopb_generator.py --error-on-unmatched -I docs/proto -D protocol/control/generated docs/proto/rtc_control.proto
+python tools/generate_nanopb.py
+python tools/generate_nanopb.py --check
 ```
 
 ## 车辆控制安全规则

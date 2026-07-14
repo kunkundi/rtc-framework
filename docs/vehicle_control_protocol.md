@@ -65,7 +65,7 @@ v1 的所有二进制载荷均不超过 50 字节。
 修改 schema 后重新生成 nanopb 源文件：
 
 ```powershell
-nanopb_generator.py --error-on-unmatched -I docs/proto -D protocol/control/generated docs/proto/rtc_control.proto
+python tools/generate_nanopb.py --protocol control
 ```
 
 构建并运行协议测试：

@@ -3,12 +3,12 @@ target("rtc_vehicle_control_module_tests")
     set_default(false)
     add_deps("rtc_vehicle_control_protocol")
     add_files(
-        vtsrtc_path("client", "rtc_vehicle_headless", "control", "industrial_control_interface.cpp"),
-        vtsrtc_path("client", "rtc_vehicle_headless", "control", "vehicle_control_module.cpp"),
-        vtsrtc_path("client", "rtc_vehicle_headless", "control", "vehicle_control_module_tests.cpp")
+        vtsrtc_path("client", "modules", "vehicle", "src", "industrial_control_interface.cpp"),
+        vtsrtc_path("client", "modules", "vehicle", "src", "vehicle_control_module.cpp"),
+        vtsrtc_path("client", "modules", "vehicle", "tests", "vehicle_control_module_tests.cpp")
     )
     add_includedirs(
-        vtsrtc_path("client", "rtc_vehicle_headless", "control"),
+        vtsrtc_path("client", "modules", "vehicle", "include"),
         vtsrtc_path("protocol", "control", "include"),
         vtsrtc_path("vtsrtc", "src")
     )
@@ -27,22 +27,20 @@ if vtsrtc_on_linux() then
         )
 
         add_files(
-            vtsrtc_path("client", "rtc_vehicle_headless", "app", "main.cpp"),
-            vtsrtc_path("client", "rtc_vehicle_headless", "camera", "vehicle_camera_module.cpp"),
-            vtsrtc_path("client", "rtc_vehicle_headless", "control", "industrial_control_interface.cpp"),
-            vtsrtc_path("client", "rtc_vehicle_headless", "control", "vehicle_control_module.cpp"),
-            vtsrtc_path("client", "rtc_dual_camera_headless", "consumers", "dual_uyvy_frame_converter.cpp"),
-            vtsrtc_path("client", "rtc_dual_camera_headless", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
-            vtsrtc_path("client", "rtc_headless_common", "rtc_headless_session.cpp")
+            vtsrtc_path("client", "apps", "rtc_vehicle_headless", "main.cpp"),
+            vtsrtc_path("client", "modules", "vehicle", "src", "vehicle_camera_module.cpp"),
+            vtsrtc_path("client", "modules", "vehicle", "src", "industrial_control_interface.cpp"),
+            vtsrtc_path("client", "modules", "vehicle", "src", "vehicle_control_module.cpp"),
+            vtsrtc_path("client", "modules", "dual_camera", "src", "dual_uyvy_frame_converter.cpp"),
+            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
+            vtsrtc_path("client", "modules", "headless", "src", "rtc_headless_session.cpp")
         )
 
         add_includedirs(
-            vtsrtc_path("client", "rtc_vehicle_headless", "camera"),
-            vtsrtc_path("client", "rtc_vehicle_headless", "control"),
-            vtsrtc_path("client", "rtc_headless_common"),
-            vtsrtc_path("client", "rtc_dual_camera_headless", "include"),
-            vtsrtc_path("client", "rtc_dual_camera_headless", "consumers"),
-            vtsrtc_path("client", "rtc_dual_camera_headless", "src", "internal"),
+            vtsrtc_path("client", "modules", "vehicle", "include"),
+            vtsrtc_path("client", "modules", "headless", "include"),
+            vtsrtc_path("client", "modules", "dual_camera", "include"),
+            vtsrtc_path("client", "modules", "dual_camera", "src", "internal"),
             vtsrtc_path("protocol", "control", "include")
         )
         add_packages("nanopb")
