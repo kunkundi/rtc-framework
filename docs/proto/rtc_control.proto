@@ -1,0 +1,85 @@
+syntax = "proto2";
+
+package vtsrtc.control.v1;
+
+// 精简的工程车辆远程控制协议。字段编号一经发布不得复用；后续兼容修改只能新增可选字段。
+
+enum VehicleMessageType {
+  VEHICLE_MESSAGE_TYPE_UNKNOWN = 0;
+  VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND = 1;
+  VEHICLE_MESSAGE_TYPE_SET_GEAR = 2;
+  VEHICLE_MESSAGE_TYPE_EVENT_ACK = 3;
+  VEHICLE_MESSAGE_TYPE_VEHICLE_STATE = 4;
+}
+
+enum DriveDirection {
+  DRIVE_DIRECTION_STOP = 0;
+  DRIVE_DIRECTION_FORWARD = 1;
+  DRIVE_DIRECTION_REVERSE = 2;
+}
+
+enum SteeringDirection {
+  STEERING_DIRECTION_CENTER = 0;
+  STEERING_DIRECTION_LEFT = 1;
+  STEERING_DIRECTION_RIGHT = 2;
+}
+
+enum VehicleGear {
+  VEHICLE_GEAR_NEUTRAL = 0;
+  VEHICLE_GEAR_FORWARD = 1;
+  VEHICLE_GEAR_REVERSE = 2;
+}
+
+enum VehicleErrorCode {
+  VEHICLE_ERROR_CODE_NONE = 0;
+  VEHICLE_ERROR_CODE_INVALID_ARGUMENT = 1;
+  VEHICLE_ERROR_CODE_INVALID_STATE = 2;
+  VEHICLE_ERROR_CODE_INTERNAL = 3;
+}
+
+message VehicleControlEnvelope {
+  // ASCII "VCL1" 对应的小端 uint32 值：0x314c4356。
+  optional uint32 magic = 1;
+  optional uint32 protocol_major = 2;
+  optional uint32 protocol_minor = 3;
+  optional VehicleMessageType type = 4;
+  // 发送端单调递增序号。接收端丢弃重复或更早的驾驶帧。
+  optional uint64 seq = 5;
+
+  oneof payload {
+    DriveCommand drive_command = 10;
+    SetGear set_gear = 11;
+    EventAck event_ack = 12;
+    VehicleState vehicle_state = 13;
+  }
+}
+
+// 驾驶过程中通过 vehicle.control.v1 以 50 Hz 发送。若本地看门狗周期内没有收到有效帧，
+// 车辆控制器必须停车。
+message DriveCommand {
+  optional DriveDirection drive_direction = 1;
+  optional SteeringDirection steering_direction = 2;
+  // 归一化输入范围为 [0.0, 1.0]。
+  optional float throttle = 3;
+  optional float brake = 4;
+}
+
+// 通过 vehicle.event.v1 发送。档位切换必须有序传输并可靠回执。
+message SetGear {
+  optional uint64 request_id = 1;
+  optional VehicleGear gear = 2;
+}
+
+message EventAck {
+  optional uint64 request_id = 1;
+  optional bool accepted = 2;
+  optional VehicleErrorCode error_code = 3;
+  optional VehicleGear active_gear = 4;
+}
+
+// 通过 vehicle.state.v1 以 20 Hz 发送，并在档位事务完成后立即发送。
+message VehicleState {
+  optional VehicleGear active_gear = 1;
+  optional uint64 last_received_drive_seq = 2;
+  optional bool watchdog_stopped = 3;
+}
