@@ -10,16 +10,16 @@ rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
    - 实时音视频通信
    - 实时数据通信
 * p2p_imgui是使用vtsrtc + Dear ImGui开发的DEMO
-* rtc_vehicle_headless是车辆端主程序，将双目摄像头采集和车辆控制接收作为独立子模块统一编排
+* rtc_edge_headless是运行在工控机上的边缘端主程序，当前编排双目摄像头采集和车辆控制配置
 
 ### 工程结构
 
 ```text
 client/
   apps/                 可执行程序入口与应用专属代码
-  modules/              headless、双摄像头、视觉和车辆业务模块
+  modules/              边缘端、headless、双摄像头、视觉和车辆业务模块
 protocol/
-  control/              车辆控制协议、生成代码和 codec
+  vehicle/              车辆控制协议、生成代码和 codec
   vision/               视觉检测协议、生成代码和 codec
 signaling-server/       HTTP 房间管理和 WebSocket 信令服务
 vtsrtc/                 RTC 动态库及稳定 C ABI

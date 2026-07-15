@@ -30,13 +30,20 @@ class RtcHeadlessSession {
     int max_retransmits = -1;
   };
 
+  struct ExternalVideoSourceConfig {
+    std::string source_id;
+    RtcPriorityType priority = RtcPriorityType::High;
+  };
+
   struct Features {
     bool enable_data_channel = true;
     bool enable_external_video_source = true;
+    std::string external_video_source_id = "merged_image";
     RoomAction room_action = RoomAction::Join;
     RtcRoomType open_room_type = RtcRoomType::VideoBroadcasting;
     bool open_room_force = false;
     std::vector<DataChannelConfig> additional_data_channels;
+    std::vector<ExternalVideoSourceConfig> additional_external_video_sources;
   };
 
   using RecvMessageCallback =
@@ -101,6 +108,14 @@ class RtcHeadlessSession {
                      size_t stride_y,
                      size_t stride_u,
                      size_t stride_v);
+  bool SendI420Frame(const char* video_source_id,
+                     const uint8_t* i420_data,
+                     size_t i420_size,
+                     size_t width,
+                     size_t height,
+                     size_t stride_y,
+                     size_t stride_u,
+                     size_t stride_v);
 
  private:
   void MaybeEnterRoom(std::chrono::steady_clock::time_point now);
@@ -152,6 +167,7 @@ class RtcHeadlessSession {
   std::atomic<uint64_t> remote_video_frames_{0};
   std::atomic<bool> room_retry_requested_{false};
   std::atomic<uint32_t> connected_peer_count_{0};
+  std::unordered_set<std::string> external_video_source_ids_;
   std::chrono::steady_clock::time_point last_join_attempt_{};
   std::chrono::steady_clock::time_point last_status_{};
   mutable std::mutex connected_peers_mutex_;

@@ -1,4 +1,6 @@
-#include "rtc_vehicle/vehicle_camera_module.h"
+#include "rtc_edge/dual_camera_streaming_module.h"
+
+#include "rtc_edge/camera_video_sources.h"
 
 #include "rtc_dual_camera/dual_uyvy_frame_converter.h"
 #include "rtc_headless/rtc_camera_common.h"
@@ -6,17 +8,17 @@
 
 #include <exception>
 
-namespace rtc_vehicle {
+namespace rtc_edge {
 
-VehicleCameraModule::VehicleCameraModule(
-    const VehicleCameraModuleOptions& options)
+DualCameraStreamingModule::DualCameraStreamingModule(
+    const DualCameraStreamingModuleOptions& options)
     : options_(options) {}
 
-VehicleCameraModule::~VehicleCameraModule() {
+DualCameraStreamingModule::~DualCameraStreamingModule() {
   Stop();
 }
 
-bool VehicleCameraModule::Start(std::string* error_message) {
+bool DualCameraStreamingModule::Start(std::string* error_message) {
   if (started_) {
     return true;
   }
@@ -45,7 +47,7 @@ bool VehicleCameraModule::Start(std::string* error_message) {
   }
 }
 
-void VehicleCameraModule::Stop() {
+void DualCameraStreamingModule::Stop() {
   if (rtc_frames_) {
     rtc_frames_->Close();
   }
@@ -58,7 +60,7 @@ void VehicleCameraModule::Stop() {
   started_ = false;
 }
 
-bool VehicleCameraModule::Tick(
+bool DualCameraStreamingModule::Tick(
     rtc_camera_headless::RtcHeadlessSession* rtc_session,
     std::string* error_message) {
   if (!started_ || !rtc_session || !video_source_ || !rtc_frames_ ||
@@ -105,7 +107,8 @@ bool VehicleCameraModule::Tick(
     return false;
   }
   if (!rtc_session->SendI420Frame(
-          converted.data, converted.data_size, converted.width,
+          kStereoCameraVideoSourceId, converted.data, converted.data_size,
+          converted.width,
           converted.height, converted.stride_y, converted.stride_u,
           converted.stride_v)) {
     if (error_message) {
@@ -116,8 +119,8 @@ bool VehicleCameraModule::Tick(
   return true;
 }
 
-uint64_t VehicleCameraModule::captured_frames() const {
+uint64_t DualCameraStreamingModule::captured_frames() const {
   return video_source_ ? video_source_->captured_frames() : 0;
 }
 
-}  // 命名空间 rtc_vehicle
+}  // 命名空间 rtc_edge

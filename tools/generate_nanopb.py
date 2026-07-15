@@ -11,10 +11,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROTOCOLS = {
-    "control": (
-        PROJECT_ROOT / "protocol" / "control" / "schema",
-        PROJECT_ROOT / "protocol" / "control" / "generated",
-        "rtc_control.proto",
+    "vehicle": (
+        PROJECT_ROOT / "protocol" / "vehicle" / "schema",
+        PROJECT_ROOT / "protocol" / "vehicle" / "generated",
+        "rtc_vehicle.proto",
     ),
     "vision": (
         PROJECT_ROOT / "protocol" / "vision" / "schema",
@@ -92,7 +92,12 @@ def generate_protocol(generator, schema_dir, output_dir, proto_name):
         str(schema_dir / proto_name),
     ]
     try:
-        runpy.run_path(str(generator), run_name="__main__")
+        try:
+            runpy.run_path(str(generator), run_name="__main__")
+        except SystemExit as error:
+            raise RuntimeError(
+                "nanopb 生成器异常退出：{}".format(error.code)
+            )
     finally:
         sys.argv = previous_argv
 
@@ -111,11 +116,19 @@ def verify_protocol(generated_dir, repository_dir, proto_name):
             raise RuntimeError("生成文件与仓库不一致：{}".format(repository_dir / name))
 
 
+def copy_protocol(generated_dir, repository_dir, proto_name):
+    repository_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(proto_name).stem
+    for suffix in (".pb.h", ".pb.c"):
+        name = stem + suffix
+        shutil.copyfile(generated_dir / name, repository_dir / name)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="生成或校验仓库 nanopb C 文件")
     parser.add_argument(
         "--protocol",
-        choices=("all", "control", "vision"),
+        choices=("all", "vehicle", "vision"),
         default="all",
         help="选择要处理的协议，默认为 all",
     )
@@ -145,9 +158,13 @@ def main():
                 print("校验通过：{}".format(name))
         return
 
-    for name, (schema_dir, output_dir, proto_name) in selected.items():
-        generate_protocol(generator, schema_dir, output_dir, proto_name)
-        print("生成完成：{}".format(name))
+    with tempfile.TemporaryDirectory(prefix="rtc-framework-nanopb-") as temp:
+        temp_root = Path(temp)
+        for name, (schema_dir, output_dir, proto_name) in selected.items():
+            generated_dir = temp_root / name
+            generate_protocol(generator, schema_dir, generated_dir, proto_name)
+            copy_protocol(generated_dir, output_dir, proto_name)
+            print("生成完成：{}".format(name))
 
 
 if __name__ == "__main__":

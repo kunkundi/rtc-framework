@@ -1,6 +1,6 @@
-#include "rtc_control/vehicle_control_protocol.h"
+#include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 
-#include "rtc_control.pb.h"
+#include "rtc_vehicle.pb.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -9,19 +9,19 @@
 #include <sstream>
 
 namespace vts_rtc {
-namespace control {
+namespace vehicle {
 namespace {
 
-using PbDriveCommand = vtsrtc_control_v1_DriveCommand;
-using PbDriveDirection = vtsrtc_control_v1_DriveDirection;
-using PbEnvelope = vtsrtc_control_v1_VehicleControlEnvelope;
-using PbErrorCode = vtsrtc_control_v1_VehicleErrorCode;
-using PbEventAck = vtsrtc_control_v1_EventAck;
-using PbGear = vtsrtc_control_v1_VehicleGear;
-using PbMessageType = vtsrtc_control_v1_VehicleMessageType;
-using PbSetGear = vtsrtc_control_v1_SetGear;
-using PbState = vtsrtc_control_v1_VehicleState;
-using PbSteeringDirection = vtsrtc_control_v1_SteeringDirection;
+using PbDriveCommand = vtsrtc_vehicle_v1_DriveCommand;
+using PbDriveDirection = vtsrtc_vehicle_v1_DriveDirection;
+using PbEnvelope = vtsrtc_vehicle_v1_VehicleControlEnvelope;
+using PbErrorCode = vtsrtc_vehicle_v1_VehicleErrorCode;
+using PbEventAck = vtsrtc_vehicle_v1_EventAck;
+using PbGear = vtsrtc_vehicle_v1_VehicleGear;
+using PbMessageType = vtsrtc_vehicle_v1_VehicleMessageType;
+using PbSetGear = vtsrtc_vehicle_v1_SetGear;
+using PbState = vtsrtc_vehicle_v1_VehicleState;
+using PbSteeringDirection = vtsrtc_vehicle_v1_SteeringDirection;
 
 template <typename T>
 void Reset(T* target) {
@@ -41,30 +41,30 @@ bool IsFinite(float value) {
 PbMessageType ToPbMessageType(MessageType type) {
   switch (type) {
     case MessageType::DriveCommand:
-      return vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND;
+      return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND;
     case MessageType::SetGear:
-      return vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_SET_GEAR;
+      return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_SET_GEAR;
     case MessageType::EventAck:
-      return vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_EVENT_ACK;
+      return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_EVENT_ACK;
     case MessageType::VehicleState:
-      return vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE;
+      return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE;
     case MessageType::Unknown:
     default:
-      return vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_UNKNOWN;
+      return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_UNKNOWN;
   }
 }
 
 MessageType FromPbMessageType(PbMessageType type) {
   switch (type) {
-    case vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND:
+    case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND:
       return MessageType::DriveCommand;
-    case vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_SET_GEAR:
+    case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_SET_GEAR:
       return MessageType::SetGear;
-    case vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_EVENT_ACK:
+    case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_EVENT_ACK:
       return MessageType::EventAck;
-    case vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE:
+    case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE:
       return MessageType::VehicleState;
-    case vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_UNKNOWN:
+    case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_UNKNOWN:
     default:
       return MessageType::Unknown;
   }
@@ -73,22 +73,22 @@ MessageType FromPbMessageType(PbMessageType type) {
 PbDriveDirection ToPbDriveDirection(DriveDirection direction) {
   switch (direction) {
     case DriveDirection::Forward:
-      return vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_FORWARD;
+      return vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_FORWARD;
     case DriveDirection::Reverse:
-      return vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_REVERSE;
+      return vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_REVERSE;
     case DriveDirection::Stop:
     default:
-      return vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_STOP;
+      return vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_STOP;
   }
 }
 
 DriveDirection FromPbDriveDirection(PbDriveDirection direction) {
   switch (direction) {
-    case vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_FORWARD:
+    case vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_FORWARD:
       return DriveDirection::Forward;
-    case vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_REVERSE:
+    case vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_REVERSE:
       return DriveDirection::Reverse;
-    case vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_STOP:
+    case vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_STOP:
     default:
       return DriveDirection::Stop;
   }
@@ -97,22 +97,22 @@ DriveDirection FromPbDriveDirection(PbDriveDirection direction) {
 PbSteeringDirection ToPbSteeringDirection(SteeringDirection direction) {
   switch (direction) {
     case SteeringDirection::Left:
-      return vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_LEFT;
+      return vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_LEFT;
     case SteeringDirection::Right:
-      return vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_RIGHT;
+      return vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_RIGHT;
     case SteeringDirection::Center:
     default:
-      return vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_CENTER;
+      return vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_CENTER;
   }
 }
 
 SteeringDirection FromPbSteeringDirection(PbSteeringDirection direction) {
   switch (direction) {
-    case vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_LEFT:
+    case vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_LEFT:
       return SteeringDirection::Left;
-    case vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_RIGHT:
+    case vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_RIGHT:
       return SteeringDirection::Right;
-    case vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_CENTER:
+    case vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_CENTER:
     default:
       return SteeringDirection::Center;
   }
@@ -121,22 +121,22 @@ SteeringDirection FromPbSteeringDirection(PbSteeringDirection direction) {
 PbGear ToPbGear(VehicleGear gear) {
   switch (gear) {
     case VehicleGear::Forward:
-      return vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_FORWARD;
+      return vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_FORWARD;
     case VehicleGear::Reverse:
-      return vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_REVERSE;
+      return vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_REVERSE;
     case VehicleGear::Neutral:
     default:
-      return vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL;
+      return vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL;
   }
 }
 
 VehicleGear FromPbGear(PbGear gear) {
   switch (gear) {
-    case vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_FORWARD:
+    case vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_FORWARD:
       return VehicleGear::Forward;
-    case vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_REVERSE:
+    case vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_REVERSE:
       return VehicleGear::Reverse;
-    case vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL:
+    case vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL:
     default:
       return VehicleGear::Neutral;
   }
@@ -145,26 +145,26 @@ VehicleGear FromPbGear(PbGear gear) {
 PbErrorCode ToPbErrorCode(VehicleErrorCode code) {
   switch (code) {
     case VehicleErrorCode::InvalidArgument:
-      return vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_ARGUMENT;
+      return vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_ARGUMENT;
     case VehicleErrorCode::InvalidState:
-      return vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_STATE;
+      return vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_STATE;
     case VehicleErrorCode::Internal:
-      return vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL;
+      return vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL;
     case VehicleErrorCode::None:
     default:
-      return vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_NONE;
+      return vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_NONE;
   }
 }
 
 VehicleErrorCode FromPbErrorCode(PbErrorCode code) {
   switch (code) {
-    case vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_ARGUMENT:
+    case vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_ARGUMENT:
       return VehicleErrorCode::InvalidArgument;
-    case vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_STATE:
+    case vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_STATE:
       return VehicleErrorCode::InvalidState;
-    case vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL:
+    case vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL:
       return VehicleErrorCode::Internal;
-    case vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_NONE:
+    case vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_NONE:
     default:
       return VehicleErrorCode::None;
   }
@@ -181,9 +181,9 @@ bool IsKnownDriveDirection(DriveDirection direction) {
 }
 
 bool IsKnownDriveDirection(PbDriveDirection direction) {
-  return direction == vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_STOP ||
-         direction == vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_FORWARD ||
-         direction == vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_REVERSE;
+  return direction == vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_STOP ||
+         direction == vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_FORWARD ||
+         direction == vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_REVERSE;
 }
 
 bool IsKnownSteeringDirection(SteeringDirection direction) {
@@ -192,9 +192,9 @@ bool IsKnownSteeringDirection(SteeringDirection direction) {
 }
 
 bool IsKnownSteeringDirection(PbSteeringDirection direction) {
-  return direction == vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_CENTER ||
-         direction == vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_LEFT ||
-         direction == vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_RIGHT;
+  return direction == vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_CENTER ||
+         direction == vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_LEFT ||
+         direction == vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_RIGHT;
 }
 
 bool IsKnownGear(VehicleGear gear) {
@@ -203,9 +203,9 @@ bool IsKnownGear(VehicleGear gear) {
 }
 
 bool IsKnownGear(PbGear gear) {
-  return gear == vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL ||
-         gear == vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_FORWARD ||
-         gear == vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_REVERSE;
+  return gear == vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL ||
+         gear == vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_FORWARD ||
+         gear == vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_REVERSE;
 }
 
 bool IsKnownErrorCode(VehicleErrorCode code) {
@@ -216,10 +216,10 @@ bool IsKnownErrorCode(VehicleErrorCode code) {
 }
 
 bool IsKnownErrorCode(PbErrorCode code) {
-  return code == vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_NONE ||
-         code == vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_ARGUMENT ||
-         code == vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_STATE ||
-         code == vtsrtc_control_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL;
+  return code == vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_NONE ||
+         code == vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_ARGUMENT ||
+         code == vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_STATE ||
+         code == vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL;
 }
 
 void FillHeader(PbEnvelope* envelope, MessageType type, uint64_t seq) {
@@ -237,10 +237,10 @@ void FillHeader(PbEnvelope* envelope, MessageType type, uint64_t seq) {
 
 EncodeResult EncodePbEnvelope(const PbEnvelope& envelope) {
   EncodeResult result;
-  result.payload.resize(vtsrtc_control_v1_VehicleControlEnvelope_size);
+  result.payload.resize(vtsrtc_vehicle_v1_VehicleControlEnvelope_size);
   pb_ostream_t stream =
       pb_ostream_from_buffer(result.payload.data(), result.payload.size());
-  if (!pb_encode(&stream, vtsrtc_control_v1_VehicleControlEnvelope_fields,
+  if (!pb_encode(&stream, vtsrtc_vehicle_v1_VehicleControlEnvelope_fields,
                  &envelope)) {
     result.payload.clear();
     result.error_message = PB_GET_ERROR(&stream);
@@ -365,9 +365,9 @@ ValidationResult ValidateSetGear(const SetGear& set_gear) {
 }
 
 EncodeResult EncodeDriveCommand(uint64_t seq, const DriveCommand& command) {
-  PbEnvelope envelope = vtsrtc_control_v1_VehicleControlEnvelope_init_zero;
+  PbEnvelope envelope = vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   FillHeader(&envelope, MessageType::DriveCommand, seq);
-  envelope.which_payload = vtsrtc_control_v1_VehicleControlEnvelope_drive_command_tag;
+  envelope.which_payload = vtsrtc_vehicle_v1_VehicleControlEnvelope_drive_command_tag;
   std::string error;
   if (!FillDriveCommand(command, &envelope.payload.drive_command, &error)) {
     return {{}, error};
@@ -376,9 +376,9 @@ EncodeResult EncodeDriveCommand(uint64_t seq, const DriveCommand& command) {
 }
 
 EncodeResult EncodeSetGear(uint64_t seq, const SetGear& set_gear) {
-  PbEnvelope envelope = vtsrtc_control_v1_VehicleControlEnvelope_init_zero;
+  PbEnvelope envelope = vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   FillHeader(&envelope, MessageType::SetGear, seq);
-  envelope.which_payload = vtsrtc_control_v1_VehicleControlEnvelope_set_gear_tag;
+  envelope.which_payload = vtsrtc_vehicle_v1_VehicleControlEnvelope_set_gear_tag;
   std::string error;
   if (!FillSetGear(set_gear, &envelope.payload.set_gear, &error)) {
     return {{}, error};
@@ -387,9 +387,9 @@ EncodeResult EncodeSetGear(uint64_t seq, const SetGear& set_gear) {
 }
 
 EncodeResult EncodeEventAck(uint64_t seq, const EventAck& event_ack) {
-  PbEnvelope envelope = vtsrtc_control_v1_VehicleControlEnvelope_init_zero;
+  PbEnvelope envelope = vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   FillHeader(&envelope, MessageType::EventAck, seq);
-  envelope.which_payload = vtsrtc_control_v1_VehicleControlEnvelope_event_ack_tag;
+  envelope.which_payload = vtsrtc_vehicle_v1_VehicleControlEnvelope_event_ack_tag;
   std::string error;
   if (!FillEventAck(event_ack, &envelope.payload.event_ack, &error)) {
     return {{}, error};
@@ -398,9 +398,9 @@ EncodeResult EncodeEventAck(uint64_t seq, const EventAck& event_ack) {
 }
 
 EncodeResult EncodeVehicleState(uint64_t seq, const VehicleState& state) {
-  PbEnvelope envelope = vtsrtc_control_v1_VehicleControlEnvelope_init_zero;
+  PbEnvelope envelope = vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   FillHeader(&envelope, MessageType::VehicleState, seq);
-  envelope.which_payload = vtsrtc_control_v1_VehicleControlEnvelope_vehicle_state_tag;
+  envelope.which_payload = vtsrtc_vehicle_v1_VehicleControlEnvelope_vehicle_state_tag;
   std::string error;
   if (!FillVehicleState(state, &envelope.payload.vehicle_state, &error)) {
     return {{}, error};
@@ -413,9 +413,9 @@ DecodeResult DecodeEnvelope(const uint8_t* data, size_t size) {
     return DecodeError(DecodeStatus::EmptyPayload, "empty payload");
   }
 
-  PbEnvelope envelope = vtsrtc_control_v1_VehicleControlEnvelope_init_zero;
+  PbEnvelope envelope = vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   pb_istream_t stream = pb_istream_from_buffer(data, size);
-  if (!pb_decode(&stream, vtsrtc_control_v1_VehicleControlEnvelope_fields,
+  if (!pb_decode(&stream, vtsrtc_vehicle_v1_VehicleControlEnvelope_fields,
                  &envelope)) {
     return DecodeError(DecodeStatus::DecodeFailed, PB_GET_ERROR(&stream));
   }
@@ -446,7 +446,7 @@ DecodeResult DecodeEnvelope(const uint8_t* data, size_t size) {
   switch (type) {
     case MessageType::DriveCommand: {
       if (envelope.which_payload !=
-          vtsrtc_control_v1_VehicleControlEnvelope_drive_command_tag) {
+          vtsrtc_vehicle_v1_VehicleControlEnvelope_drive_command_tag) {
         return DecodeError(DecodeStatus::UnexpectedPayload,
                            "drive command payload is missing or mismatched");
       }
@@ -473,7 +473,7 @@ DecodeResult DecodeEnvelope(const uint8_t* data, size_t size) {
     }
     case MessageType::SetGear: {
       if (envelope.which_payload !=
-          vtsrtc_control_v1_VehicleControlEnvelope_set_gear_tag) {
+          vtsrtc_vehicle_v1_VehicleControlEnvelope_set_gear_tag) {
         return DecodeError(DecodeStatus::UnexpectedPayload,
                            "set gear payload is missing or mismatched");
       }
@@ -492,7 +492,7 @@ DecodeResult DecodeEnvelope(const uint8_t* data, size_t size) {
     }
     case MessageType::EventAck: {
       if (envelope.which_payload !=
-          vtsrtc_control_v1_VehicleControlEnvelope_event_ack_tag) {
+          vtsrtc_vehicle_v1_VehicleControlEnvelope_event_ack_tag) {
         return DecodeError(DecodeStatus::UnexpectedPayload,
                            "event ack payload is missing or mismatched");
       }
@@ -512,7 +512,7 @@ DecodeResult DecodeEnvelope(const uint8_t* data, size_t size) {
     }
     case MessageType::VehicleState: {
       if (envelope.which_payload !=
-          vtsrtc_control_v1_VehicleControlEnvelope_vehicle_state_tag) {
+          vtsrtc_vehicle_v1_VehicleControlEnvelope_vehicle_state_tag) {
         return DecodeError(DecodeStatus::UnexpectedPayload,
                            "vehicle state payload is missing or mismatched");
       }
@@ -587,5 +587,5 @@ bool DriveCommandGate::PollWatchdog(uint64_t now_ms) {
   return false;
 }
 
-}  // 命名空间 control
+}  // 命名空间 vehicle
 }  // 命名空间 vts_rtc

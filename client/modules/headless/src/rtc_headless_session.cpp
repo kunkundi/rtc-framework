@@ -8,7 +8,6 @@ namespace {
 
 constexpr const char* kDataChannelLabel = "datachannel";
 constexpr const char* kVisionDetectionChannelLabel = "vision.detect.v1";
-constexpr const char* kExternalVideoSource = "merged_image";
 
 const char* ServerStateText(RtcServerConnectionState state) {
   switch (state) {
@@ -78,6 +77,7 @@ RtcHeadlessSession::~RtcHeadlessSession() {
 }
 
 bool RtcHeadlessSession::Init() {
+  external_video_source_ids_.clear();
   rtc_cfg_path_ = ResolveConfigPath(options_.config_path);
   LogInfo(std::string("rtc.cfg: ") + rtc_cfg_path_);
 
@@ -126,12 +126,41 @@ bool RtcHeadlessSession::Init() {
   }
 
   if (features_.enable_external_video_source) {
-    const RtcErrorCode video_code =
-        RtcAddExternalVideoSource(kExternalVideoSource, RtcPriorityType::High);
-    LogRtcCall("RtcAddExternalVideoSource", video_code);
+    if (features_.external_video_source_id.empty()) {
+      LogError("默认外部视频源 ID 不能为空");
+      return false;
+    }
+    const RtcErrorCode video_code = RtcAddExternalVideoSource(
+        features_.external_video_source_id.c_str(), RtcPriorityType::High);
+    const std::string action = std::string("RtcAddExternalVideoSource(") +
+                               features_.external_video_source_id + ")";
+    LogRtcCall(action.c_str(), video_code);
     if (video_code != RtcErrorCode::OK) {
       return false;
     }
+    external_video_source_ids_.insert(features_.external_video_source_id);
+  }
+
+  for (const ExternalVideoSourceConfig& source :
+       features_.additional_external_video_sources) {
+    if (source.source_id.empty()) {
+      LogError("外部视频源 ID 不能为空");
+      return false;
+    }
+    if (external_video_source_ids_.find(source.source_id) !=
+        external_video_source_ids_.end()) {
+      LogError(std::string("外部视频源 ID 重复：") + source.source_id);
+      return false;
+    }
+    const RtcErrorCode video_code = RtcAddExternalVideoSource(
+        source.source_id.c_str(), source.priority);
+    const std::string action =
+        std::string("RtcAddExternalVideoSource(") + source.source_id + ")";
+    LogRtcCall(action.c_str(), video_code);
+    if (video_code != RtcErrorCode::OK) {
+      return false;
+    }
+    external_video_source_ids_.insert(source.source_id);
   }
 
   return true;
@@ -151,6 +180,7 @@ void RtcHeadlessSession::Shutdown() {
   room_joined_.store(false);
   room_retry_requested_.store(false);
   connected_peer_count_.store(0);
+  external_video_source_ids_.clear();
   {
     std::lock_guard<std::mutex> lock(connected_peers_mutex_);
     connected_peers_.clear();
@@ -210,7 +240,26 @@ bool RtcHeadlessSession::SendI420Frame(const uint8_t* i420_data,
                                        size_t stride_y,
                                        size_t stride_u,
                                        size_t stride_v) {
-  if (!i420_data || i420_size == 0) {
+  return SendI420Frame(features_.external_video_source_id.c_str(), i420_data,
+                       i420_size, width, height, stride_y, stride_u, stride_v);
+}
+
+bool RtcHeadlessSession::SendI420Frame(const char* video_source_id,
+                                       const uint8_t* i420_data,
+                                       size_t i420_size,
+                                       size_t width,
+                                       size_t height,
+                                       size_t stride_y,
+                                       size_t stride_u,
+                                       size_t stride_v) {
+  if (video_source_id == nullptr || video_source_id[0] == '\0' ||
+      i420_data == nullptr || i420_size == 0) {
+    return false;
+  }
+  if (external_video_source_ids_.find(video_source_id) ==
+      external_video_source_ids_.end()) {
+    LogError(std::string("尝试发送未注册的外部视频源：") +
+             video_source_id);
     return false;
   }
 
@@ -223,9 +272,11 @@ bool RtcHeadlessSession::SendI420Frame(const uint8_t* i420_data,
   frame.buffer = const_cast<unsigned char*>(i420_data);
   frame.sz_buffer = i420_size;
 
-  const RtcErrorCode send_code = RtcSendFrame(kExternalVideoSource, &frame);
+  const RtcErrorCode send_code = RtcSendFrame(video_source_id, &frame);
   if (send_code != RtcErrorCode::OK) {
-    LogRtcCall("RtcSendFrame", send_code);
+    const std::string action =
+        std::string("RtcSendFrame(") + video_source_id + ")";
+    LogRtcCall(action.c_str(), send_code);
     return false;
   }
 

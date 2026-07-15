@@ -11,13 +11,13 @@ bool IsDisconnectedState(RtcP2PState state) {
   return state == P2PDisconnected || state == P2PFailed || state == P2PClosed;
 }
 
-IndustrialCommandResult NormalizeResult(
-    const IndustrialCommandResult& source) {
-  IndustrialCommandResult result = source;
+VehicleCommandResult NormalizeResult(
+    const VehicleCommandResult& source) {
+  VehicleCommandResult result = source;
   if (result.accepted) {
-    result.error_code = vts_rtc::control::VehicleErrorCode::None;
-  } else if (result.error_code == vts_rtc::control::VehicleErrorCode::None) {
-    result.error_code = vts_rtc::control::VehicleErrorCode::Internal;
+    result.error_code = vts_rtc::vehicle::VehicleErrorCode::None;
+  } else if (result.error_code == vts_rtc::vehicle::VehicleErrorCode::None) {
+    result.error_code = vts_rtc::vehicle::VehicleErrorCode::Internal;
   }
   return result;
 }
@@ -25,12 +25,12 @@ IndustrialCommandResult NormalizeResult(
 }  // 匿名命名空间
 
 VehicleControlModule::VehicleControlModule(
-    IndustrialControlInterface* industrial_control,
+    VehicleControlInterface* vehicle_control,
     const SendDataCallback& send_data,
     const LogCallback& log_info,
     const LogCallback& log_error,
     const VehicleControlModuleOptions& options)
-    : industrial_control_(industrial_control),
+    : vehicle_control_(vehicle_control),
       send_data_(send_data),
       log_info_(log_info),
       log_error_(log_error),
@@ -52,20 +52,20 @@ bool VehicleControlModule::Start(std::string* error_message) {
   if (started_) {
     return true;
   }
-  if (!industrial_control_) {
+  if (!vehicle_control_) {
     if (error_message) {
-      *error_message = "工控机控制接口为空";
+      *error_message = "车辆控制接口为空";
     }
     return false;
   }
   if (options_.watchdog_ms >
-      vts_rtc::control::kDefaultDriveWatchdogMs) {
+      vts_rtc::vehicle::kDefaultDriveWatchdogMs) {
     if (error_message) {
       *error_message = "控制看门狗超过协议规定的 300 ms 上限";
     }
     return false;
   }
-  if (!industrial_control_->Open(error_message)) {
+  if (!vehicle_control_->Open(error_message)) {
     return false;
   }
   started_ = true;
@@ -77,7 +77,7 @@ void VehicleControlModule::Shutdown() {
     return;
   }
   StopForSafety("控制模块关闭");
-  industrial_control_->Close();
+  vehicle_control_->Close();
   started_ = false;
   has_active_session_ = false;
   active_sessionid_ = 0;
@@ -94,8 +94,8 @@ void VehicleControlModule::EnqueueMessage(RtcSessionId remote_sessionid,
     return;
   }
   const std::string channel(label);
-  if (channel != vts_rtc::control::kVehicleControlChannelLabel &&
-      channel != vts_rtc::control::kVehicleEventChannelLabel) {
+  if (channel != vts_rtc::vehicle::kVehicleControlChannelLabel &&
+      channel != vts_rtc::vehicle::kVehicleEventChannelLabel) {
     return;
   }
 
@@ -203,15 +203,15 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
     return;
   }
 
-  const vts_rtc::control::DecodeResult decoded =
-      vts_rtc::control::DecodeEnvelope(event.payload);
+  const vts_rtc::vehicle::DecodeResult decoded =
+      vts_rtc::vehicle::DecodeEnvelope(event.payload);
   if (!decoded) {
     StopForSafety(std::string("控制协议解码失败：") + decoded.error_message);
     return;
   }
 
-  if (event.label == vts_rtc::control::kVehicleControlChannelLabel) {
-    if (decoded.envelope.type != vts_rtc::control::MessageType::DriveCommand) {
+  if (event.label == vts_rtc::vehicle::kVehicleControlChannelLabel) {
+    if (decoded.envelope.type != vts_rtc::vehicle::MessageType::DriveCommand) {
       StopForSafety("实时控制通道收到非驾驶消息");
       return;
     }
@@ -219,7 +219,7 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
     return;
   }
 
-  if (decoded.envelope.type != vts_rtc::control::MessageType::SetGear) {
+  if (decoded.envelope.type != vts_rtc::vehicle::MessageType::SetGear) {
     StopForSafety("可靠控制通道收到非换档事务消息");
     return;
   }
@@ -227,18 +227,18 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
 }
 
 void VehicleControlModule::ProcessDriveCommand(
-    const vts_rtc::control::Envelope& envelope,
+    const vts_rtc::vehicle::Envelope& envelope,
     uint64_t now_ms) {
   if (awaiting_first_drive_) {
     drive_gate_.Start(now_ms);
   }
-  const vts_rtc::control::DriveReceiveResult gate_result =
+  const vts_rtc::vehicle::DriveReceiveResult gate_result =
       drive_gate_.Accept(envelope.seq, envelope.drive_command, now_ms);
   if (gate_result.status ==
-      vts_rtc::control::DriveReceiveStatus::DuplicateOrOutOfOrder) {
+      vts_rtc::vehicle::DriveReceiveStatus::DuplicateOrOutOfOrder) {
     return;
   }
-  if (gate_result.status != vts_rtc::control::DriveReceiveStatus::Accepted) {
+  if (gate_result.status != vts_rtc::vehicle::DriveReceiveStatus::Accepted) {
     if (gate_result.should_stop) {
       StopForSafety(gate_result.error_message);
     }
@@ -246,10 +246,10 @@ void VehicleControlModule::ProcessDriveCommand(
   }
   awaiting_first_drive_ = false;
 
-  const IndustrialCommandResult result = NormalizeResult(
-      industrial_control_->SendDriveCommand(envelope.drive_command));
+  const VehicleCommandResult result = NormalizeResult(
+      vehicle_control_->SendDriveCommand(envelope.drive_command));
   if (!result.accepted) {
-    StopForSafety(result.detail.empty() ? "工控机拒绝驾驶指令"
+    StopForSafety(result.detail.empty() ? "本地车辆控制接口拒绝驾驶指令"
                                         : result.detail);
     return;
   }
@@ -259,18 +259,18 @@ void VehicleControlModule::ProcessDriveCommand(
 
 void VehicleControlModule::ProcessSetGear(
     RtcSessionId remote_sessionid,
-    const vts_rtc::control::Envelope& envelope) {
+    const vts_rtc::vehicle::Envelope& envelope) {
   if (safety_latched_) {
-    IndustrialCommandResult rejected;
+    VehicleCommandResult rejected;
     rejected.accepted = false;
-    rejected.error_code = vts_rtc::control::VehicleErrorCode::InvalidState;
+    rejected.error_code = vts_rtc::vehicle::VehicleErrorCode::InvalidState;
     rejected.detail = "车辆处于安全锁停状态";
     SendEventAck(remote_sessionid, envelope.set_gear, rejected);
     state_dirty_ = true;
     return;
   }
-  const IndustrialCommandResult result = NormalizeResult(
-      industrial_control_->SendGearCommand(envelope.set_gear.gear));
+  const VehicleCommandResult result = NormalizeResult(
+      vehicle_control_->SendGearCommand(envelope.set_gear.gear));
   if (result.accepted) {
     active_gear_ = envelope.set_gear.gear;
   }
@@ -313,8 +313,8 @@ void VehicleControlModule::StopForSafety(const std::string& reason) {
   drive_gate_.Stop();
   awaiting_first_drive_ = false;
   safety_latched_ = true;
-  if (!stop_sent_ && industrial_control_) {
-    industrial_control_->SendStop();
+  if (!stop_sent_ && vehicle_control_) {
+    vehicle_control_->SendStop();
     stop_sent_ = true;
   }
   state_dirty_ = true;
@@ -325,16 +325,16 @@ void VehicleControlModule::StopForSafety(const std::string& reason) {
 
 void VehicleControlModule::SendEventAck(
     RtcSessionId remote_sessionid,
-    const vts_rtc::control::SetGear& request,
-    const IndustrialCommandResult& source_result) {
-  const IndustrialCommandResult result = NormalizeResult(source_result);
-  vts_rtc::control::EventAck ack;
+    const vts_rtc::vehicle::SetGear& request,
+    const VehicleCommandResult& source_result) {
+  const VehicleCommandResult result = NormalizeResult(source_result);
+  vts_rtc::vehicle::EventAck ack;
   ack.request_id = request.request_id;
   ack.accepted = result.accepted;
   ack.error_code = result.error_code;
   ack.active_gear = active_gear_;
-  SendPayload(remote_sessionid, vts_rtc::control::kVehicleEventChannelLabel,
-              vts_rtc::control::EncodeEventAck(outgoing_seq_++, ack));
+  SendPayload(remote_sessionid, vts_rtc::vehicle::kVehicleEventChannelLabel,
+              vts_rtc::vehicle::EncodeEventAck(outgoing_seq_++, ack));
 }
 
 void VehicleControlModule::MaybeSendState(uint64_t now_ms) {
@@ -346,13 +346,13 @@ void VehicleControlModule::MaybeSendState(uint64_t now_ms) {
     return;
   }
 
-  vts_rtc::control::VehicleState state;
+  vts_rtc::vehicle::VehicleState state;
   state.active_gear = active_gear_;
   state.last_received_drive_seq = drive_gate_.last_received_seq();
   state.watchdog_stopped = safety_latched_;
   if (SendPayload(active_sessionid_,
-                  vts_rtc::control::kVehicleStateChannelLabel,
-                  vts_rtc::control::EncodeVehicleState(outgoing_seq_++,
+                  vts_rtc::vehicle::kVehicleStateChannelLabel,
+                  vts_rtc::vehicle::EncodeVehicleState(outgoing_seq_++,
                                                        state))) {
     last_state_sent_ms_ = now_ms;
     state_dirty_ = false;
@@ -362,7 +362,7 @@ void VehicleControlModule::MaybeSendState(uint64_t now_ms) {
 bool VehicleControlModule::SendPayload(
     RtcSessionId remote_sessionid,
     const char* label,
-    const vts_rtc::control::EncodeResult& encoded) {
+    const vts_rtc::vehicle::EncodeResult& encoded) {
   if (!encoded) {
     if (log_error_) {
       log_error_(std::string("控制协议编码失败：") + encoded.error_message);

@@ -1,6 +1,6 @@
-#include "rtc_control/vehicle_control_protocol.h"
+#include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 
-#include "rtc_control.pb.h"
+#include "rtc_vehicle.pb.h"
 
 #include <pb_encode.h>
 
@@ -13,23 +13,23 @@
 
 namespace {
 
-using vts_rtc::control::DecodeEnvelope;
-using vts_rtc::control::DecodeStatus;
-using vts_rtc::control::DriveCommand;
-using vts_rtc::control::DriveCommandGate;
-using vts_rtc::control::DriveDirection;
-using vts_rtc::control::DriveReceiveStatus;
-using vts_rtc::control::EncodeDriveCommand;
-using vts_rtc::control::EncodeEventAck;
-using vts_rtc::control::EncodeSetGear;
-using vts_rtc::control::EncodeVehicleState;
-using vts_rtc::control::EventAck;
-using vts_rtc::control::MessageType;
-using vts_rtc::control::SetGear;
-using vts_rtc::control::SteeringDirection;
-using vts_rtc::control::VehicleErrorCode;
-using vts_rtc::control::VehicleGear;
-using vts_rtc::control::VehicleState;
+using vts_rtc::vehicle::DecodeEnvelope;
+using vts_rtc::vehicle::DecodeStatus;
+using vts_rtc::vehicle::DriveCommand;
+using vts_rtc::vehicle::DriveCommandGate;
+using vts_rtc::vehicle::DriveDirection;
+using vts_rtc::vehicle::DriveReceiveStatus;
+using vts_rtc::vehicle::EncodeDriveCommand;
+using vts_rtc::vehicle::EncodeEventAck;
+using vts_rtc::vehicle::EncodeSetGear;
+using vts_rtc::vehicle::EncodeVehicleState;
+using vts_rtc::vehicle::EventAck;
+using vts_rtc::vehicle::MessageType;
+using vts_rtc::vehicle::SetGear;
+using vts_rtc::vehicle::SteeringDirection;
+using vts_rtc::vehicle::VehicleErrorCode;
+using vts_rtc::vehicle::VehicleGear;
+using vts_rtc::vehicle::VehicleState;
 
 void Check(bool condition, const std::string& message) {
   if (!condition) {
@@ -39,25 +39,25 @@ void Check(bool condition, const std::string& message) {
 }
 
 std::vector<uint8_t> EncodeRaw(
-    const vtsrtc_control_v1_VehicleControlEnvelope& envelope) {
+    const vtsrtc_vehicle_v1_VehicleControlEnvelope& envelope) {
   std::vector<uint8_t> bytes(
-      vtsrtc_control_v1_VehicleControlEnvelope_size);
+      vtsrtc_vehicle_v1_VehicleControlEnvelope_size);
   pb_ostream_t stream = pb_ostream_from_buffer(bytes.data(), bytes.size());
-  Check(pb_encode(&stream, vtsrtc_control_v1_VehicleControlEnvelope_fields,
+  Check(pb_encode(&stream, vtsrtc_vehicle_v1_VehicleControlEnvelope_fields,
                   &envelope),
         "encode raw nanopb envelope");
   bytes.resize(stream.bytes_written);
   return bytes;
 }
 
-void FillHeader(vtsrtc_control_v1_VehicleControlEnvelope* envelope,
-                vtsrtc_control_v1_VehicleMessageType type) {
+void FillHeader(vtsrtc_vehicle_v1_VehicleControlEnvelope* envelope,
+                vtsrtc_vehicle_v1_VehicleMessageType type) {
   envelope->has_magic = true;
-  envelope->magic = vts_rtc::control::kVehicleControlMagic;
+  envelope->magic = vts_rtc::vehicle::kVehicleControlMagic;
   envelope->has_protocol_major = true;
-  envelope->protocol_major = vts_rtc::control::kVehicleControlProtocolMajor;
+  envelope->protocol_major = vts_rtc::vehicle::kVehicleControlProtocolMajor;
   envelope->has_protocol_minor = true;
-  envelope->protocol_minor = vts_rtc::control::kVehicleControlProtocolMinor;
+  envelope->protocol_minor = vts_rtc::vehicle::kVehicleControlProtocolMinor;
   envelope->has_type = true;
   envelope->type = type;
   envelope->has_seq = true;
@@ -145,35 +145,35 @@ void TestRejectedPayloads() {
   Check(!EncodeSetGear(1, {1, static_cast<VehicleGear>(99)}),
         "reject unknown gear");
 
-  vtsrtc_control_v1_VehicleControlEnvelope bad_magic =
-      vtsrtc_control_v1_VehicleControlEnvelope_init_zero;
+  vtsrtc_vehicle_v1_VehicleControlEnvelope bad_magic =
+      vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   FillHeader(&bad_magic,
-             vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND);
+             vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND);
   bad_magic.magic = 1;
   bad_magic.which_payload =
-      vtsrtc_control_v1_VehicleControlEnvelope_drive_command_tag;
+      vtsrtc_vehicle_v1_VehicleControlEnvelope_drive_command_tag;
   bad_magic.payload.drive_command.has_drive_direction = true;
   bad_magic.payload.drive_command.drive_direction =
-      vtsrtc_control_v1_DriveDirection_DRIVE_DIRECTION_STOP;
+      vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_STOP;
   bad_magic.payload.drive_command.has_steering_direction = true;
   bad_magic.payload.drive_command.steering_direction =
-      vtsrtc_control_v1_SteeringDirection_STEERING_DIRECTION_CENTER;
+      vtsrtc_vehicle_v1_SteeringDirection_STEERING_DIRECTION_CENTER;
   bad_magic.payload.drive_command.has_throttle = true;
   bad_magic.payload.drive_command.has_brake = true;
   Check(DecodeEnvelope(EncodeRaw(bad_magic)).status == DecodeStatus::InvalidEnvelope,
         "reject invalid magic");
 
-  vtsrtc_control_v1_VehicleControlEnvelope wrong_payload =
-      vtsrtc_control_v1_VehicleControlEnvelope_init_zero;
+  vtsrtc_vehicle_v1_VehicleControlEnvelope wrong_payload =
+      vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   FillHeader(&wrong_payload,
-             vtsrtc_control_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND);
+             vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND);
   wrong_payload.which_payload =
-      vtsrtc_control_v1_VehicleControlEnvelope_set_gear_tag;
+      vtsrtc_vehicle_v1_VehicleControlEnvelope_set_gear_tag;
   wrong_payload.payload.set_gear.has_request_id = true;
   wrong_payload.payload.set_gear.request_id = 1;
   wrong_payload.payload.set_gear.has_gear = true;
   wrong_payload.payload.set_gear.gear =
-      vtsrtc_control_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL;
+      vtsrtc_vehicle_v1_VehicleGear_VEHICLE_GEAR_NEUTRAL;
   Check(DecodeEnvelope(EncodeRaw(wrong_payload)).status ==
             DecodeStatus::UnexpectedPayload,
         "reject mismatched payload");

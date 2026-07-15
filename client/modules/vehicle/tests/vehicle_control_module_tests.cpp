@@ -7,15 +7,15 @@
 
 namespace {
 
-using vts_rtc::control::DecodeEnvelope;
-using vts_rtc::control::DriveCommand;
-using vts_rtc::control::DriveDirection;
-using vts_rtc::control::EncodeDriveCommand;
-using vts_rtc::control::EncodeSetGear;
-using vts_rtc::control::MessageType;
-using vts_rtc::control::SetGear;
-using vts_rtc::control::VehicleErrorCode;
-using vts_rtc::control::VehicleGear;
+using vts_rtc::vehicle::DecodeEnvelope;
+using vts_rtc::vehicle::DriveCommand;
+using vts_rtc::vehicle::DriveDirection;
+using vts_rtc::vehicle::EncodeDriveCommand;
+using vts_rtc::vehicle::EncodeSetGear;
+using vts_rtc::vehicle::MessageType;
+using vts_rtc::vehicle::SetGear;
+using vts_rtc::vehicle::VehicleErrorCode;
+using vts_rtc::vehicle::VehicleGear;
 
 void Check(bool condition, const std::string& message) {
   if (!condition) {
@@ -24,8 +24,8 @@ void Check(bool condition, const std::string& message) {
   }
 }
 
-class FakeIndustrialControl final
-    : public rtc_vehicle::IndustrialControlInterface {
+class FakeVehicleControl final
+    : public rtc_vehicle::VehicleControlInterface {
  public:
   bool Open(std::string* error_message) override {
     opened = true;
@@ -37,14 +37,14 @@ class FakeIndustrialControl final
 
   void Close() override { opened = false; }
 
-  rtc_vehicle::IndustrialCommandResult SendDriveCommand(
+  rtc_vehicle::VehicleCommandResult SendDriveCommand(
       const DriveCommand& command) override {
     ++drive_count;
     last_drive = command;
     return Accepted();
   }
 
-  rtc_vehicle::IndustrialCommandResult SendGearCommand(
+  rtc_vehicle::VehicleCommandResult SendGearCommand(
       VehicleGear gear) override {
     ++gear_count;
     last_gear = gear;
@@ -53,8 +53,8 @@ class FakeIndustrialControl final
 
   void SendStop() override { ++stop_count; }
 
-  static rtc_vehicle::IndustrialCommandResult Accepted() {
-    rtc_vehicle::IndustrialCommandResult result;
+  static rtc_vehicle::VehicleCommandResult Accepted() {
+    rtc_vehicle::VehicleCommandResult result;
     result.accepted = true;
     result.error_code = VehicleErrorCode::None;
     return result;
@@ -77,7 +77,7 @@ struct SentPacket {
 void EnqueueEncoded(rtc_vehicle::VehicleControlModule* module,
                     RtcSessionId remote_sessionid,
                     const char* label,
-                    const vts_rtc::control::EncodeResult& encoded) {
+                    const vts_rtc::vehicle::EncodeResult& encoded) {
   Check(static_cast<bool>(encoded), "编码测试消息");
   module->EnqueueMessage(remote_sessionid, label,
                          reinterpret_cast<const char*>(encoded.payload.data()),
@@ -85,12 +85,12 @@ void EnqueueEncoded(rtc_vehicle::VehicleControlModule* module,
 }
 
 void TestControlFlow() {
-  FakeIndustrialControl industrial;
+  FakeVehicleControl vehicle;
   std::vector<SentPacket> sent_packets;
   std::vector<std::string> errors;
 
   rtc_vehicle::VehicleControlModule module(
-      &industrial,
+      &vehicle,
       [&sent_packets](RtcSessionId remote_sessionid, const char* label,
                       const std::vector<uint8_t>& payload) {
         sent_packets.push_back({remote_sessionid, label, payload});
@@ -101,7 +101,7 @@ void TestControlFlow() {
 
   std::string start_error;
   Check(module.Start(&start_error), "启动控制模块");
-  Check(industrial.opened, "打开工控机接口");
+  Check(vehicle.opened, "打开车辆控制接口");
 
   module.EnqueueP2PState(7, P2PConnected);
   module.Tick(1000);
@@ -115,33 +115,33 @@ void TestControlFlow() {
   sent_packets.clear();
 
   module.Tick(1400);
-  Check(industrial.stop_count == 0, "首条驾驶帧前不启动看门狗");
+  Check(vehicle.stop_count == 0, "首条驾驶帧前不启动看门狗");
 
   DriveCommand drive;
   drive.drive_direction = DriveDirection::Forward;
   drive.throttle = 0.5f;
   const auto encoded_drive = EncodeDriveCommand(10, drive);
   EnqueueEncoded(&module, 7,
-                 vts_rtc::control::kVehicleControlChannelLabel,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
                  encoded_drive);
   module.Tick(1410);
-  Check(industrial.drive_count == 1, "下发驾驶指令");
-  Check(industrial.last_drive.drive_direction == DriveDirection::Forward,
+  Check(vehicle.drive_count == 1, "下发驾驶指令");
+  Check(vehicle.last_drive.drive_direction == DriveDirection::Forward,
         "保留驾驶方向");
 
   EnqueueEncoded(&module, 7,
-                 vts_rtc::control::kVehicleControlChannelLabel,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
                  encoded_drive);
   module.Tick(1420);
-  Check(industrial.drive_count == 1, "丢弃重复驾驶序号");
+  Check(vehicle.drive_count == 1, "丢弃重复驾驶序号");
 
   SetGear set_gear;
   set_gear.request_id = 99;
   set_gear.gear = VehicleGear::Reverse;
-  EnqueueEncoded(&module, 7, vts_rtc::control::kVehicleEventChannelLabel,
+  EnqueueEncoded(&module, 7, vts_rtc::vehicle::kVehicleEventChannelLabel,
                  EncodeSetGear(11, set_gear));
   module.Tick(1430);
-  Check(industrial.gear_count == 1, "下发档位指令");
+  Check(vehicle.gear_count == 1, "下发档位指令");
   Check(module.active_gear() == VehicleGear::Reverse, "更新活动档位");
 
   bool ack_seen = false;
@@ -157,23 +157,23 @@ void TestControlFlow() {
   Check(ack_seen, "返回档位事务回执");
 
   module.Tick(1710);
-  Check(industrial.stop_count == 1, "看门狗超时下发停车");
+  Check(vehicle.stop_count == 1, "看门狗超时下发停车");
 
   DriveCommand stopped_drive;
   stopped_drive.drive_direction = DriveDirection::Forward;
   EnqueueEncoded(&module, 7,
-                 vts_rtc::control::kVehicleControlChannelLabel,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
                  EncodeDriveCommand(12, stopped_drive));
   module.Tick(1720);
-  Check(industrial.drive_count == 1, "安全停车后保持驾驶门控锁止");
+  Check(vehicle.drive_count == 1, "安全停车后保持驾驶门控锁止");
 
   SetGear locked_gear;
   locked_gear.request_id = 100;
   locked_gear.gear = VehicleGear::Forward;
-  EnqueueEncoded(&module, 7, vts_rtc::control::kVehicleEventChannelLabel,
+  EnqueueEncoded(&module, 7, vts_rtc::vehicle::kVehicleEventChannelLabel,
                  EncodeSetGear(13, locked_gear));
   module.Tick(1725);
-  Check(industrial.gear_count == 1, "安全停车后拒绝换档下发");
+  Check(vehicle.gear_count == 1, "安全停车后拒绝换档下发");
 
   bool locked_ack_seen = false;
   for (const SentPacket& packet : sent_packets) {
@@ -190,16 +190,16 @@ void TestControlFlow() {
   module.EnqueueP2PState(7, P2PDisconnected);
   module.Tick(1730);
   Check(!module.has_active_peer(), "断线后清除活动控制端");
-  Check(industrial.stop_count == 1, "安全停车只下发一次");
+  Check(vehicle.stop_count == 1, "安全停车只下发一次");
 
   module.Shutdown();
-  Check(!industrial.opened, "关闭工控机接口");
+  Check(!vehicle.opened, "关闭车辆控制接口");
 }
 
 void TestTransportDisconnectStopsVehicle() {
-  FakeIndustrialControl industrial;
+  FakeVehicleControl vehicle;
   rtc_vehicle::VehicleControlModule module(
-      &industrial,
+      &vehicle,
       [](RtcSessionId, const char*, const std::vector<uint8_t>&) {
         return true;
       },
@@ -211,28 +211,28 @@ void TestTransportDisconnectStopsVehicle() {
   module.EnqueueTransportDisconnected();
   module.Tick(3010);
   Check(!module.has_active_peer(), "服务端链路断开后清除活动控制端");
-  Check(industrial.stop_count == 1, "服务端链路断开触发停车");
+  Check(vehicle.stop_count == 1, "服务端链路断开触发停车");
 }
 
 void TestWatchdogUpperBound() {
-  FakeIndustrialControl industrial;
+  FakeVehicleControl vehicle;
   rtc_vehicle::VehicleControlModuleOptions options;
-  options.watchdog_ms = vts_rtc::control::kDefaultDriveWatchdogMs + 1;
+  options.watchdog_ms = vts_rtc::vehicle::kDefaultDriveWatchdogMs + 1;
   rtc_vehicle::VehicleControlModule module(
-      &industrial,
+      &vehicle,
       [](RtcSessionId, const char*, const std::vector<uint8_t>&) {
         return true;
       },
       [](const std::string&) {}, [](const std::string&) {}, options);
   std::string error;
   Check(!module.Start(&error), "拒绝超过协议上限的看门狗配置");
-  Check(!industrial.opened, "非法看门狗配置不得打开工控机接口");
+  Check(!vehicle.opened, "非法看门狗配置不得打开车辆控制接口");
 }
 
 void TestMalformedMessageStopsVehicle() {
-  FakeIndustrialControl industrial;
+  FakeVehicleControl vehicle;
   rtc_vehicle::VehicleControlModule module(
-      &industrial,
+      &vehicle,
       [](RtcSessionId, const char*, const std::vector<uint8_t>&) {
         return true;
       },
@@ -243,17 +243,17 @@ void TestMalformedMessageStopsVehicle() {
   module.Tick(2000);
 
   const char malformed[] = {1, 2, 3};
-  module.EnqueueMessage(8, vts_rtc::control::kVehicleControlChannelLabel,
+  module.EnqueueMessage(8, vts_rtc::vehicle::kVehicleControlChannelLabel,
                         malformed, sizeof(malformed));
   module.Tick(2010);
-  Check(industrial.stop_count == 1, "畸形实时消息触发停车");
+  Check(vehicle.stop_count == 1, "畸形实时消息触发停车");
 }
 
 void TestInvalidPayloadBoundaryStopsVehicle() {
   {
-    FakeIndustrialControl industrial;
+    FakeVehicleControl vehicle;
     rtc_vehicle::VehicleControlModule module(
-        &industrial,
+        &vehicle,
         [](RtcSessionId, const char*, const std::vector<uint8_t>&) {
           return true;
         },
@@ -262,16 +262,16 @@ void TestInvalidPayloadBoundaryStopsVehicle() {
     Check(module.Start(&error), "启动空载荷测试模块");
     module.EnqueueP2PState(10, P2PConnected);
     module.Tick(4000);
-    module.EnqueueMessage(10, vts_rtc::control::kVehicleControlChannelLabel,
+    module.EnqueueMessage(10, vts_rtc::vehicle::kVehicleControlChannelLabel,
                           nullptr, 0);
     module.Tick(4010);
-    Check(industrial.stop_count == 1, "空控制载荷触发停车");
+    Check(vehicle.stop_count == 1, "空控制载荷触发停车");
   }
 
   {
-    FakeIndustrialControl industrial;
+    FakeVehicleControl vehicle;
     rtc_vehicle::VehicleControlModule module(
-        &industrial,
+        &vehicle,
         [](RtcSessionId, const char*, const std::vector<uint8_t>&) {
           return true;
         },
@@ -281,10 +281,10 @@ void TestInvalidPayloadBoundaryStopsVehicle() {
     module.EnqueueP2PState(11, P2PConnected);
     module.Tick(5000);
     const std::vector<char> oversized(4097, 1);
-    module.EnqueueMessage(11, vts_rtc::control::kVehicleControlChannelLabel,
+    module.EnqueueMessage(11, vts_rtc::vehicle::kVehicleControlChannelLabel,
                           oversized.data(), oversized.size());
     module.Tick(5010);
-    Check(industrial.stop_count == 1, "超限控制载荷触发停车");
+    Check(vehicle.stop_count == 1, "超限控制载荷触发停车");
   }
 }
 

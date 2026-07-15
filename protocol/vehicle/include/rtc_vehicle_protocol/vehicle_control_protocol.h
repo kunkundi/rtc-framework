@@ -6,7 +6,7 @@
 #include <vector>
 
 namespace vts_rtc {
-namespace control {
+namespace vehicle {
 
 constexpr const char* kVehicleControlChannelLabel = "vehicle.control.v1";
 constexpr const char* kVehicleEventChannelLabel = "vehicle.event.v1";
@@ -168,5 +168,5 @@ class DriveCommandGate {
   uint64_t last_valid_command_ms_ = 0;
 };
 
-}  // 命名空间 control
+}  // 命名空间 vehicle
 }  // 命名空间 vts_rtc

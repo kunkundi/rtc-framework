@@ -48,7 +48,7 @@
 
 ## 公共 C++ API
 
-包含头文件 `rtc_control/vehicle_control_protocol.h`。编解码接口包括：
+包含头文件 `rtc_vehicle_protocol/vehicle_control_protocol.h`。C++ API 位于 `vts_rtc::vehicle` 命名空间，编解码接口包括：
 
 - `EncodeDriveCommand`
 - `EncodeSetGear`
@@ -65,7 +65,7 @@ v1 的所有二进制载荷均不超过 50 字节。
 修改 schema 后重新生成 nanopb 源文件：
 
 ```powershell
-python tools/generate_nanopb.py --protocol control
+python tools/generate_nanopb.py --protocol vehicle
 ```
 
 构建并运行协议测试：

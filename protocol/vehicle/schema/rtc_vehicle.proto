@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-package vtsrtc.control.v1;
+package vtsrtc.vehicle.v1;
 
 // 精简的工程车辆远程控制协议。字段编号一经发布不得复用；后续兼容修改只能新增可选字段。
 
