@@ -57,7 +57,7 @@ VTSRTC_YOLO_TRT_ENGINE=/path/to/yolo26n.onnx.trt xmake r rtc_dual_camera_headles
 
 # 降低视觉处理分辨率
 
-`rtc.cfg` 中可以配置 YOLO/OpenCV 消费端的工作帧缩放倍数，不影响 RTC 实际推流分辨率：
+`config/rtc.cfg` 中可以配置 YOLO/OpenCV 消费端的工作帧缩放倍数，不影响 RTC 实际推流分辨率：
 
 ```json
 "vision_processing": {

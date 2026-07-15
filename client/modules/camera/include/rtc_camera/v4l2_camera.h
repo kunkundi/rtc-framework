@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rtc_headless/rtc_camera_common.h"
+#include "rtc_camera/camera_capture_options.h"
 
 #include <linux/videodev2.h>
 #include <stddef.h>
@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-namespace rtc_camera_headless {
+namespace rtc_camera {
 
-class UyvyV4l2CaptureDevice {
+class V4l2CameraDevice {
  public:
   struct CapturedFrame {
     const uint8_t* data = nullptr;
@@ -19,9 +19,9 @@ class UyvyV4l2CaptureDevice {
     uint32_t buffer_index = 0;
   };
 
-  ~UyvyV4l2CaptureDevice();
+  ~V4l2CameraDevice();
 
-  void Open(const CaptureOptions& options);
+  void Open(const CameraCaptureOptions& options);
   void Close();
 
   bool DequeueCapturedFrame(CapturedFrame* frame);
@@ -35,7 +35,7 @@ class UyvyV4l2CaptureDevice {
   const std::string& device_path() const;
 
  private:
-  void ConfigureFormat(const CaptureOptions& options);
+  void ConfigureFormat(const CameraCaptureOptions& options);
   void InitMmap(int requested_count);
   void QueueAllBuffers();
   void StartStreaming();
@@ -54,6 +54,8 @@ class UyvyV4l2CaptureDevice {
   std::vector<MappedBuffer> buffers_;
 };
 
-void RunWarmup(UyvyV4l2CaptureDevice& device, const CaptureOptions& options);
+void RunWarmup(V4l2CameraDevice& device,
+               const CameraCaptureOptions& options);
+std::string PixelFormatToString(uint32_t pixel_format);
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 rtc_camera

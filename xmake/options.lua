@@ -19,7 +19,7 @@ option_end()
 option("enable_yolo")
     set_default(false)
     set_showmenu(true)
-    set_description("Enable YOLO26n TensorRT detection in rtc_dual_camera_headless")
+    set_description("Enable YOLO26n TensorRT detection in camera clients")
 option_end()
 
 option("enable_miivii_sdk")

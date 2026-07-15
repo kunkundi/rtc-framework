@@ -774,7 +774,6 @@ class RtcImguiApp {
     const std::string exe_dir = ExecutableDir();
     std::vector<std::string> base_candidates;
     base_candidates.push_back(".");
-    base_candidates.push_back("test_data");
 
     std::string current = exe_dir;
     for (int i = 0; i < 5; ++i) {
@@ -782,10 +781,11 @@ class RtcImguiApp {
       current = JoinPath(current, "..");
     }
 
-    rtc_cfg_path_ = FindAsset("rtc.cfg", base_candidates);
-    pcm_path_ = FindAsset("8k16bit.pcm", base_candidates);
-    yuv_path_ = FindAsset("zjlabs.yuv", base_candidates);
-    message_file_path_ = FindAsset("messagefile.txt", base_candidates);
+    rtc_cfg_path_ = FindAsset("rtc.cfg", "config", base_candidates);
+    pcm_path_ = FindAsset("8k16bit.pcm", "test_data", base_candidates);
+    yuv_path_ = FindAsset("zjlabs.yuv", "test_data", base_candidates);
+    message_file_path_ =
+        FindAsset("messagefile.txt", "test_data", base_candidates);
 
     AppendLog(std::string("rtc.cfg: ") + rtc_cfg_path_);
     AppendLog(std::string("8k16bit.pcm: ") + pcm_path_);
@@ -794,6 +794,7 @@ class RtcImguiApp {
   }
 
   std::string FindAsset(const std::string& name,
+                        const std::string& directory,
                         const std::vector<std::string>& base_candidates) {
     for (const std::string& base : base_candidates) {
       if (base.empty()) {
@@ -805,10 +806,10 @@ class RtcImguiApp {
         return candidate_direct;
       }
 
-      const std::string candidate_test_data =
-          JoinPath(JoinPath(base, "test_data"), name);
-      if (FileExists(candidate_test_data)) {
-        return candidate_test_data;
+      const std::string candidate_in_directory =
+          JoinPath(JoinPath(base, directory), name);
+      if (FileExists(candidate_in_directory)) {
+        return candidate_in_directory;
       }
     }
     return name;

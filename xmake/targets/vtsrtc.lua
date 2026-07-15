@@ -79,7 +79,7 @@ target(vtsrtc_target)
     end
 
     add_installfiles(vtsrtc_path("vtsrtc", "src", "c_rtc.h"), {prefixdir = "vtsrtc/include"})
-    add_installfiles(vtsrtc_path("test_data", "rtc.cfg"), {prefixdir = "vtsrtc"})
+    add_installfiles(vtsrtc_path("config", "rtc.cfg"), {prefixdir = "vtsrtc"})
 
     after_build(function(target)
         local lib_dir = path.join(os.projectdir(), "lib")

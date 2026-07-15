@@ -31,6 +31,7 @@ bool IsAsciiText(const std::string& text) {
 
 nlohmann::json MakeValidConfig() {
   nlohmann::json root;
+  root["log_path"] = "/tmp/rtc_edge_logs";
   root["edge"]["rtc"]["room"] = "test-room";
   root["edge"]["rtc"]["join_retry_ms"] = 1200;
   root["edge"]["rtc"]["status_interval_sec"] = 2;
@@ -58,6 +59,9 @@ nlohmann::json MakeValidConfig() {
   root["edge"]["surround_camera"]["warmup_delay_ms"] = 50;
   root["edge"]["surround_camera"]["frame_wait_ms"] = 10;
 
+  root["edge"]["yolo"]["enabled"] = true;
+  root["edge"]["yolo"]["processing_downscale"] = 4;
+
   root["edge"]["vehicle_control"]["watchdog_ms"] = 250;
   root["edge"]["vehicle_control"]["state_interval_ms"] = 40;
   root["edge"]["vehicle_control"]["max_pending_events"] = 64;
@@ -77,6 +81,7 @@ void TestValidConfig() {
 
   const rtc_edge_headless::EdgeOptions options =
       rtc_edge_headless::LoadEdgeOptions(path);
+  Check(options.log_path == "/tmp/rtc_edge_logs", "load log path");
   Check(options.rtc.room_id == "test-room", "load room");
   Check(options.rtc.join_retry_ms == 1200, "load join retry");
   Check(options.rtc.frame_limit == 25, "load frame limit");
@@ -92,6 +97,9 @@ void TestValidConfig() {
         "load surround camera width");
   Check(options.surround_camera.frame_wait.count() == 10,
         "load surround frame wait");
+  Check(options.camera.yolo_enabled, "load YOLO enabled");
+  Check(options.camera.yolo_processing_downscale == 4,
+        "load YOLO processing downscale");
   Check(options.control.watchdog_ms == 250, "load watchdog");
   Check(options.control.max_pending_events == 64,
         "load pending event limit");
@@ -100,16 +108,20 @@ void TestValidConfig() {
 
 void TestRepositoryConfig() {
   const rtc_edge_headless::EdgeOptions options =
-      rtc_edge_headless::LoadEdgeOptions("test_data/rtc.cfg");
-  Check(options.rtc.room_id == "zhejianglab", "load repository room");
+      rtc_edge_headless::LoadEdgeOptions("rtc.cfg");
+  Check(options.log_path == "logs", "load repository log path");
+  Check(!options.rtc.room_id.empty(), "load repository room");
   Check(options.camera.capture.left_device == "/dev/video0",
         "load repository left camera");
   Check(options.camera.capture.width == 1280,
         "load repository camera width");
-  Check(options.surround_camera.front_device == "/dev/video2",
-        "load repository surround front camera");
-  Check(options.surround_camera.right_device == "/dev/video5",
-        "load repository surround right camera");
+  Check(options.surround_camera.front_device.empty(),
+        "load disabled repository surround front camera");
+  Check(options.surround_camera.right_device.empty(),
+        "load disabled repository surround right camera");
+  Check(!options.camera.yolo_enabled, "load repository YOLO disabled");
+  Check(options.camera.yolo_processing_downscale == 1,
+        "load repository YOLO processing downscale");
   Check(options.control.watchdog_ms == 300,
         "load repository watchdog");
 }
@@ -171,6 +183,40 @@ void TestMissingSurroundCameraDevice() {
   std::remove(path.c_str());
 }
 
+void TestEmptySurroundCameraDevice() {
+  const std::string path = "/tmp/rtc_edge_options_surround_empty.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["surround_camera"]["front_device"] = "";
+  WriteConfig(path, config);
+
+  const rtc_edge_headless::EdgeOptions options =
+      rtc_edge_headless::LoadEdgeOptions(path);
+  Check(options.surround_camera.front_device.empty(),
+        "allow empty surround camera device");
+  Check(options.surround_camera.rear_device == "/dev/video7",
+        "keep other surround camera enabled");
+  std::remove(path.c_str());
+}
+
+void TestInvalidYoloDownscale() {
+  const std::string path = "/tmp/rtc_edge_options_yolo_downscale.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["yolo"]["processing_downscale"] = 9;
+  WriteConfig(path, config);
+
+  bool rejected = false;
+  try {
+    rtc_edge_headless::LoadEdgeOptions(path);
+  } catch (const std::runtime_error& ex) {
+    const std::string error_message = ex.what();
+    rejected = error_message.find("edge.yolo.processing_downscale") !=
+                   std::string::npos &&
+               IsAsciiText(error_message);
+  }
+  Check(rejected, "reject invalid YOLO processing downscale");
+  std::remove(path.c_str());
+}
+
 }  // 匿名命名空间
 
 int main() {
@@ -179,6 +225,8 @@ int main() {
   TestInvalidWatchdog();
   TestMissingCameraDevice();
   TestMissingSurroundCameraDevice();
+  TestEmptySurroundCameraDevice();
+  TestInvalidYoloDownscale();
   std::cout << "rtc_edge_options_tests passed" << std::endl;
   return 0;
 }

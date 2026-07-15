@@ -5,17 +5,23 @@
 ## apps
 
 - `p2p_imgui/`：桌面交互式 RTC 客户端。
-- `rtc_camera_headless/`：单摄像头无界面发送端及其 CUDA 转换代码。
-- `rtc_dual_camera_headless/`：双摄像头、RTC 和视觉消费者的编排入口。
-- `rtc_receiver_headless/`：无界面接收端。
 - `rtc_edge_headless/`：工控机边缘端主程序，当前加载车辆控制配置。
 
 应用目录只负责参数解析、依赖组装和生命周期管理。需要被多个应用复用的实现必须放入 `modules/`。
 
+## tests
+
+- `rtc_dual_camera_headless/`：双摄像头、RTC 和视觉链路的集成测试程序。
+- `rtc_receiver_headless/`：RTC 视频接收和帧落盘测试程序。
+
+测试程序保留原有 xmake 目标名，但不属于正式发布应用。
+
 ## modules
 
-- `headless/`：RTC 会话、通用参数、日志和 Linux V4L2 采集支持。
-- `edge/`：边缘端的相机视频源定义和双目摄像头推流编排。
+- `camera/`：单相机 V4L2 采集、异步帧源和 I420 转换。
+- `logging/`：基于 spdlog 的公共日志模块。
+- `headless/`：RTC 会话和通用无界面运行参数。
+- `edge/`：边缘端的单相机、双目和环视推流编排。
 - `dual_camera/`：双摄像头异步图像源、帧订阅和 I420 转换。
 - `vision/`：检测发送、双目融合、YOLO 消费与推理适配。
 - `vehicle/`：车辆控制接收、安全门控和本地车辆控制适配。

@@ -1,4 +1,4 @@
-#include "uyvy_to_i420_cuda.h"
+#include "rtc_camera/uyvy_to_i420_cuda.h"
 
 #include <cuda_runtime.h>
 
@@ -39,10 +39,10 @@ __global__ void UYVYToI420Kernel(const uint8_t* src,
   const uint8_t* row0 = src + y * src_stride + x * 2;
   uint8_t y00, u0, y01, v0;
   if (is_yuyv) {
-    // YUYV: Y0 U0 Y1 V0
+    // YUYV 字节顺序：Y0 U0 Y1 V0。
     y00 = row0[0]; u0 = row0[1]; y01 = row0[2]; v0 = row0[3];
   } else {
-    // UYVY: U0 Y0 V0 Y1
+    // UYVY 字节顺序：U0 Y0 V0 Y1。
     u0 = row0[0]; y00 = row0[1]; v0 = row0[2]; y01 = row0[3];
   }
 
@@ -71,7 +71,9 @@ __global__ void UYVYToI420Kernel(const uint8_t* src,
   dst_v[chroma_y * dst_stride_v + chroma_x] = v_out;
 }
 
-}  // namespace
+}  // 匿名命名空间
+
+namespace rtc_camera {
 
 struct UyvyToI420CudaConverter::Impl {
   size_t width = 0;
@@ -310,3 +312,5 @@ size_t UyvyToI420CudaConverter::u_stride() const {
 size_t UyvyToI420CudaConverter::v_stride() const {
   return impl_ ? impl_->v_stride : 0;
 }
+
+}  // 命名空间 rtc_camera

@@ -12,6 +12,7 @@
 
 #include "rtc_dual_camera/dual_uyvy_frame_converter.h"
 #include "rtc_headless/rtc_camera_common.h"
+#include "rtc_logging/rtc_logging.h"
 #include "rtc_vision/stereo_detection_fuser.h"
 #include "rtc_vision/vision_detection_sender.h"
 #ifdef VTSRTC_ENABLE_YOLO_TENSORRT
@@ -134,7 +135,7 @@ void MaybeLogVisionPerfStats(VisionPerfStats* stats) {
       << " stabilize=" << AverageMs(stats->stabilize_ms,
                                     stats->processed_frames)
       << " send=" << AverageMs(stats->send_ms, stats->processed_frames);
-  LogInfo(oss.str());
+  rtc_logging::LogInfo(oss.str());
 
   *stats = VisionPerfStats();
   stats->window_start = now;
@@ -994,11 +995,11 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& source_frame,
     std::string error_message;
     detector = YoloOnnxDetector::CreateDefault(&error_message);
     if (detector) {
-      LogInfo(std::string("YOLO TensorRT model loaded: ") +
+      rtc_logging::LogInfo(std::string("YOLO TensorRT model loaded: ") +
               detector->model_path());
     } else if (!detector_missing_logged) {
       detector_missing_logged = true;
-      LogError(
+      rtc_logging::LogError(
           "YOLO TensorRT model is unavailable: " + error_message +
           ". Run `xmake yolo_model` or set VTSRTC_YOLO_MODEL to "
           "models/yolo26n.onnx.");
@@ -1025,7 +1026,7 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& source_frame,
   if (!detector->Detect(i420_frame, yolo_boxes, &error_message)) {
     if (!inference_error_logged) {
       inference_error_logged = true;
-      LogError(std::string("YOLO inference disabled after error: ") +
+      rtc_logging::LogError(std::string("YOLO inference disabled after error: ") +
                error_message);
     }
     detector.reset();
@@ -1042,7 +1043,7 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& source_frame,
   }
   if (!yolo_disabled_logged) {
     yolo_disabled_logged = true;
-    LogInfo("YOLO inference is not enabled; configure with --enable_yolo=true.");
+    rtc_logging::LogInfo("YOLO inference is not enabled; configure with --enable_yolo=true.");
   }
   return false;
 #endif
@@ -1098,7 +1099,7 @@ void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame,
     static bool convert_error_logged = false;
     if (!convert_error_logged) {
       convert_error_logged = true;
-      LogError(std::string("YOLO frame conversion disabled after error: ") +
+      rtc_logging::LogError(std::string("YOLO frame conversion disabled after error: ") +
                error_message);
     }
     return;
@@ -1112,7 +1113,7 @@ void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame,
     static bool resize_error_logged = false;
     if (!resize_error_logged) {
       resize_error_logged = true;
-      LogError(std::string("YOLO/OpenCV downscale disabled after error: ") +
+      rtc_logging::LogError(std::string("YOLO/OpenCV downscale disabled after error: ") +
                error_message);
     }
     return;
@@ -1131,7 +1132,7 @@ void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame,
         << work_frame.frame.height << " from " << converted_frame.width
         << "x" << converted_frame.height << ", display downscale="
         << ClampProcessingDownscale(options.processing_downscale);
-    LogInfo(oss.str());
+    rtc_logging::LogInfo(oss.str());
   }
 
   std::vector<YoloDetectionBox> yolo_boxes;
@@ -1142,7 +1143,7 @@ void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame,
     static bool raw_yolo_error_logged = false;
     if (!raw_yolo_error_logged) {
       raw_yolo_error_logged = true;
-      LogError(std::string("YOLO raw monocular inference disabled after "
+      rtc_logging::LogError(std::string("YOLO raw monocular inference disabled after "
                            "error: ") +
                error_message);
     }
@@ -1231,7 +1232,7 @@ void YoloFrameConsumer::Run() {
 
     if (!first_frame_logged) {
       first_frame_logged = true;
-      LogInfo("first raw frame received by YOLO consumer");
+      rtc_logging::LogInfo("first raw frame received by YOLO consumer");
     }
 
     ProcessYoloFrame(frame, &frame_converter, options_, &stabilizer, &stats);

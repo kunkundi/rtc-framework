@@ -1,19 +1,21 @@
 #include "async_dual_camera_video_source.h"
 
-#include "rtc_headless/uyvy_v4l2_camera.h"
+#include "rtc_camera/v4l2_camera.h"
+#include "rtc_logging/rtc_logging.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <stdexcept>
 
-namespace rtc_camera_headless {
+namespace rtc_dual_camera {
+namespace internal {
 namespace {
 
 class CapturedFrameGuard {
  public:
-  CapturedFrameGuard(UyvyV4l2CaptureDevice* device,
-                     UyvyV4l2CaptureDevice::CapturedFrame* frame)
+  CapturedFrameGuard(rtc_camera::V4l2CameraDevice* device,
+                     rtc_camera::V4l2CameraDevice::CapturedFrame* frame)
       : device_(device), frame_(frame) {}
 
   ~CapturedFrameGuard() {
@@ -26,8 +28,8 @@ class CapturedFrameGuard {
   CapturedFrameGuard& operator=(const CapturedFrameGuard&) = delete;
 
  private:
-  UyvyV4l2CaptureDevice* device_ = nullptr;
-  UyvyV4l2CaptureDevice::CapturedFrame* frame_ = nullptr;
+  rtc_camera::V4l2CameraDevice* device_ = nullptr;
+  rtc_camera::V4l2CameraDevice::CapturedFrame* frame_ = nullptr;
 };
 
 int64_t NowMicros() {
@@ -37,20 +39,20 @@ int64_t NowMicros() {
       .count();
 }
 
-void LogCameraInfo(const char* label, const UyvyV4l2CaptureDevice& device) {
-  LogInfo(std::string(label) + ": " + device.device_path() + " " +
+void LogCameraInfo(const char* label, const rtc_camera::V4l2CameraDevice& device) {
+  rtc_logging::LogInfo(std::string(label) + ": " + device.device_path() + " " +
           std::to_string(device.width()) + "x" +
           std::to_string(device.height()) + " " +
-          FourccToString(device.pixel_format()));
+          rtc_camera::PixelFormatToString(device.pixel_format()));
 }
 
 bool StopRequestedBySource(const AsyncDualCameraVideoSource* source) {
   return !source->running();
 }
 
-void RunDualWarmup(UyvyV4l2CaptureDevice& left_device,
-                   UyvyV4l2CaptureDevice& right_device,
-                   const CaptureOptions& options,
+void RunDualWarmup(rtc_camera::V4l2CameraDevice& left_device,
+                   rtc_camera::V4l2CameraDevice& right_device,
+                   const rtc_camera::CameraCaptureOptions& options,
                    const AsyncDualCameraVideoSource* source) {
   if (options.warmup_delay_ms > 0) {
     std::this_thread::sleep_for(
@@ -61,15 +63,15 @@ void RunDualWarmup(UyvyV4l2CaptureDevice& left_device,
   }
 
   int discarded = 0;
-  while (!StopRequested() && !StopRequestedBySource(source) &&
+  while (!StopRequestedBySource(source) &&
          discarded < options.warmup_frames) {
-    UyvyV4l2CaptureDevice::CapturedFrame left_frame;
+    rtc_camera::V4l2CameraDevice::CapturedFrame left_frame;
     if (!left_device.DequeueCapturedFrame(&left_frame)) {
       continue;
     }
     CapturedFrameGuard left_guard(&left_device, &left_frame);
 
-    UyvyV4l2CaptureDevice::CapturedFrame right_frame;
+    rtc_camera::V4l2CameraDevice::CapturedFrame right_frame;
     if (!right_device.DequeueCapturedFrame(&right_frame)) {
       continue;
     }
@@ -78,7 +80,7 @@ void RunDualWarmup(UyvyV4l2CaptureDevice& left_device,
   }
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 VideoSourceSubscription::VideoSourceSubscription(size_t queue_depth)
     : queue_depth_(queue_depth == 0 ? 1 : queue_depth) {}
@@ -228,14 +230,14 @@ uint64_t AsyncDualCameraVideoSource::captured_frames() const {
 
 void AsyncDualCameraVideoSource::CaptureLoop() {
   try {
-    CaptureOptions left_camera_options = config_.options;
+    rtc_camera::CameraCaptureOptions left_camera_options = config_.options;
     left_camera_options.device = config_.left_device;
 
-    UyvyV4l2CaptureDevice left_device;
+    rtc_camera::V4l2CameraDevice left_device;
     left_device.Open(left_camera_options);
     LogCameraInfo("left camera", left_device);
 
-    CaptureOptions right_camera_options = config_.options;
+    rtc_camera::CameraCaptureOptions right_camera_options = config_.options;
     right_camera_options.device = config_.right_device;
     if (right_camera_options.width == 0) {
       right_camera_options.width = static_cast<int>(left_device.width());
@@ -244,7 +246,7 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
       right_camera_options.height = static_cast<int>(left_device.height());
     }
 
-    UyvyV4l2CaptureDevice right_device;
+    rtc_camera::V4l2CameraDevice right_device;
     right_device.Open(right_camera_options);
     LogCameraInfo("right camera", right_device);
 
@@ -253,13 +255,13 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
           "camera heights do not match, unable to stitch side-by-side");
     }
 
-    LogInfo(std::string("sampled left output: ") +
+    rtc_logging::LogInfo(std::string("sampled left output: ") +
             std::to_string(left_device.width() / 2) + "x" +
             std::to_string(left_device.height()));
-    LogInfo(std::string("sampled right output: ") +
+    rtc_logging::LogInfo(std::string("sampled right output: ") +
             std::to_string(right_device.width() / 2) + "x" +
             std::to_string(right_device.height()));
-    LogInfo(std::string("stitched output: ") +
+    rtc_logging::LogInfo(std::string("stitched output: ") +
             std::to_string(left_device.width() / 2 + right_device.width() / 2) +
             "x" + std::to_string(left_device.height()));
 
@@ -267,14 +269,14 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
 
     bool first_frame_logged = false;
     uint64_t sequence = 0;
-    while (!StopRequested() && !StopRequestedBySource(this)) {
-      UyvyV4l2CaptureDevice::CapturedFrame left_frame;
+    while (!StopRequestedBySource(this)) {
+      rtc_camera::V4l2CameraDevice::CapturedFrame left_frame;
       if (!left_device.DequeueCapturedFrame(&left_frame)) {
         continue;
       }
       CapturedFrameGuard left_guard(&left_device, &left_frame);
 
-      UyvyV4l2CaptureDevice::CapturedFrame right_frame;
+      rtc_camera::V4l2CameraDevice::CapturedFrame right_frame;
       if (!right_device.DequeueCapturedFrame(&right_frame)) {
         continue;
       }
@@ -308,7 +310,7 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
 
       if (!first_frame_logged) {
         first_frame_logged = true;
-        LogInfo("first dual UYVY frame pair captured");
+        rtc_logging::LogInfo("first dual UYVY frame pair captured");
       }
 
       Publish(frame);
@@ -372,7 +374,8 @@ void AsyncDualCameraVideoSource::SetError(const std::string& error_message) {
     failed_ = true;
     error_message_ = error_message;
   }
-  LogError(std::string("dual camera video source failed: ") + error_message);
+  rtc_logging::LogError(std::string("dual camera video source failed: ") + error_message);
 }
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 internal
+}  // 命名空间 rtc_dual_camera

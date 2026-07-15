@@ -1,6 +1,8 @@
 ## dual_camera 模块
 
-本目录保存可复用的双摄像头采集和转换代码。`rtc_dual_camera_headless` 应用入口位于 `client/apps/rtc_dual_camera_headless/`。
+本目录保存可复用的双摄像头采集和转换代码。`rtc_dual_camera_headless` 测试入口位于 `client/tests/rtc_dual_camera_headless/`。
+
+双目模块依赖 `rtc_camera` 提供的单相机 V4L2 采集能力，自身只负责左右相机组合、帧同步和双目输出。
 
 目录分层：
 

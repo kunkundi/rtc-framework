@@ -2,6 +2,7 @@
 #include "rtc_dual_camera/dual_uyvy_frame_converter.h"
 #include "rtc_headless/rtc_camera_common.h"
 #include "rtc_headless/rtc_headless_session.h"
+#include "rtc_logging/rtc_logging.h"
 #include "rtc_vision/yolo_frame_consumer.h"
 
 #include <stddef.h>
@@ -237,7 +238,7 @@ int main(int argc, char** argv) {
       rtc_session.NoteCapturedFrame();
       if (!first_frame_logged) {
         first_frame_logged = true;
-        LogInfo("first raw frame received by RTC consumer");
+        rtc_logging::LogInfo("first raw frame received by RTC consumer");
       }
 
       if (!rtc_session.IsReadyToSend()) {
@@ -267,7 +268,7 @@ int main(int argc, char** argv) {
       if (options.frame_limit > 0 &&
           rtc_session.sent_frames() >=
               static_cast<uint64_t>(options.frame_limit)) {
-        LogInfo("frame limit reached");
+        rtc_logging::LogInfo("frame limit reached");
         RequestStop();
         break;
       }
@@ -275,7 +276,7 @@ int main(int argc, char** argv) {
 
     return 0;
   } catch (const std::exception& ex) {
-    LogError(std::string("rtc_dual_camera_headless failed: ") + ex.what());
+    rtc_logging::LogError(std::string("rtc_dual_camera_headless failed: ") + ex.what());
     return 1;
   }
 }

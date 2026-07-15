@@ -5,6 +5,8 @@
 #include "rtc_dual_camera/dual_uyvy_frame_converter.h"
 #include "rtc_headless/rtc_camera_common.h"
 #include "rtc_headless/rtc_headless_session.h"
+#include "rtc_logging/rtc_logging.h"
+#include "rtc_vision/yolo_frame_consumer.h"
 
 #include <exception>
 
@@ -22,6 +24,16 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
   if (started_) {
     return true;
   }
+#ifndef VTSRTC_ENABLE_YOLO_TENSORRT
+  if (options_.yolo_enabled) {
+    if (error_message != nullptr) {
+      *error_message =
+          "YOLO is enabled in rtc.cfg, but this binary was built without "
+          "--enable_yolo=y";
+    }
+    return false;
+  }
+#endif
   try {
     video_source_.reset(
         new rtc_dual_camera::AsyncDualCameraImageSource(options_.capture));
@@ -33,8 +45,26 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
       video_source_.reset();
       return false;
     }
+    if (options_.yolo_enabled) {
+      yolo_frames_ = video_source_->Subscribe(1);
+      if (!yolo_frames_) {
+        if (error_message != nullptr) {
+          *error_message = "创建 YOLO 帧订阅失败";
+        }
+        Stop();
+        return false;
+      }
+    }
     converter_.reset(new rtc_camera_headless::DualUyvyFrameConverter());
     video_source_->Start();
+    if (options_.yolo_enabled) {
+      rtc_camera_headless::YoloFrameConsumerOptions yolo_options;
+      yolo_options.processing_downscale =
+          options_.yolo_processing_downscale;
+      yolo_consumer_.reset(new rtc_camera_headless::YoloFrameConsumer(
+          yolo_frames_, yolo_options));
+      yolo_consumer_->Start();
+    }
     started_ = true;
     first_frame_logged_ = false;
     return true;
@@ -48,6 +78,9 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
 }
 
 void DualCameraStreamingModule::Stop() {
+  if (yolo_consumer_) {
+    yolo_consumer_->Stop();
+  }
   if (rtc_frames_) {
     rtc_frames_->Close();
   }
@@ -55,6 +88,8 @@ void DualCameraStreamingModule::Stop() {
     video_source_->Stop();
   }
   converter_.reset();
+  yolo_consumer_.reset();
+  yolo_frames_.reset();
   rtc_frames_.reset();
   video_source_.reset();
   started_ = false;
@@ -86,7 +121,7 @@ bool DualCameraStreamingModule::Tick(
   rtc_session->NoteCapturedFrame();
   if (!first_frame_logged_) {
     first_frame_logged_ = true;
-    rtc_camera_headless::LogInfo("摄像头模块收到首个双目原始帧");
+    rtc_logging::LogInfo("摄像头模块收到首个双目原始帧");
   }
   if (!rtc_session->IsReadyToSend()) {
     return true;

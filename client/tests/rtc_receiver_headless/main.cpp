@@ -1,5 +1,6 @@
 #include "rtc_headless/rtc_camera_common.h"
 #include "rtc_headless/rtc_headless_session.h"
+#include "rtc_logging/rtc_logging.h"
 
 #include <errno.h>
 #include <sys/stat.h>
@@ -240,7 +241,7 @@ class ReceiverHeadlessClient {
   bool Init() {
     if (options_.dump_every > 0) {
       EnsureDirectoryExists(options_.output_dir);
-      LogInfo(std::string("frame dump dir: ") + options_.output_dir);
+      rtc_logging::LogInfo(std::string("frame dump dir: ") + options_.output_dir);
     }
     return session_.Init();
   }
@@ -257,7 +258,7 @@ class ReceiverHeadlessClient {
       if (joined && !room_joined_seen) {
         room_joined_seen = true;
         room_joined_at = now;
-        LogInfo(std::string("opened room: ") + options_.session.room_id);
+        rtc_logging::LogInfo(std::string("opened room: ") + options_.session.room_id);
       } else if (!joined) {
         room_joined_seen = false;
       }
@@ -265,7 +266,7 @@ class ReceiverHeadlessClient {
       if (options_.frame_limit > 0 &&
           received_video_frames_.load(std::memory_order_relaxed) >=
               static_cast<uint64_t>(options_.frame_limit)) {
-        LogInfo("receive frame limit reached");
+        rtc_logging::LogInfo("receive frame limit reached");
         RequestStop();
         break;
       }
@@ -283,7 +284,7 @@ class ReceiverHeadlessClient {
           std::ostringstream oss;
           oss << "no remote video for " << options_.idle_timeout_sec
               << " seconds, exiting";
-          LogInfo(oss.str());
+          rtc_logging::LogInfo(oss.str());
           RequestStop();
           break;
         }
@@ -374,7 +375,7 @@ class ReceiverHeadlessClient {
           << " session=" << remote_sessionid
           << " source=" << (sourceid ? sourceid : "") << " bgra=" << width
           << "x" << height << " bytes=" << sz_buffer;
-      LogInfo(oss.str());
+      rtc_logging::LogInfo(oss.str());
     }
 
     if (!ShouldDumpFrame(frame_index)) {
@@ -395,9 +396,9 @@ class ReceiverHeadlessClient {
       std::ostringstream oss;
       oss << "dumped frame #" << frame_index << " to " << path
           << " (dump count=" << dump_index << ")";
-      LogInfo(oss.str());
+      rtc_logging::LogInfo(oss.str());
     } catch (const std::exception& ex) {
-      LogError(std::string("failed to dump frame: ") + ex.what());
+      rtc_logging::LogError(std::string("failed to dump frame: ") + ex.what());
     }
   }
 
@@ -424,7 +425,7 @@ class ReceiverHeadlessClient {
         << " video_bytes=" << received_video_bytes_.load()
         << " audio_bytes=" << received_audio_bytes_.load()
         << " msg_bytes=" << received_message_bytes_.load();
-    LogInfo(oss.str());
+    rtc_logging::LogInfo(oss.str());
   }
 
   ReceiverOptions options_;
@@ -451,7 +452,7 @@ int main(int argc, char** argv) {
     }
     return client.Run();
   } catch (const std::exception& ex) {
-    LogError(std::string("rtc_receiver_headless failed: ") + ex.what());
+    rtc_logging::LogError(std::string("rtc_receiver_headless failed: ") + ex.what());
     return 1;
   }
 }

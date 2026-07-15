@@ -1,4 +1,6 @@
-#include "rtc_headless/uyvy_v4l2_camera.h"
+#include "rtc_camera/v4l2_camera.h"
+
+#include "rtc_logging/rtc_logging.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -16,7 +18,7 @@
 #include <thread>
 #include <vector>
 
-namespace rtc_camera_headless {
+namespace rtc_camera {
 namespace {
 
 int Xioctl(int fd, unsigned long request, void* arg) {
@@ -34,7 +36,7 @@ bool IsSupportedPixelFormat(uint32_t pixelformat) {
 }
 
 bool CurrentFormatMatchesRequest(const v4l2_format& current,
-                                 const CaptureOptions& options) {
+                                 const CameraCaptureOptions& options) {
   if (options.width > 0 &&
       current.fmt.pix.width != static_cast<uint32_t>(options.width)) {
     return false;
@@ -43,27 +45,42 @@ bool CurrentFormatMatchesRequest(const v4l2_format& current,
       current.fmt.pix.height != static_cast<uint32_t>(options.height)) {
     return false;
   }
-  // Prefer YUYV on Jetson; never short-circuit on UYVY alone.
+  // Jetson 优先使用 YUYV，当前格式是 UYVY 时仍继续协商。
   if (!IsSupportedPixelFormat(current.fmt.pix.pixelformat)) {
     return false;
   }
-  // Only accept the current format as-is if it's already YUYV or NV12.
-  // UYVY may be a driver default that actually outputs YUYV byte order.
+  // 只有当前格式已经是 YUYV 或 NV12 时才直接使用。
+  // 某些驱动默认报告 UYVY，但实际输出可能采用 YUYV 字节顺序。
   if (current.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV ||
       current.fmt.pix.pixelformat == V4L2_PIX_FMT_NV12) {
     return true;
   }
-  // UYVY: still try to negotiate a better format.
+  // 当前是 UYVY 时继续尝试协商更合适的格式。
   return false;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
-UyvyV4l2CaptureDevice::~UyvyV4l2CaptureDevice() {
+std::string PixelFormatToString(uint32_t pixel_format) {
+  char text[5] = {
+      static_cast<char>(pixel_format & 0xff),
+      static_cast<char>((pixel_format >> 8) & 0xff),
+      static_cast<char>((pixel_format >> 16) & 0xff),
+      static_cast<char>((pixel_format >> 24) & 0xff),
+      '\0'};
+  for (int i = 0; i < 4; ++i) {
+    if (text[i] == '\0' || text[i] < 32 || text[i] > 126) {
+      text[i] = '.';
+    }
+  }
+  return std::string(text);
+}
+
+V4l2CameraDevice::~V4l2CameraDevice() {
   Close();
 }
 
-void UyvyV4l2CaptureDevice::Open(const CaptureOptions& options) {
+void V4l2CameraDevice::Open(const CameraCaptureOptions& options) {
   fd_ = open(options.device.c_str(), O_RDWR | O_NONBLOCK, 0);
   if (fd_ < 0) {
     throw std::runtime_error("failed to open " + options.device + ": " +
@@ -90,7 +107,7 @@ void UyvyV4l2CaptureDevice::Open(const CaptureOptions& options) {
   StartStreaming();
 }
 
-void UyvyV4l2CaptureDevice::Close() {
+void V4l2CameraDevice::Close() {
   StopStreaming();
   for (auto& buffer : buffers_) {
     if (buffer.start && buffer.length > 0) {
@@ -105,7 +122,7 @@ void UyvyV4l2CaptureDevice::Close() {
   }
 }
 
-bool UyvyV4l2CaptureDevice::DequeueCapturedFrame(CapturedFrame* frame) {
+bool V4l2CameraDevice::DequeueCapturedFrame(CapturedFrame* frame) {
   if (fd_ < 0) {
     throw std::runtime_error("capture device is not open");
   }
@@ -150,7 +167,7 @@ bool UyvyV4l2CaptureDevice::DequeueCapturedFrame(CapturedFrame* frame) {
   return true;
 }
 
-void UyvyV4l2CaptureDevice::RequeueCapturedFrame(CapturedFrame* frame) {
+void V4l2CameraDevice::RequeueCapturedFrame(CapturedFrame* frame) {
   if (!frame || !frame->data) {
     return;
   }
@@ -176,19 +193,19 @@ void UyvyV4l2CaptureDevice::RequeueCapturedFrame(CapturedFrame* frame) {
   frame->buffer_index = 0;
 }
 
-uint32_t UyvyV4l2CaptureDevice::pixel_format() const {
+uint32_t V4l2CameraDevice::pixel_format() const {
   return format_.fmt.pix.pixelformat;
 }
 
-uint32_t UyvyV4l2CaptureDevice::width() const {
+uint32_t V4l2CameraDevice::width() const {
   return format_.fmt.pix.width;
 }
 
-uint32_t UyvyV4l2CaptureDevice::height() const {
+uint32_t V4l2CameraDevice::height() const {
   return format_.fmt.pix.height;
 }
 
-size_t UyvyV4l2CaptureDevice::bytes_per_line() const {
+size_t V4l2CameraDevice::bytes_per_line() const {
   if (format_.fmt.pix.bytesperline) {
     return format_.fmt.pix.bytesperline;
   }
@@ -198,15 +215,15 @@ size_t UyvyV4l2CaptureDevice::bytes_per_line() const {
   return static_cast<size_t>(width()) * 2;
 }
 
-bool UyvyV4l2CaptureDevice::is_nv12() const {
+bool V4l2CameraDevice::is_nv12() const {
   return format_.fmt.pix.pixelformat == V4L2_PIX_FMT_NV12;
 }
 
-const std::string& UyvyV4l2CaptureDevice::device_path() const {
+const std::string& V4l2CameraDevice::device_path() const {
   return device_path_;
 }
 
-void UyvyV4l2CaptureDevice::ConfigureFormat(const CaptureOptions& options) {
+void V4l2CameraDevice::ConfigureFormat(const CameraCaptureOptions& options) {
   timeout_ms_ = options.timeout_ms;
 
   memset(&format_, 0, sizeof(format_));
@@ -217,8 +234,8 @@ void UyvyV4l2CaptureDevice::ConfigureFormat(const CaptureOptions& options) {
   }
 
   if (CurrentFormatMatchesRequest(format_, options)) {
-    LogInfo(std::string("camera ") + options.device + " using native format " +
-            FourccToString(format_.fmt.pix.pixelformat) + " " +
+    rtc_logging::LogInfo(std::string("camera ") + options.device + " using native format " +
+            PixelFormatToString(format_.fmt.pix.pixelformat) + " " +
             std::to_string(format_.fmt.pix.width) + "x" +
             std::to_string(format_.fmt.pix.height));
     return;
@@ -234,7 +251,7 @@ void UyvyV4l2CaptureDevice::ConfigureFormat(const CaptureOptions& options) {
   }
   desired.fmt.pix.field = V4L2_FIELD_ANY;
 
-  // Try formats in preference order: YUYV (Jetson V4L2 default), UYVY, NV12
+  // 按 Jetson 常用顺序尝试格式：YUYV、UYVY、NV12。
   static const uint32_t kPreferredFormats[] = {
       V4L2_PIX_FMT_YUYV,
       V4L2_PIX_FMT_UYVY,
@@ -248,8 +265,8 @@ void UyvyV4l2CaptureDevice::ConfigureFormat(const CaptureOptions& options) {
         desired.fmt.pix.pixelformat == fmt) {
       format_ = desired;
       format_set = true;
-      LogInfo(std::string("camera ") + options.device + " set to " +
-              FourccToString(fmt) + " " +
+      rtc_logging::LogInfo(std::string("camera ") + options.device + " set to " +
+              PixelFormatToString(fmt) + " " +
               std::to_string(format_.fmt.pix.width) + "x" +
               std::to_string(format_.fmt.pix.height));
       break;
@@ -263,7 +280,7 @@ void UyvyV4l2CaptureDevice::ConfigureFormat(const CaptureOptions& options) {
   }
 }
 
-void UyvyV4l2CaptureDevice::InitMmap(int requested_count) {
+void V4l2CameraDevice::InitMmap(int requested_count) {
   v4l2_requestbuffers req;
   memset(&req, 0, sizeof(req));
   req.count = static_cast<uint32_t>(requested_count);
@@ -299,7 +316,7 @@ void UyvyV4l2CaptureDevice::InitMmap(int requested_count) {
   }
 }
 
-void UyvyV4l2CaptureDevice::QueueAllBuffers() {
+void V4l2CameraDevice::QueueAllBuffers() {
   for (uint32_t i = 0; i < buffers_.size(); ++i) {
     v4l2_buffer buffer;
     memset(&buffer, 0, sizeof(buffer));
@@ -313,7 +330,7 @@ void UyvyV4l2CaptureDevice::QueueAllBuffers() {
   }
 }
 
-void UyvyV4l2CaptureDevice::StartStreaming() {
+void V4l2CameraDevice::StartStreaming() {
   v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (Xioctl(fd_, VIDIOC_STREAMON, &type) < 0) {
     throw std::runtime_error("VIDIOC_STREAMON failed: " +
@@ -322,7 +339,7 @@ void UyvyV4l2CaptureDevice::StartStreaming() {
   streaming_started_ = true;
 }
 
-void UyvyV4l2CaptureDevice::StopStreaming() {
+void V4l2CameraDevice::StopStreaming() {
   if (fd_ >= 0 && streaming_started_) {
     v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     Xioctl(fd_, VIDIOC_STREAMOFF, &type);
@@ -330,7 +347,7 @@ void UyvyV4l2CaptureDevice::StopStreaming() {
   }
 }
 
-void RunWarmup(UyvyV4l2CaptureDevice& device, const CaptureOptions& options) {
+void RunWarmup(V4l2CameraDevice& device, const CameraCaptureOptions& options) {
   if (options.warmup_delay_ms > 0) {
     std::this_thread::sleep_for(
         std::chrono::milliseconds(options.warmup_delay_ms));
@@ -339,9 +356,9 @@ void RunWarmup(UyvyV4l2CaptureDevice& device, const CaptureOptions& options) {
     return;
   }
 
-  UyvyV4l2CaptureDevice::CapturedFrame discard_frame;
+  V4l2CameraDevice::CapturedFrame discard_frame;
   int discarded = 0;
-  while (!StopRequested() && discarded < options.warmup_frames) {
+  while (discarded < options.warmup_frames) {
     if (!device.DequeueCapturedFrame(&discard_frame)) {
       continue;
     }
@@ -350,4 +367,4 @@ void RunWarmup(UyvyV4l2CaptureDevice& device, const CaptureOptions& options) {
   }
 }
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 rtc_camera

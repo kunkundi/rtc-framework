@@ -1,10 +1,13 @@
 #include "edge_application.h"
 
 #include "rtc_edge/camera_video_sources.h"
+#include "rtc_edge/single_camera_streaming_module.h"
 #include "rtc_headless/rtc_camera_common.h"
 #include "rtc_headless/rtc_headless_session.h"
+#include "rtc_logging/rtc_logging.h"
 #include "rtc_vehicle/vehicle_control_interface.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
+#include "rtc_vision/vision_detection_codec.h"
 
 #include <stdint.h>
 
@@ -16,9 +19,146 @@
 namespace rtc_edge_headless {
 namespace {
 
-using rtc_camera_headless::LogError;
-using rtc_camera_headless::LogInfo;
 using rtc_camera_headless::RtcHeadlessSession;
+
+rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
+    const SurroundCameraOptions& surround,
+    const std::string& device,
+    const char* video_source_id,
+    const char* camera_name) {
+  rtc_edge::SingleCameraStreamingModuleOptions options;
+  options.capture.device = device;
+  options.capture.width = surround.width;
+  options.capture.height = surround.height;
+  options.capture.buffer_count = surround.buffer_count;
+  options.capture.timeout_ms = surround.timeout_ms;
+  options.capture.warmup_frames = surround.warmup_frames;
+  options.capture.warmup_delay_ms = surround.warmup_delay_ms;
+  options.video_source_id = video_source_id;
+  options.camera_name = camera_name;
+  options.frame_wait = surround.frame_wait;
+  return options;
+}
+
+class EdgeCameraModules {
+ public:
+  explicit EdgeCameraModules(const EdgeOptions& options)
+      : front_enabled_(!options.surround_camera.front_device.empty()),
+        rear_enabled_(!options.surround_camera.rear_device.empty()),
+        left_enabled_(!options.surround_camera.left_device.empty()),
+        right_enabled_(!options.surround_camera.right_device.empty()),
+        stereo_camera_(options.camera),
+        front_camera_(MakeSurroundCameraOptions(
+            options.surround_camera, options.surround_camera.front_device,
+            rtc_edge::kSurroundFrontVideoSourceId, "surround front camera")),
+        rear_camera_(MakeSurroundCameraOptions(
+            options.surround_camera, options.surround_camera.rear_device,
+            rtc_edge::kSurroundRearVideoSourceId, "surround rear camera")),
+        left_camera_(MakeSurroundCameraOptions(
+            options.surround_camera, options.surround_camera.left_device,
+            rtc_edge::kSurroundLeftVideoSourceId, "surround left camera")),
+        right_camera_(MakeSurroundCameraOptions(
+            options.surround_camera, options.surround_camera.right_device,
+            rtc_edge::kSurroundRightVideoSourceId,
+            "surround right camera")) {}
+
+  bool Start(std::string* error_message) {
+    std::string module_error;
+    if (!stereo_camera_.Start(&module_error)) {
+      SetStartError("stereo camera", module_error, error_message);
+      Stop();
+      return false;
+    }
+    if (front_enabled_ && !front_camera_.Start(&module_error)) {
+      SetStartError("surround front camera", module_error, error_message);
+      Stop();
+      return false;
+    }
+    if (rear_enabled_ && !rear_camera_.Start(&module_error)) {
+      SetStartError("surround rear camera", module_error, error_message);
+      Stop();
+      return false;
+    }
+    if (left_enabled_ && !left_camera_.Start(&module_error)) {
+      SetStartError("surround left camera", module_error, error_message);
+      Stop();
+      return false;
+    }
+    if (right_enabled_ && !right_camera_.Start(&module_error)) {
+      SetStartError("surround right camera", module_error, error_message);
+      Stop();
+      return false;
+    }
+    return true;
+  }
+
+  void Stop() {
+    if (right_enabled_) {
+      right_camera_.RequestStop();
+    }
+    if (left_enabled_) {
+      left_camera_.RequestStop();
+    }
+    if (rear_enabled_) {
+      rear_camera_.RequestStop();
+    }
+    if (front_enabled_) {
+      front_camera_.RequestStop();
+    }
+    stereo_camera_.Stop();
+    if (right_enabled_) {
+      right_camera_.Stop();
+    }
+    if (left_enabled_) {
+      left_camera_.Stop();
+    }
+    if (rear_enabled_) {
+      rear_camera_.Stop();
+    }
+    if (front_enabled_) {
+      front_camera_.Stop();
+    }
+  }
+
+  bool Tick(RtcHeadlessSession* rtc_session, std::string* error_message) {
+    if (!stereo_camera_.Tick(rtc_session, error_message)) {
+      return false;
+    }
+    if (front_enabled_ && !front_camera_.Tick(rtc_session, error_message)) {
+      return false;
+    }
+    if (rear_enabled_ && !rear_camera_.Tick(rtc_session, error_message)) {
+      return false;
+    }
+    if (left_enabled_ && !left_camera_.Tick(rtc_session, error_message)) {
+      return false;
+    }
+    if (right_enabled_ && !right_camera_.Tick(rtc_session, error_message)) {
+      return false;
+    }
+    return true;
+  }
+
+ private:
+  void SetStartError(const char* module_name,
+                     const std::string& module_error,
+                     std::string* error_message) {
+    if (error_message != nullptr) {
+      *error_message = std::string(module_name) + " failed to start: " +
+                       module_error;
+    }
+  }
+
+  bool front_enabled_ = false;
+  bool rear_enabled_ = false;
+  bool left_enabled_ = false;
+  bool right_enabled_ = false;
+  rtc_edge::DualCameraStreamingModule stereo_camera_;
+  rtc_edge::SingleCameraStreamingModule front_camera_;
+  rtc_edge::SingleCameraStreamingModule rear_camera_;
+  rtc_edge::SingleCameraStreamingModule left_camera_;
+  rtc_edge::SingleCameraStreamingModule right_camera_;
+};
 
 RtcHeadlessSession::DataChannelConfig MakeDataChannel(
     const char* label,
@@ -41,7 +181,9 @@ RtcHeadlessSession::ExternalVideoSourceConfig MakeVideoSource(
   return source;
 }
 
-RtcHeadlessSession::Features MakeVehicleRtcFeatures() {
+RtcHeadlessSession::Features MakeVehicleRtcFeatures(
+    const SurroundCameraOptions& surround,
+    bool yolo_enabled) {
   RtcHeadlessSession::Features features;
   features.enable_data_channel = false;
   features.enable_external_video_source = true;
@@ -56,14 +198,27 @@ RtcHeadlessSession::Features MakeVehicleRtcFeatures() {
   features.additional_data_channels.push_back(MakeDataChannel(
       vts_rtc::vehicle::kVehicleStateChannelLabel, RtcPriorityType::Medium,
       false, 0));
-  features.additional_external_video_sources.push_back(
-      MakeVideoSource(rtc_edge::kSurroundFrontVideoSourceId));
-  features.additional_external_video_sources.push_back(
-      MakeVideoSource(rtc_edge::kSurroundRearVideoSourceId));
-  features.additional_external_video_sources.push_back(
-      MakeVideoSource(rtc_edge::kSurroundLeftVideoSourceId));
-  features.additional_external_video_sources.push_back(
-      MakeVideoSource(rtc_edge::kSurroundRightVideoSourceId));
+  if (yolo_enabled) {
+    features.additional_data_channels.push_back(MakeDataChannel(
+        vts_rtc::vision::kVisionDetectionChannelLabel,
+        RtcPriorityType::Medium, false, 0));
+  }
+  if (!surround.front_device.empty()) {
+    features.additional_external_video_sources.push_back(
+        MakeVideoSource(rtc_edge::kSurroundFrontVideoSourceId));
+  }
+  if (!surround.rear_device.empty()) {
+    features.additional_external_video_sources.push_back(
+        MakeVideoSource(rtc_edge::kSurroundRearVideoSourceId));
+  }
+  if (!surround.left_device.empty()) {
+    features.additional_external_video_sources.push_back(
+        MakeVideoSource(rtc_edge::kSurroundLeftVideoSourceId));
+  }
+  if (!surround.right_device.empty()) {
+    features.additional_external_video_sources.push_back(
+        MakeVideoSource(rtc_edge::kSurroundRightVideoSourceId));
+  }
   return features;
 }
 
@@ -86,11 +241,11 @@ bool SendControlData(RtcSessionId remote_sessionid,
 }
 
 void WriteInfoLog(const std::string& message) {
-  LogInfo(message);
+  rtc_logging::LogInfo(message);
 }
 
 void WriteErrorLog(const std::string& message) {
-  LogError(message);
+  rtc_logging::LogError(message);
 }
 
 void HandleReceivedMessage(
@@ -175,22 +330,22 @@ RtcHeadlessSession::Callbacks MakeVehicleRtcCallbacks(
 void ShutdownApplication(
     rtc_vehicle::VehicleControlModule& control_module,
     RtcHeadlessSession& rtc_session,
-    rtc_edge::DualCameraStreamingModule& camera_module) {
+    EdgeCameraModules& camera_modules) {
   control_module.Shutdown();
+  camera_modules.Stop();
   rtc_session.Shutdown();
-  camera_module.Stop();
 }
 
 void RunMainLoop(const EdgeOptions& options,
                  rtc_vehicle::VehicleControlModule& control_module,
                  RtcHeadlessSession& rtc_session,
-                 rtc_edge::DualCameraStreamingModule& camera_module) {
+                 EdgeCameraModules& camera_modules) {
   while (!rtc_camera_headless::StopRequested()) {
     rtc_session.Tick();
     control_module.Tick(GetSteadyTimeMs());
 
     std::string camera_error;
-    if (!camera_module.Tick(&rtc_session, &camera_error)) {
+    if (!camera_modules.Tick(&rtc_session, &camera_error)) {
       throw std::runtime_error(camera_error);
     }
 
@@ -198,7 +353,7 @@ void RunMainLoop(const EdgeOptions& options,
       const uint64_t frame_limit =
           static_cast<uint64_t>(options.rtc.frame_limit);
       if (rtc_session.sent_frames() >= frame_limit) {
-        LogInfo("已达到视频帧发送上限");
+        rtc_logging::LogInfo("已达到视频帧发送上限");
         rtc_camera_headless::RequestStop();
       }
     }
@@ -216,9 +371,12 @@ int RunEdgeApplication(const EdgeOptions& options) {
 
   const RtcHeadlessSession::Callbacks callbacks =
       MakeVehicleRtcCallbacks(&control_module);
-  RtcHeadlessSession rtc_session(options.rtc, MakeVehicleRtcFeatures(),
-                                 callbacks);
-  rtc_edge::DualCameraStreamingModule camera_module(options.camera);
+  RtcHeadlessSession rtc_session(
+      options.rtc,
+      MakeVehicleRtcFeatures(options.surround_camera,
+                             options.camera.yolo_enabled),
+      callbacks);
+  EdgeCameraModules camera_modules(options);
 
   try {
     std::string control_error;
@@ -231,19 +389,19 @@ int RunEdgeApplication(const EdgeOptions& options) {
     }
 
     std::string camera_error;
-    if (!camera_module.Start(&camera_error)) {
+    if (!camera_modules.Start(&camera_error)) {
       throw std::runtime_error(std::string("摄像头模块启动失败：") +
                                camera_error);
     }
 
-    RunMainLoop(options, control_module, rtc_session, camera_module);
+    RunMainLoop(options, control_module, rtc_session, camera_modules);
   } catch (...) {
     // 运行中任意步骤失败时，都按相同顺序关闭已启动的模块。
-    ShutdownApplication(control_module, rtc_session, camera_module);
+    ShutdownApplication(control_module, rtc_session, camera_modules);
     throw;
   }
 
-  ShutdownApplication(control_module, rtc_session, camera_module);
+  ShutdownApplication(control_module, rtc_session, camera_modules);
   return 0;
 }
 

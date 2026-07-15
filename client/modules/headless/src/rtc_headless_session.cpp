@@ -1,5 +1,7 @@
 #include "rtc_headless/rtc_headless_session.h"
 
+#include "rtc_logging/rtc_logging.h"
+
 #include <cstring>
 #include <sstream>
 
@@ -79,7 +81,7 @@ RtcHeadlessSession::~RtcHeadlessSession() {
 bool RtcHeadlessSession::Init() {
   external_video_source_ids_.clear();
   rtc_cfg_path_ = ResolveConfigPath(options_.config_path);
-  LogInfo(std::string("rtc.cfg: ") + rtc_cfg_path_);
+  rtc_logging::LogInfo(std::string("rtc.cfg: ") + rtc_cfg_path_);
 
   RtcInitParams params;
   std::memset(&params, 0, sizeof(params));
@@ -100,7 +102,7 @@ bool RtcHeadlessSession::Init() {
   }
   rtc_inited_.store(true);
   last_status_ = std::chrono::steady_clock::now();
-  LogInfo("RtcInitAgentV2 success");
+  rtc_logging::LogInfo("RtcInitAgentV2 success");
 
   if (features_.enable_data_channel) {
     const RtcErrorCode dc_code =
@@ -127,7 +129,7 @@ bool RtcHeadlessSession::Init() {
 
   if (features_.enable_external_video_source) {
     if (features_.external_video_source_id.empty()) {
-      LogError("默认外部视频源 ID 不能为空");
+      rtc_logging::LogError("默认外部视频源 ID 不能为空");
       return false;
     }
     const RtcErrorCode video_code = RtcAddExternalVideoSource(
@@ -144,12 +146,12 @@ bool RtcHeadlessSession::Init() {
   for (const ExternalVideoSourceConfig& source :
        features_.additional_external_video_sources) {
     if (source.source_id.empty()) {
-      LogError("外部视频源 ID 不能为空");
+      rtc_logging::LogError("外部视频源 ID 不能为空");
       return false;
     }
     if (external_video_source_ids_.find(source.source_id) !=
         external_video_source_ids_.end()) {
-      LogError(std::string("外部视频源 ID 重复：") + source.source_id);
+      rtc_logging::LogError(std::string("外部视频源 ID 重复：") + source.source_id);
       return false;
     }
     const RtcErrorCode video_code = RtcAddExternalVideoSource(
@@ -258,7 +260,7 @@ bool RtcHeadlessSession::SendI420Frame(const char* video_source_id,
   }
   if (external_video_source_ids_.find(video_source_id) ==
       external_video_source_ids_.end()) {
-    LogError(std::string("尝试发送未注册的外部视频源：") +
+    rtc_logging::LogError(std::string("尝试发送未注册的外部视频源：") +
              video_source_id);
     return false;
   }
@@ -332,7 +334,7 @@ void RtcHeadlessSession::PrintStatus() const {
       << " recv_msg=" << received_messages_.load()
       << " recv_audio=" << remote_audio_frames_.load()
       << " recv_video=" << remote_video_frames_.load();
-  LogInfo(oss.str());
+  rtc_logging::LogInfo(oss.str());
 }
 
 void RtcHeadlessSession::LogRtcCall(const char* action, RtcErrorCode code) const {
@@ -340,9 +342,9 @@ void RtcHeadlessSession::LogRtcCall(const char* action, RtcErrorCode code) const
   oss << action << ": " << RtcErrorMessage(code) << " ("
       << static_cast<int>(code) << ")";
   if (code == RtcErrorCode::OK || code == RtcErrorCode::AgentAlreadyInRoom) {
-    LogInfo(oss.str());
+    rtc_logging::LogInfo(oss.str());
   } else {
-    LogError(oss.str());
+    rtc_logging::LogError(oss.str());
   }
 }
 
@@ -372,7 +374,7 @@ void RtcHeadlessSession::OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
   std::ostringstream oss;
   oss << "room event: op=" << static_cast<int>(op)
       << " room=" << (roomid ? roomid : "");
-  LogInfo(oss.str());
+  rtc_logging::LogInfo(oss.str());
 }
 
 void RtcHeadlessSession::OnP2PState(RtcSessionId sessionid, RtcP2PState state) {
@@ -392,7 +394,7 @@ void RtcHeadlessSession::OnP2PState(RtcSessionId sessionid, RtcP2PState state) {
   }
   std::ostringstream oss;
   oss << "p2p: session=" << sessionid << " state=" << P2PStateText(state);
-  LogInfo(oss.str());
+  rtc_logging::LogInfo(oss.str());
   if (instance_->callbacks_.p2p_state) {
     instance_->callbacks_.p2p_state(sessionid, state);
   }
@@ -408,7 +410,7 @@ void RtcHeadlessSession::OnDataChannelState(RtcSessionId sessionid,
   oss << "datachannel: session=" << sessionid
       << " label=" << (label ? label : "")
       << " state=" << static_cast<int>(state);
-  LogInfo(oss.str());
+  rtc_logging::LogInfo(oss.str());
   if (instance_->callbacks_.datachannel_state) {
     instance_->callbacks_.datachannel_state(sessionid, label, state);
   }
@@ -431,7 +433,7 @@ void RtcHeadlessSession::OnServerConnectionState(RtcServerConnectionState state)
 
   std::ostringstream oss;
   oss << "server state: " << ServerStateText(state);
-  LogInfo(oss.str());
+  rtc_logging::LogInfo(oss.str());
   if (instance_->callbacks_.server_connection_state) {
     instance_->callbacks_.server_connection_state(state);
   }
@@ -451,7 +453,7 @@ void RtcHeadlessSession::OnRecvMessage(RtcSessionId remote_sessionid,
   std::ostringstream oss;
   oss << "recv msg from " << remote_sessionid << " ["
       << (label ? label : "") << "] bytes=" << msg_size;
-  LogInfo(oss.str());
+  rtc_logging::LogInfo(oss.str());
 }
 
 void RtcHeadlessSession::OnRecvAudioFrame(RtcSessionId remote_sessionid,
@@ -498,7 +500,7 @@ void RtcHeadlessSession::OnRecvFrame(RtcSessionId remote_sessionid,
         << " source=" << (sourceid ? sourceid : "")
         << " type=" << static_cast<int>(source_type)
         << " size=" << width << "x" << height;
-    LogInfo(oss.str());
+    rtc_logging::LogInfo(oss.str());
   }
 }
 

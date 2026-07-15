@@ -24,6 +24,7 @@ struct SurroundCameraOptions {
 };
 
 struct EdgeOptions {
+  std::string log_path;
   rtc_camera_headless::CaptureOptions rtc;
   rtc_edge::DualCameraStreamingModuleOptions camera;
   SurroundCameraOptions surround_camera;

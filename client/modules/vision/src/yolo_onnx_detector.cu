@@ -1,6 +1,7 @@
 #include "rtc_vision/yolo_onnx_detector.h"
 
 #include "rtc_headless/rtc_camera_common.h"
+#include "rtc_logging/rtc_logging.h"
 
 #include <NvInfer.h>
 #include <NvInferPlugin.h>
@@ -261,17 +262,17 @@ bool EngineCacheIsUsable(const std::string& engine_path,
     if (SameFingerprint(cached_fingerprint, model_fingerprint)) {
       return true;
     }
-    LogInfo("TensorRT YOLO engine cache is stale; rebuilding: " +
+    rtc_logging::LogInfo("TensorRT YOLO engine cache is stale; rebuilding: " +
             engine_path);
     return false;
   }
 
-  LogInfo("TensorRT YOLO legacy engine cache has no metadata; reusing it: " +
+  rtc_logging::LogInfo("TensorRT YOLO legacy engine cache has no metadata; reusing it: " +
           engine_path);
   std::string metadata_error;
   if (!WriteEngineCacheMetadata(metadata_path, model_fingerprint,
                                 &metadata_error)) {
-    LogError("TensorRT YOLO metadata write failed: " + metadata_error);
+    rtc_logging::LogError("TensorRT YOLO metadata write failed: " + metadata_error);
   }
   return true;
 }
@@ -771,9 +772,9 @@ class TensorRtLogger : public nvinfer1::ILogger {
       return;
     }
     if (severity <= Severity::kERROR) {
-      LogError(std::string("TensorRT: ") + msg);
+      rtc_logging::LogError(std::string("TensorRT: ") + msg);
     } else {
-      LogInfo(std::string("TensorRT: ") + msg);
+      rtc_logging::LogInfo(std::string("TensorRT: ") + msg);
     }
   }
 };
@@ -1113,7 +1114,7 @@ bool BuildSerializedEngine(const std::string& model_path,
     }
   }
 
-  LogInfo("building TensorRT YOLO engine; first launch can take a while");
+  rtc_logging::LogInfo("building TensorRT YOLO engine; first launch can take a while");
   TrtUniquePtr<nvinfer1::IHostMemory> engine_plan(
       builder->buildSerializedNetwork(*network, *config));
   if (!engine_plan) {
@@ -1128,14 +1129,14 @@ bool BuildSerializedEngine(const std::string& model_path,
       static_cast<const uint8_t*>(engine_plan->data()) + engine_plan->size());
   if (!WriteBinaryFile(engine_path, serialized_engine->data(),
                        serialized_engine->size(), error_message)) {
-    LogError("TensorRT engine built but cache write failed: " +
+    rtc_logging::LogError("TensorRT engine built but cache write failed: " +
              (error_message ? *error_message : std::string()));
   } else {
-    LogInfo("TensorRT YOLO engine cached: " + engine_path);
+    rtc_logging::LogInfo("TensorRT YOLO engine cached: " + engine_path);
     std::string metadata_error;
     if (!WriteEngineCacheMetadata(TensorRtEngineMetadataPath(engine_path),
                                   model_fingerprint, &metadata_error)) {
-      LogError("TensorRT YOLO metadata write failed: " + metadata_error);
+      rtc_logging::LogError("TensorRT YOLO metadata write failed: " + metadata_error);
     }
   }
   return true;
@@ -1159,7 +1160,7 @@ bool LoadOrBuildEngine(const std::string& model_path,
     if (ReadBinaryFile(engine_path, serialized_engine, &read_error)) {
       return true;
     }
-    LogError("TensorRT YOLO engine cache read failed; rebuilding: " +
+    rtc_logging::LogError("TensorRT YOLO engine cache read failed; rebuilding: " +
              read_error);
   }
 
@@ -1401,7 +1402,7 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
     oss << "YOLO TensorRT engine loaded: " << impl->engine_path
         << " input=" << impl->input_width << "x" << impl->input_height
         << " outputs=" << impl->output_names.size();
-    LogInfo(oss.str());
+    rtc_logging::LogInfo(oss.str());
 
     return std::unique_ptr<YoloOnnxDetector>(
         new YoloOnnxDetector(std::move(impl)));

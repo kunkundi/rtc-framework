@@ -15,8 +15,13 @@ target("p2p_imgui")
 
     if vtsrtc_on_linux() then
         after_buildcmd(function(target, batchcmds)
+            local config_file = path.join(os.projectdir(), "config", "rtc.cfg")
+            if os.exists(config_file) then
+                batchcmds:cp(config_file, target:targetdir())
+            end
+
             local test_data = path.join(os.projectdir(), "test_data")
-            for _, f in ipairs({"rtc.cfg", "8k16bit.pcm", "zjlabs.yuv", "messagefile.txt"}) do
+            for _, f in ipairs({"8k16bit.pcm", "zjlabs.yuv", "messagefile.txt"}) do
                 local src = path.join(test_data, f)
                 if os.exists(src) then
                     batchcmds:cp(src, target:targetdir())

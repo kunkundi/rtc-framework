@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rtc_headless/rtc_camera_common.h"
+#include "rtc_camera/camera_capture_options.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -14,7 +14,8 @@
 #include <thread>
 #include <vector>
 
-namespace rtc_camera_headless {
+namespace rtc_dual_camera {
+namespace internal {
 
 enum class VideoFrameFormat {
   kI420,
@@ -27,17 +28,17 @@ struct VideoFrame {
   uint32_t right_pixel_format = 0;
   uint64_t sequence = 0;
   int64_t timestamp_us = 0;
-  // Logical output size for consumers after side-by-side sampled conversion.
+  // 消费者完成左右采样拼接后得到的逻辑输出尺寸。
   size_t width = 0;
   size_t height = 0;
 
-  // I420 fields.
+  // I420 帧字段。
   size_t stride_y = 0;
   size_t stride_u = 0;
   size_t stride_v = 0;
   std::vector<uint8_t> data;
 
-  // kDualUyvy fields.
+  // 双路 UYVY 帧字段。
   size_t left_width = 0;
   size_t left_height = 0;
   size_t left_stride_bytes = 0;
@@ -74,7 +75,7 @@ class VideoSourceSubscription {
 };
 
 struct DualCameraVideoSourceConfig {
-  CaptureOptions options;
+  rtc_camera::CameraCaptureOptions options;
   std::string left_device;
   std::string right_device;
 };
@@ -116,4 +117,5 @@ class AsyncDualCameraVideoSource {
   std::vector<std::weak_ptr<VideoSourceSubscription>> subscriptions_;
 };
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 internal
+}  // 命名空间 rtc_dual_camera

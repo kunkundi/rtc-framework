@@ -11,7 +11,6 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
-#include <mutex>
 #include <stdexcept>
 #include <vector>
 
@@ -19,7 +18,6 @@ namespace rtc_camera_headless {
 namespace {
 
 std::atomic<bool> g_stop_requested(false);
-std::mutex g_log_mutex;
 
 void OnSignal(int) {
   g_stop_requested.store(true);
@@ -89,7 +87,6 @@ std::string ResolveConfigPath(const std::string& requested_path_or_name) {
   const std::string exe_dir = ExecutableDir();
   std::vector<std::string> base_candidates;
   base_candidates.push_back(".");
-  base_candidates.push_back("test_data");
 
   std::string current = exe_dir;
   for (int i = 0; i < 5; ++i) {
@@ -109,10 +106,10 @@ std::string ResolveConfigPath(const std::string& requested_path_or_name) {
       return candidate_direct;
     }
 
-    const std::string candidate_test_data =
-        JoinPath(JoinPath(base, "test_data"), target_name);
-    if (FileExists(candidate_test_data)) {
-      return candidate_test_data;
+    const std::string candidate_config =
+        JoinPath(JoinPath(base, "config"), target_name);
+    if (FileExists(candidate_config)) {
+      return candidate_config;
     }
   }
 
@@ -129,31 +126,6 @@ std::string TimestampNow() {
   std::snprintf(text, sizeof(text), "%02d:%02d:%02d", tm_now.tm_hour,
                 tm_now.tm_min, tm_now.tm_sec);
   return text;
-}
-
-std::string FourccToString(uint32_t fourcc) {
-  char text[5] = {
-      static_cast<char>(fourcc & 0xff),
-      static_cast<char>((fourcc >> 8) & 0xff),
-      static_cast<char>((fourcc >> 16) & 0xff),
-      static_cast<char>((fourcc >> 24) & 0xff),
-      '\0'};
-  for (int i = 0; i < 4; ++i) {
-    if (text[i] == '\0' || text[i] < 32 || text[i] > 126) {
-      text[i] = '.';
-    }
-  }
-  return std::string(text);
-}
-
-void LogInfo(const std::string& message) {
-  std::lock_guard<std::mutex> lock(g_log_mutex);
-  std::cout << "[" << TimestampNow() << "] [INFO] " << message << std::endl;
-}
-
-void LogError(const std::string& message) {
-  std::lock_guard<std::mutex> lock(g_log_mutex);
-  std::cerr << "[" << TimestampNow() << "] [ERROR] " << message << std::endl;
 }
 
 void PrintUsage(const char* program) {

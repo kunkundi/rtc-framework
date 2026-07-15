@@ -1,64 +1,21 @@
 if vtsrtc_on_linux() then
-    target("rtc_camera_headless")
-        set_kind("binary")
-        vtsrtc_add_client_dependency()
-
-        if get_config("enable_miivii_sdk") then
-            local miivii_source = vtsrtc_path("client", "modules", "headless", "src", "mv_gmsl_camera.cpp")
-            local miivii_header = vtsrtc_path("client", "modules", "headless", "include", "rtc_headless", "mv_gmsl_camera.h")
-            if not os.isfile(miivii_source) or not os.isfile(miivii_header) then
-                vtsrtc_fail("MiiVii adapter not found under client/modules/headless")
-                set_enabled(false)
-            else
-                add_defines("VTSRTC_USE_MIIVII_SDK")
-                add_files(
-                    vtsrtc_path("client", "apps", "rtc_camera_headless", "main.cpp"),
-                    vtsrtc_path("client", "apps", "rtc_camera_headless", "internal", "uyvy_to_i420_cuda.cu"),
-                    vtsrtc_path("client", "modules", "headless", "src", "rtc_camera_common.cpp"),
-                    vtsrtc_path("client", "modules", "headless", "src", "rtc_headless_session.cpp"),
-                    miivii_source
-                )
-            end
-        else
-            add_files(
-                vtsrtc_path("client", "apps", "rtc_camera_headless", "main.cpp"),
-                vtsrtc_path("client", "apps", "rtc_camera_headless", "internal", "uyvy_to_i420_cuda.cu"),
-                vtsrtc_path("client", "modules", "headless", "src", "rtc_camera_common.cpp"),
-                vtsrtc_path("client", "modules", "headless", "src", "rtc_headless_session.cpp"),
-                vtsrtc_path("client", "modules", "headless", "src", "uyvy_v4l2_camera.cpp")
-            )
-        end
-
-        add_includedirs(
-            vtsrtc_path("client", "apps", "rtc_camera_headless", "internal"),
-            vtsrtc_path("client", "modules", "headless", "include")
+    target("rtc_headless_common")
+        set_kind("static")
+        add_files(
+            vtsrtc_path("client", "modules", "headless", "src", "rtc_camera_common.cpp")
         )
-        if get_config("enable_miivii_sdk") then
-            add_includedirs("/opt/miivii/include")
-            add_linkdirs("/opt/miivii/lib")
-            add_links("mvgmslcamera_noopencv")
-        end
-        vtsrtc_add_linux_runtime_rpath()
-        add_syslinks("pthread")
-        add_cuflags("--std=c++14")
-
-        if not vtsrtc_add_cuda_runtime_config() then
-            vtsrtc_fail("CUDA runtime not found for rtc_camera_headless")
-            set_enabled(false)
-        end
-
-        after_buildcmd(function(target, batchcmds)
-            batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
-        end)
+        add_includedirs(
+            vtsrtc_path("client", "modules", "headless", "include"),
+            {public = true}
+        )
 
     target("rtc_dual_camera_image_source")
         set_kind("static")
+        add_deps("rtc_camera", "rtc_logging")
 
         add_files(
             vtsrtc_path("client", "modules", "dual_camera", "src", "dual_camera_async_image_source.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "async_dual_camera_video_source.cpp"),
-            vtsrtc_path("client", "modules", "headless", "src", "rtc_camera_common.cpp"),
-            vtsrtc_path("client", "modules", "headless", "src", "uyvy_v4l2_camera.cpp")
+            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "async_dual_camera_video_source.cpp")
         )
 
         add_includedirs(
@@ -78,14 +35,17 @@ if vtsrtc_on_linux() then
 
     target("rtc_dual_camera_headless")
         set_kind("binary")
+        set_default(false)
         vtsrtc_add_client_dependency()
         add_deps(
+            "rtc_logging",
+            "rtc_headless_common",
             "rtc_dual_camera_image_source",
             "rtc_vision_detection_protocol"
         )
 
         add_files(
-            vtsrtc_path("client", "apps", "rtc_dual_camera_headless", "main.cpp"),
+            vtsrtc_path("client", "tests", "rtc_dual_camera_headless", "main.cpp"),
             vtsrtc_path("client", "modules", "dual_camera", "src", "dual_uyvy_frame_converter.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "stereo_detection_fuser.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "yolo_frame_consumer.cpp"),
@@ -134,7 +94,7 @@ if vtsrtc_on_linux() then
         end
 
         after_buildcmd(function(target, batchcmds)
-            batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+            batchcmds:cp(path.join(os.projectdir(), "config", "rtc.cfg"), target:targetdir())
             if get_config("enable_yolo") then
                 local model_path = path.join(os.projectdir(), "models", "yolo26n.onnx")
                 if os.isfile(model_path) then
@@ -147,11 +107,12 @@ if vtsrtc_on_linux() then
 
     target("rtc_receiver_headless")
         set_kind("binary")
+        set_default(false)
         vtsrtc_add_client_dependency()
+        add_deps("rtc_headless_common", "rtc_logging")
 
         add_files(
-            vtsrtc_path("client", "apps", "rtc_receiver_headless", "main.cpp"),
-            vtsrtc_path("client", "modules", "headless", "src", "rtc_camera_common.cpp"),
+            vtsrtc_path("client", "tests", "rtc_receiver_headless", "main.cpp"),
             vtsrtc_path("client", "modules", "headless", "src", "rtc_headless_session.cpp")
         )
 
@@ -162,6 +123,7 @@ if vtsrtc_on_linux() then
         add_syslinks("pthread")
 
         after_buildcmd(function(target, batchcmds)
-            batchcmds:cp(path.join(os.projectdir(), "test_data", "rtc.cfg"), target:targetdir())
+            batchcmds:cp(path.join(os.projectdir(), "config", "rtc.cfg"), target:targetdir())
         end)
+
 end

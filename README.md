@@ -111,4 +111,5 @@ Generate compile_commands.json
 ```
 
 ### 配置和运行
-目前只需要修改一处，根据信令服务器的IP地址对应修改 rtc.cfg 文件的api_server和signaling_server字段
+根据信令服务器的 IP 地址修改 `config/rtc.cfg` 中的 `api_server` 和
+`signaling_server` 字段。构建客户端目标时，该配置文件会复制到可执行程序目录。

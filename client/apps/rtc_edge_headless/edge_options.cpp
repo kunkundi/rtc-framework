@@ -62,6 +62,38 @@ std::string ReadString(const nlohmann::json& object,
   return result;
 }
 
+std::string ReadStringAllowEmpty(const nlohmann::json& object,
+                                 const char* key,
+                                 const std::string& object_path) {
+  const std::string path = MakeConfigPath(object_path, key);
+  if (!object.contains(key)) {
+    throw std::runtime_error(std::string("Missing config field: ") + path);
+  }
+
+  const nlohmann::json& value = object.at(key);
+  if (!value.is_string()) {
+    throw std::runtime_error(std::string("Config field must be a string: ") +
+                             path);
+  }
+  return value.get<std::string>();
+}
+
+bool ReadBoolean(const nlohmann::json& object,
+                 const char* key,
+                 const std::string& object_path) {
+  const std::string path = MakeConfigPath(object_path, key);
+  if (!object.contains(key)) {
+    throw std::runtime_error(std::string("Missing config field: ") + path);
+  }
+
+  const nlohmann::json& value = object.at(key);
+  if (!value.is_boolean()) {
+    throw std::runtime_error(std::string("Config field must be a boolean: ") +
+                             path);
+  }
+  return value.get<bool>();
+}
+
 int ReadInteger(const nlohmann::json& object,
                 const char* key,
                 const std::string& object_path,
@@ -161,10 +193,12 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       ReadObject(edge, "stereo_camera", "edge");
   const nlohmann::json& surround_camera =
       ReadObject(edge, "surround_camera", "edge");
+  const nlohmann::json& yolo = ReadObject(edge, "yolo", "edge");
   const nlohmann::json& control =
       ReadObject(edge, "vehicle_control", "edge");
 
   EdgeOptions options;
+  options.log_path = ReadString(root, "log_path", "");
   options.rtc.config_path = resolved_path;
   options.rtc.room_id = ReadString(rtc, "room", "edge.rtc");
   options.rtc.join_retry_ms = ReadInteger(
@@ -204,13 +238,13 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       std::numeric_limits<int>::max());
   options.camera.frame_wait = std::chrono::milliseconds(frame_wait_ms);
 
-  options.surround_camera.front_device = ReadString(
+  options.surround_camera.front_device = ReadStringAllowEmpty(
       surround_camera, "front_device", "edge.surround_camera");
-  options.surround_camera.rear_device = ReadString(
+  options.surround_camera.rear_device = ReadStringAllowEmpty(
       surround_camera, "rear_device", "edge.surround_camera");
-  options.surround_camera.left_device = ReadString(
+  options.surround_camera.left_device = ReadStringAllowEmpty(
       surround_camera, "left_device", "edge.surround_camera");
-  options.surround_camera.right_device = ReadString(
+  options.surround_camera.right_device = ReadStringAllowEmpty(
       surround_camera, "right_device", "edge.surround_camera");
   options.surround_camera.width = ReadInteger(
       surround_camera, "width", "edge.surround_camera", 0,
@@ -235,6 +269,10 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       std::numeric_limits<int>::max());
   options.surround_camera.frame_wait =
       std::chrono::milliseconds(surround_frame_wait_ms);
+
+  options.camera.yolo_enabled = ReadBoolean(yolo, "enabled", "edge.yolo");
+  options.camera.yolo_processing_downscale = static_cast<size_t>(ReadInteger(
+      yolo, "processing_downscale", "edge.yolo", 1, 8));
 
   const int watchdog_ms = ReadInteger(
       control, "watchdog_ms", "edge.vehicle_control", 1,

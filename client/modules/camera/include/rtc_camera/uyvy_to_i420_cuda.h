@@ -5,6 +5,8 @@
 
 #include <string>
 
+namespace rtc_camera {
+
 class UyvyToI420CudaConverter {
  public:
   UyvyToI420CudaConverter();
@@ -32,3 +34,5 @@ class UyvyToI420CudaConverter {
   struct Impl;
   Impl* impl_ = nullptr;
 };
+
+}  // 命名空间 rtc_camera

@@ -1,7 +1,7 @@
 #include "rtc_vision/vision_detection_sender.h"
 
 #include "c_rtc.h"
-#include "rtc_headless/rtc_camera_common.h"
+#include "rtc_logging/rtc_logging.h"
 #include "rtc_vision/vision_detection_codec.h"
 
 #include <atomic>
@@ -55,7 +55,7 @@ uint64_t NowMs() {
 bool BroadcastVisionPayload(const char* action,
                             const vts_rtc::vision::EncodeResult& encoded) {
   if (!encoded) {
-    LogError(std::string(action) + " encode failed: " +
+    rtc_logging::LogError(std::string(action) + " encode failed: " +
              encoded.error_message);
     return false;
   }
@@ -72,7 +72,7 @@ bool BroadcastVisionPayload(const char* action,
       oss << action << " broadcast failed, code=" << static_cast<int>(code)
           << ". Make sure the RTC session has opened data channel "
           << vts_rtc::vision::kVisionDetectionChannelLabel;
-      LogError(oss.str());
+      rtc_logging::LogError(oss.str());
     }
     return false;
   }

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <stdint.h>
-
 #include <string>
 
 namespace rtc_camera_headless {
@@ -30,10 +28,6 @@ bool FileExists(const std::string& path);
 std::string ExecutableDir();
 std::string ResolveConfigPath(const std::string& requested_path_or_name);
 std::string TimestampNow();
-std::string FourccToString(uint32_t fourcc);
-
-void LogInfo(const std::string& message);
-void LogError(const std::string& message);
 
 void PrintUsage(const char* program);
 CaptureOptions ParseArgs(int argc, char** argv);
