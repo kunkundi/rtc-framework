@@ -1,12 +1,12 @@
 if vtsrtc_on_linux() then
-    target("rtc_edge_headless")
+    target("rtc_edge")
         set_kind("binary")
         vtsrtc_add_client_dependency()
         add_deps(
             "rtc_camera",
             "rtc_camera_converter",
-            "rtc_headless_common",
             "rtc_logging",
+            "rtc_runtime",
             "rtc_dual_camera_image_source",
             "rtc_vehicle_control_module",
             "rtc_vehicle_control_protocol",
@@ -14,23 +14,21 @@ if vtsrtc_on_linux() then
         )
 
         add_files(
-            vtsrtc_path("client", "apps", "rtc_edge_headless", "main.cpp"),
-            vtsrtc_path("client", "apps", "rtc_edge_headless", "edge_options.cpp"),
-            vtsrtc_path("client", "apps", "rtc_edge_headless", "edge_application.cpp"),
+            vtsrtc_path("client", "apps", "rtc_edge", "main.cpp"),
+            vtsrtc_path("client", "apps", "rtc_edge", "edge_options.cpp"),
+            vtsrtc_path("client", "apps", "rtc_edge", "edge_application.cpp"),
             vtsrtc_path("client", "modules", "edge", "src", "dual_camera_streaming_module.cpp"),
             vtsrtc_path("client", "modules", "edge", "src", "single_camera_streaming_module.cpp"),
             vtsrtc_path("client", "modules", "dual_camera", "src", "dual_uyvy_frame_converter.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "stereo_detection_fuser.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "yolo_frame_consumer.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "vision_detection_sender.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
-            vtsrtc_path("client", "modules", "headless", "src", "rtc_headless_session.cpp")
+            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu")
         )
 
         add_includedirs(
             vtsrtc_path("client", "modules", "edge", "include"),
             vtsrtc_path("client", "modules", "vehicle", "include"),
-            vtsrtc_path("client", "modules", "headless", "include"),
             vtsrtc_path("client", "modules", "dual_camera", "include"),
             vtsrtc_path("client", "modules", "dual_camera", "src", "internal"),
             vtsrtc_path("client", "modules", "vision", "include"),
@@ -65,7 +63,7 @@ if vtsrtc_on_linux() then
         end
 
         if not vtsrtc_add_cuda_runtime_config() then
-            vtsrtc_fail("CUDA runtime not found for rtc_edge_headless")
+            vtsrtc_fail("CUDA runtime not found for rtc_edge")
             set_enabled(false)
         end
 
@@ -84,16 +82,15 @@ if vtsrtc_on_linux() then
     target("rtc_edge_options_tests")
         set_kind("binary")
         set_default(false)
-        add_deps("rtc_headless_common")
+        add_deps("rtc_runtime")
         add_files(
-            vtsrtc_path("client", "apps", "rtc_edge_headless", "edge_options.cpp"),
-            vtsrtc_path("client", "apps", "rtc_edge_headless", "edge_options_tests.cpp")
+            vtsrtc_path("client", "apps", "rtc_edge", "edge_options.cpp"),
+            vtsrtc_path("client", "apps", "rtc_edge", "edge_options_tests.cpp")
         )
         add_includedirs(
-            vtsrtc_path("client", "apps", "rtc_edge_headless"),
+            vtsrtc_path("client", "apps", "rtc_edge"),
             vtsrtc_path("client", "modules", "edge", "include"),
             vtsrtc_path("client", "modules", "vehicle", "include"),
-            vtsrtc_path("client", "modules", "headless", "include"),
             vtsrtc_path("client", "modules", "dual_camera", "include"),
             vtsrtc_path("client", "protocols", "vehicle", "include"),
             vtsrtc_path("vtsrtc", "src")

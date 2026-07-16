@@ -1,5 +1,6 @@
 #include "edge_options.h"
 
+#include "rtc_runtime/process_runtime.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 
 #include <stdint.h>
@@ -14,7 +15,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace rtc_edge_headless {
+namespace rtc_edge_app {
 namespace {
 
 std::string MakeConfigPath(const std::string& parent, const char* key) {
@@ -185,7 +186,7 @@ std::string ParseConfigPath(int argc, char** argv) {
 
 EdgeOptions LoadEdgeOptions(const std::string& config_path) {
   const std::string resolved_path =
-      rtc_camera_headless::ResolveConfigPath(config_path);
+      rtc_runtime::ResolveConfigPath(config_path);
   const nlohmann::json root = ReadConfigFile(resolved_path);
   const nlohmann::json& edge = ReadObject(root, "edge", "");
   const nlohmann::json& rtc = ReadObject(edge, "rtc", "edge");
@@ -207,7 +208,7 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
   options.rtc.status_interval_sec = ReadInteger(
       rtc, "status_interval_sec", "edge.rtc", 0,
       std::numeric_limits<int>::max());
-  options.rtc.frame_limit = ReadInteger(
+  options.frame_limit = ReadInteger(
       rtc, "frame_limit", "edge.rtc", 0,
       std::numeric_limits<int>::max());
 
@@ -295,4 +296,4 @@ EdgeOptions ParseEdgeArgs(int argc, char** argv) {
   return LoadEdgeOptions(ParseConfigPath(argc, argv));
 }
 
-}  // 命名空间 rtc_edge_headless
+}  // 命名空间 rtc_edge_app

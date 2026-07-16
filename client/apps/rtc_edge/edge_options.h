@@ -1,13 +1,13 @@
 #pragma once
 
 #include "rtc_edge/dual_camera_streaming_module.h"
-#include "rtc_headless/rtc_camera_common.h"
+#include "rtc_runtime/rtc_session.h"
 #include "rtc_vehicle/vehicle_control_module.h"
 
 #include <chrono>
 #include <string>
 
-namespace rtc_edge_headless {
+namespace rtc_edge_app {
 
 struct SurroundCameraOptions {
   std::string front_device;
@@ -25,7 +25,8 @@ struct SurroundCameraOptions {
 
 struct EdgeOptions {
   std::string log_path;
-  rtc_camera_headless::CaptureOptions rtc;
+  rtc_runtime::SessionOptions rtc;
+  int frame_limit = 0;
   rtc_edge::DualCameraStreamingModuleOptions camera;
   SurroundCameraOptions surround_camera;
   rtc_vehicle::VehicleControlModuleOptions control;
@@ -34,4 +35,4 @@ struct EdgeOptions {
 EdgeOptions ParseEdgeArgs(int argc, char** argv);
 EdgeOptions LoadEdgeOptions(const std::string& config_path);
 
-}  // 命名空间 rtc_edge_headless
+}  // 命名空间 rtc_edge_app

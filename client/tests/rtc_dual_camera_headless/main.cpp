@@ -1,8 +1,9 @@
 #include "rtc_dual_camera/dual_camera_async_image_source.h"
 #include "rtc_dual_camera/dual_uyvy_frame_converter.h"
-#include "rtc_headless/rtc_camera_common.h"
-#include "rtc_headless/rtc_headless_session.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/process_runtime.h"
+#include "rtc_runtime/rtc_session.h"
+#include "rtc_vision/vision_detection_codec.h"
 #include "rtc_vision/yolo_frame_consumer.h"
 
 #include <stddef.h>
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -24,10 +26,22 @@ using namespace rtc_camera_headless;
 namespace {
 
 struct DualCaptureOptions {
-  CaptureOptions rtc_options;
+  rtc_runtime::SessionOptions rtc_options;
   rtc_dual_camera::AsyncDualCameraImageSourceOptions image_options;
   YoloFrameConsumerOptions yolo_options;
+  int frame_limit = 0;
 };
+
+bool ParseNonNegativeInt(const std::string& text, int* value) {
+  char* end = nullptr;
+  const long parsed = std::strtol(text.c_str(), &end, 10);
+  if (end == nullptr || end == text.c_str() || *end != '\0' || parsed < 0 ||
+      parsed > std::numeric_limits<int>::max()) {
+    return false;
+  }
+  *value = static_cast<int>(parsed);
+  return true;
+}
 
 size_t ClampYoloDownscaleFromConfig(size_t value) {
   if (value < 1) {
@@ -64,7 +78,7 @@ bool TryReadDownscale(const nlohmann::json& object,
 YoloFrameConsumerOptions LoadYoloOptionsFromConfig(
     const std::string& config_path) {
   YoloFrameConsumerOptions options;
-  if (config_path.empty() || !FileExists(config_path)) {
+  if (config_path.empty() || !rtc_runtime::FileExists(config_path)) {
     return options;
   }
 
@@ -86,14 +100,6 @@ YoloFrameConsumerOptions LoadYoloOptionsFromConfig(
   }
 
   return options;
-}
-
-bool CommonOptionTakesValue(const std::string& arg) {
-  return arg == "--device" || arg == "--room" || arg == "--config" ||
-         arg == "--width" || arg == "--height" || arg == "--frame-limit" ||
-         arg == "--buffer-count" || arg == "--timeout-ms" ||
-         arg == "--warmup-frames" || arg == "--warmup-delay-ms" ||
-         arg == "--join-retry-ms" || arg == "--status-interval-sec";
 }
 
 void PrintDualUsage(const char* program) {
@@ -133,12 +139,22 @@ void PrintDualUsage(const char* program) {
       << std::endl;
 }
 
+rtc_runtime::RtcSession::Features MakeRtcFeatures() {
+  rtc_runtime::RtcSession::Features features;
+  features.enable_data_channel = true;
+  features.enable_external_video_source = true;
+  features.external_video_source_id = "merged_image";
+  rtc_runtime::RtcSession::DataChannelConfig vision_channel;
+  vision_channel.label = vts_rtc::vision::kVisionDetectionChannelLabel;
+  vision_channel.priority = RtcPriorityType::Medium;
+  vision_channel.ordered = false;
+  vision_channel.max_retransmits = 0;
+  features.additional_data_channels.push_back(vision_channel);
+  return features;
+}
+
 DualCaptureOptions ParseDualArgs(int argc, char** argv) {
   DualCaptureOptions options;
-
-  std::vector<char*> forwarded_args;
-  forwarded_args.reserve(static_cast<size_t>(argc));
-  forwarded_args.push_back(argv[0]);
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -163,34 +179,53 @@ DualCaptureOptions ParseDualArgs(int argc, char** argv) {
       options.image_options.right_device = require_value("--right-device");
       continue;
     }
+    if (arg == "--device") {
+      throw std::runtime_error(
+          "--device is not supported in the dual-camera client, use "
+          "--left-device/--right-device instead");
+    }
+    if (arg == "--room") {
+      options.rtc_options.room_id = require_value("--room");
+      continue;
+    }
+    if (arg == "--config") {
+      options.rtc_options.config_path = require_value("--config");
+      continue;
+    }
 
-    forwarded_args.push_back(argv[i]);
-    if (CommonOptionTakesValue(arg)) {
-      if (i + 1 >= argc) {
-        throw std::runtime_error(std::string("missing value for ") +
-                                 arg);
-      }
-      forwarded_args.push_back(argv[++i]);
+    int* value = nullptr;
+    int minimum = 0;
+    if (arg == "--width") {
+      value = &options.image_options.width;
+    } else if (arg == "--height") {
+      value = &options.image_options.height;
+    } else if (arg == "--frame-limit") {
+      value = &options.frame_limit;
+    } else if (arg == "--buffer-count") {
+      value = &options.image_options.buffer_count;
+      minimum = 2;
+    } else if (arg == "--timeout-ms") {
+      value = &options.image_options.timeout_ms;
+    } else if (arg == "--warmup-frames") {
+      value = &options.image_options.warmup_frames;
+    } else if (arg == "--warmup-delay-ms") {
+      value = &options.image_options.warmup_delay_ms;
+    } else if (arg == "--join-retry-ms") {
+      value = &options.rtc_options.join_retry_ms;
+    } else if (arg == "--status-interval-sec") {
+      value = &options.rtc_options.status_interval_sec;
+    } else {
+      throw std::runtime_error("unknown argument: " + arg);
+    }
+
+    if (!ParseNonNegativeInt(require_value(arg.c_str()), value) ||
+        *value < minimum) {
+      throw std::runtime_error("invalid " + arg + " value");
     }
   }
 
-  options.rtc_options =
-      ParseArgs(static_cast<int>(forwarded_args.size()), forwarded_args.data());
-  if (!options.rtc_options.device.empty()) {
-    throw std::runtime_error(
-        "--device is not supported in the dual-camera client, use "
-        "--left-device/--right-device instead");
-  }
-
-  options.image_options.width = options.rtc_options.width;
-  options.image_options.height = options.rtc_options.height;
-  options.image_options.buffer_count = options.rtc_options.buffer_count;
-  options.image_options.timeout_ms = options.rtc_options.timeout_ms;
-  options.image_options.warmup_frames = options.rtc_options.warmup_frames;
-  options.image_options.warmup_delay_ms =
-      options.rtc_options.warmup_delay_ms;
   options.yolo_options = LoadYoloOptionsFromConfig(
-      ResolveConfigPath(options.rtc_options.config_path));
+      rtc_runtime::ResolveConfigPath(options.rtc_options.config_path));
 
   return options;
 }
@@ -198,11 +233,11 @@ DualCaptureOptions ParseDualArgs(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  InstallSignalHandlers();
+  rtc_runtime::InstallSignalHandlers();
 
   try {
     const DualCaptureOptions dual_options = ParseDualArgs(argc, argv);
-    const CaptureOptions& options = dual_options.rtc_options;
+    const rtc_runtime::SessionOptions& options = dual_options.rtc_options;
 
     rtc_dual_camera::AsyncDualCameraImageSource video_source(
         dual_options.image_options);
@@ -216,14 +251,14 @@ int main(int argc, char** argv) {
     yolo_consumer.Start();
     DualUyvyFrameConverter rtc_frame_converter;
 
-    RtcHeadlessSession rtc_session(options);
+    rtc_runtime::RtcSession rtc_session(options, MakeRtcFeatures());
     if (!rtc_session.Init()) {
       return 1;
     }
 
     bool first_frame_logged = false;
 
-    while (!StopRequested()) {
+    while (!rtc_runtime::StopRequested()) {
       rtc_session.Tick();
 
       rtc_dual_camera::ImageFrame frame;
@@ -265,11 +300,11 @@ int main(int argc, char** argv) {
         throw std::runtime_error("failed to send stitched I420 frame");
       }
 
-      if (options.frame_limit > 0 &&
+      if (dual_options.frame_limit > 0 &&
           rtc_session.sent_frames() >=
-              static_cast<uint64_t>(options.frame_limit)) {
+              static_cast<uint64_t>(dual_options.frame_limit)) {
         rtc_logging::LogInfo("frame limit reached");
-        RequestStop();
+        rtc_runtime::RequestStop();
         break;
       }
     }

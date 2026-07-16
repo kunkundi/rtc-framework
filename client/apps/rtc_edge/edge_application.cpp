@@ -2,9 +2,9 @@
 
 #include "rtc_edge/camera_video_sources.h"
 #include "rtc_edge/single_camera_streaming_module.h"
-#include "rtc_headless/rtc_camera_common.h"
-#include "rtc_headless/rtc_headless_session.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/process_runtime.h"
+#include "rtc_runtime/rtc_session.h"
 #include "rtc_vehicle/vehicle_control_interface.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
@@ -16,10 +16,10 @@
 #include <string>
 #include <vector>
 
-namespace rtc_edge_headless {
+namespace rtc_edge_app {
 namespace {
 
-using rtc_camera_headless::RtcHeadlessSession;
+using rtc_runtime::RtcSession;
 
 rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
     const SurroundCameraOptions& surround,
@@ -120,7 +120,7 @@ class EdgeCameraModules {
     }
   }
 
-  bool Tick(RtcHeadlessSession* rtc_session, std::string* error_message) {
+  bool Tick(RtcSession* rtc_session, std::string* error_message) {
     if (!stereo_camera_.Tick(rtc_session, error_message)) {
       return false;
     }
@@ -160,12 +160,12 @@ class EdgeCameraModules {
   rtc_edge::SingleCameraStreamingModule right_camera_;
 };
 
-RtcHeadlessSession::DataChannelConfig MakeDataChannel(
+RtcSession::DataChannelConfig MakeDataChannel(
     const char* label,
     RtcPriorityType priority,
     bool ordered,
     int max_retransmits) {
-  RtcHeadlessSession::DataChannelConfig channel;
+  RtcSession::DataChannelConfig channel;
   channel.label = label;
   channel.priority = priority;
   channel.ordered = ordered;
@@ -173,22 +173,22 @@ RtcHeadlessSession::DataChannelConfig MakeDataChannel(
   return channel;
 }
 
-RtcHeadlessSession::ExternalVideoSourceConfig MakeVideoSource(
+RtcSession::ExternalVideoSourceConfig MakeVideoSource(
     const char* source_id) {
-  RtcHeadlessSession::ExternalVideoSourceConfig source;
+  RtcSession::ExternalVideoSourceConfig source;
   source.source_id = source_id;
   source.priority = RtcPriorityType::High;
   return source;
 }
 
-RtcHeadlessSession::Features MakeVehicleRtcFeatures(
+RtcSession::Features MakeVehicleRtcFeatures(
     const SurroundCameraOptions& surround,
     bool yolo_enabled) {
-  RtcHeadlessSession::Features features;
+  RtcSession::Features features;
   features.enable_data_channel = false;
   features.enable_external_video_source = true;
   features.external_video_source_id = rtc_edge::kStereoCameraVideoSourceId;
-  features.room_action = RtcHeadlessSession::RoomAction::Join;
+  features.room_action = RtcSession::RoomAction::Join;
   features.additional_data_channels.push_back(MakeDataChannel(
       vts_rtc::vehicle::kVehicleControlChannelLabel, RtcPriorityType::High,
       false, 0));
@@ -298,9 +298,9 @@ void HandleServerConnectionState(
   }
 }
 
-RtcHeadlessSession::Callbacks MakeVehicleRtcCallbacks(
+RtcSession::Callbacks MakeVehicleRtcCallbacks(
     rtc_vehicle::VehicleControlModule* control_module) {
-  RtcHeadlessSession::Callbacks callbacks;
+  RtcSession::Callbacks callbacks;
 
   // RTC 回调需要记住控制模块指针，这里的 lambda 只负责转发参数。
   callbacks.recv_message =
@@ -329,7 +329,7 @@ RtcHeadlessSession::Callbacks MakeVehicleRtcCallbacks(
 
 void ShutdownApplication(
     rtc_vehicle::VehicleControlModule& control_module,
-    RtcHeadlessSession& rtc_session,
+    RtcSession& rtc_session,
     EdgeCameraModules& camera_modules) {
   control_module.Shutdown();
   camera_modules.Stop();
@@ -338,9 +338,9 @@ void ShutdownApplication(
 
 void RunMainLoop(const EdgeOptions& options,
                  rtc_vehicle::VehicleControlModule& control_module,
-                 RtcHeadlessSession& rtc_session,
+                 RtcSession& rtc_session,
                  EdgeCameraModules& camera_modules) {
-  while (!rtc_camera_headless::StopRequested()) {
+  while (!rtc_runtime::StopRequested()) {
     rtc_session.Tick();
     control_module.Tick(GetSteadyTimeMs());
 
@@ -349,12 +349,12 @@ void RunMainLoop(const EdgeOptions& options,
       throw std::runtime_error(camera_error);
     }
 
-    if (options.rtc.frame_limit > 0) {
+    if (options.frame_limit > 0) {
       const uint64_t frame_limit =
-          static_cast<uint64_t>(options.rtc.frame_limit);
+          static_cast<uint64_t>(options.frame_limit);
       if (rtc_session.sent_frames() >= frame_limit) {
         rtc_logging::LogInfo("已达到视频帧发送上限");
-        rtc_camera_headless::RequestStop();
+        rtc_runtime::RequestStop();
       }
     }
   }
@@ -369,9 +369,9 @@ int RunEdgeApplication(const EdgeOptions& options) {
       &vehicle_control, &SendControlData, &WriteInfoLog, &WriteErrorLog,
       options.control);
 
-  const RtcHeadlessSession::Callbacks callbacks =
+  const RtcSession::Callbacks callbacks =
       MakeVehicleRtcCallbacks(&control_module);
-  RtcHeadlessSession rtc_session(
+  RtcSession rtc_session(
       options.rtc,
       MakeVehicleRtcFeatures(options.surround_camera,
                              options.camera.yolo_enabled),
@@ -405,4 +405,4 @@ int RunEdgeApplication(const EdgeOptions& options) {
   return 0;
 }
 
-}  // 命名空间 rtc_edge_headless
+}  // 命名空间 rtc_edge_app

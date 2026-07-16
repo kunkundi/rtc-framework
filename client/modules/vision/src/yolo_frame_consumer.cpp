@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "rtc_dual_camera/dual_uyvy_frame_converter.h"
-#include "rtc_headless/rtc_camera_common.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/process_runtime.h"
 #include "rtc_vision/stereo_detection_fuser.h"
 #include "rtc_vision/vision_detection_sender.h"
 #ifdef VTSRTC_ENABLE_YOLO_TENSORRT
@@ -1218,7 +1218,7 @@ void YoloFrameConsumer::Run() {
   DualUyvyFrameConverter frame_converter;
   DetectionStabilizer stabilizer;
   VisionPerfStats stats;
-  while (!stop_requested_.load() && !StopRequested()) {
+  while (!stop_requested_.load() && !rtc_runtime::StopRequested()) {
     rtc_dual_camera::ImageFrame frame;
     if (!frames_ || !frames_->WaitNext(&frame, std::chrono::milliseconds(50))) {
       MaybeLogVisionPerfStats(&stats);

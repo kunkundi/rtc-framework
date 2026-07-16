@@ -1,6 +1,6 @@
-#include "rtc_headless/rtc_camera_common.h"
-#include "rtc_headless/rtc_headless_session.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/process_runtime.h"
+#include "rtc_runtime/rtc_session.h"
 
 #include <errno.h>
 #include <sys/stat.h>
@@ -21,12 +21,12 @@
 #include <thread>
 #include <vector>
 
-using namespace rtc_camera_headless;
+using namespace rtc_runtime;
 
 namespace {
 
 struct ReceiverOptions {
-  CaptureOptions session;
+  SessionOptions session;
   std::string output_dir;
   int frame_limit = 0;
   int idle_timeout_sec = 0;
@@ -299,18 +299,18 @@ class ReceiverHeadlessClient {
   }
 
  private:
-  static RtcHeadlessSession::Features MakeFeatures() {
-    RtcHeadlessSession::Features features;
+  static RtcSession::Features MakeFeatures() {
+    RtcSession::Features features;
     features.enable_data_channel = false;
     features.enable_external_video_source = false;
-    features.room_action = RtcHeadlessSession::RoomAction::Open;
+    features.room_action = RtcSession::RoomAction::Open;
     features.open_room_type = RtcRoomType::VideoBroadcasting;
     features.open_room_force = false;
     return features;
   }
 
-  RtcHeadlessSession::Callbacks MakeCallbacks() {
-    RtcHeadlessSession::Callbacks callbacks;
+  RtcSession::Callbacks MakeCallbacks() {
+    RtcSession::Callbacks callbacks;
     callbacks.recv_message =
         [this](RtcSessionId remote_sessionid, RtcDataChannelLabel label,
                const char* msg, size_t msg_size) {
@@ -429,7 +429,7 @@ class ReceiverHeadlessClient {
   }
 
   ReceiverOptions options_;
-  RtcHeadlessSession session_;
+  RtcSession session_;
   std::atomic<uint64_t> received_video_frames_{0};
   std::atomic<uint64_t> dumped_video_frames_{0};
   std::atomic<uint64_t> received_video_bytes_{0};

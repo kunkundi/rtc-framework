@@ -1,17 +1,17 @@
-# rtc_edge_headless
+# rtc_edge
 
-`rtc_edge_headless` 是运行在工控机上的边缘端主程序，统一编排 RTC、双目摄像头采集和设备控制配置。当前只实现车辆控制配置，且仅在 Linux/Jetson 构建。
+`rtc_edge` 是运行在工控机上的边缘端主程序，统一编排 RTC、双目摄像头采集和设备控制配置。当前只实现车辆控制配置，且仅在 Linux/Jetson 构建。
 
 ## 模块结构
 
-- `client/apps/rtc_edge_headless/main.cpp`：进程入口，安装信号处理并报告未捕获异常。
-- `client/apps/rtc_edge_headless/edge_options.*`：定义应用选项，解析并校验命令行参数。
-- `client/apps/rtc_edge_headless/edge_application.*`：创建各子模块，管理 RTC 回调、主循环和关闭顺序。
-- `client/apps/rtc_edge_headless/edge_options_tests.cpp`：覆盖配置读取、必填项和车辆看门狗上限。
+- `client/apps/rtc_edge/main.cpp`：进程入口，安装信号处理并报告未捕获异常。
+- `client/apps/rtc_edge/edge_options.*`：定义应用选项，解析并校验命令行参数。
+- `client/apps/rtc_edge/edge_application.*`：创建各子模块，管理 RTC 回调、主循环和关闭顺序。
+- `client/apps/rtc_edge/edge_options_tests.cpp`：覆盖配置读取、必填项和车辆看门狗上限。
 - `client/modules/edge/`：与设备类型无关的摄像头推流编排。
 - `client/modules/vehicle/`：车辆控制接收、安全门控和本地控制接口。
 - `client/modules/dual_camera/`：双摄像头异步采集和 I420 转换。
-- `client/modules/headless/`：RTC 会话、参数解析和通用日志。
+- `client/modules/runtime/`：进程生命周期、配置路径解析和 RTC 会话。
 
 控制数据流：
 
@@ -30,7 +30,7 @@ RTC DataChannel
     -> AsyncDualCameraImageSource
     -> DualCameraStreamingModule
     -> I420 拼接帧
-    -> RtcHeadlessSession
+    -> RtcSession
 ```
 
 ## 相机视频通道
@@ -73,8 +73,8 @@ class VehicleControlInterface {
 Linux/Jetson 需要现有双摄像头依赖和 CUDA 运行环境：
 
 ```sh
-xmake b rtc_edge_headless
-xmake r rtc_edge_headless --config rtc.cfg
+xmake b rtc_edge
+xmake r rtc_edge --config rtc.cfg
 ```
 
 源码树中的配置文件位于 `config/rtc.cfg`，构建时会复制到可执行程序目录，

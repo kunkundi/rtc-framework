@@ -2,8 +2,8 @@
 
 #include "edge_options.h"
 
-namespace rtc_edge_headless {
+namespace rtc_edge_app {
 
 int RunEdgeApplication(const EdgeOptions& options);
 
-}  // 命名空间 rtc_edge_headless
+}  // 命名空间 rtc_edge_app

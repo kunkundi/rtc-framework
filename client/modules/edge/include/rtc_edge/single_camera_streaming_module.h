@@ -10,8 +10,8 @@ namespace rtc_camera {
 class CameraFrameConverter;
 }
 
-namespace rtc_camera_headless {
-class RtcHeadlessSession;
+namespace rtc_runtime {
+class RtcSession;
 }
 
 namespace rtc_edge {
@@ -36,7 +36,7 @@ class SingleCameraStreamingModule {
   bool Start(std::string* error_message);
   void RequestStop();
   void Stop();
-  bool Tick(rtc_camera_headless::RtcHeadlessSession* rtc_session,
+  bool Tick(rtc_runtime::RtcSession* rtc_session,
             std::string* error_message);
 
   bool started() const;

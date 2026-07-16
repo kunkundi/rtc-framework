@@ -1,18 +1,18 @@
 #include "edge_application.h"
 #include "edge_options.h"
 
-#include "rtc_headless/rtc_camera_common.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/process_runtime.h"
 
 #include <exception>
 #include <string>
 
 int main(int argc, char** argv) {
-  rtc_camera_headless::InstallSignalHandlers();
+  rtc_runtime::InstallSignalHandlers();
 
   try {
-    const rtc_edge_headless::EdgeOptions options =
-        rtc_edge_headless::ParseEdgeArgs(argc, argv);
+    const rtc_edge_app::EdgeOptions options =
+        rtc_edge_app::ParseEdgeArgs(argc, argv);
 
     std::string logging_error;
     if (!rtc_logging::InitializeLogging(
@@ -25,10 +25,10 @@ int main(int argc, char** argv) {
 
     rtc_logging::LogInfo(
         std::string("Application log directory: ") + options.log_path);
-    return rtc_edge_headless::RunEdgeApplication(options);
+    return rtc_edge_app::RunEdgeApplication(options);
   } catch (const std::exception& ex) {
     rtc_logging::LogError(
-        std::string("rtc_edge_headless failed: ") + ex.what());
+        std::string("rtc_edge failed: ") + ex.what());
     return 1;
   }
 }

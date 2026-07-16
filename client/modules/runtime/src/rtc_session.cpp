@@ -1,15 +1,15 @@
-#include "rtc_headless/rtc_headless_session.h"
+#include "rtc_runtime/rtc_session.h"
 
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/process_runtime.h"
 
 #include <cstring>
 #include <sstream>
 
-namespace rtc_camera_headless {
+namespace rtc_runtime {
 namespace {
 
 constexpr const char* kDataChannelLabel = "datachannel";
-constexpr const char* kVisionDetectionChannelLabel = "vision.detect.v1";
 
 const char* ServerStateText(RtcServerConnectionState state) {
   switch (state) {
@@ -55,30 +55,30 @@ bool IsP2PDisconnectedState(RtcP2PState state) {
   return state == P2PDisconnected || state == P2PFailed || state == P2PClosed;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
-RtcHeadlessSession* RtcHeadlessSession::instance_ = nullptr;
+RtcSession* RtcSession::instance_ = nullptr;
 
-RtcHeadlessSession::RtcHeadlessSession(const CaptureOptions& options)
-    : RtcHeadlessSession(options, Features(), Callbacks()) {}
+RtcSession::RtcSession(const SessionOptions& options)
+    : RtcSession(options, Features(), Callbacks()) {}
 
-RtcHeadlessSession::RtcHeadlessSession(const CaptureOptions& options,
-                                       const Features& features)
-    : RtcHeadlessSession(options, features, Callbacks()) {}
+RtcSession::RtcSession(const SessionOptions& options,
+                       const Features& features)
+    : RtcSession(options, features, Callbacks()) {}
 
-RtcHeadlessSession::RtcHeadlessSession(const CaptureOptions& options,
-                                       const Features& features,
-                                       const Callbacks& callbacks)
+RtcSession::RtcSession(const SessionOptions& options,
+                       const Features& features,
+                       const Callbacks& callbacks)
     : options_(options), features_(features), callbacks_(callbacks) {
   instance_ = this;
 }
 
-RtcHeadlessSession::~RtcHeadlessSession() {
+RtcSession::~RtcSession() {
   Shutdown();
   instance_ = nullptr;
 }
 
-bool RtcHeadlessSession::Init() {
+bool RtcSession::Init() {
   external_video_source_ids_.clear();
   rtc_cfg_path_ = ResolveConfigPath(options_.config_path);
   rtc_logging::LogInfo(std::string("rtc.cfg: ") + rtc_cfg_path_);
@@ -86,14 +86,14 @@ bool RtcHeadlessSession::Init() {
   RtcInitParams params;
   std::memset(&params, 0, sizeof(params));
   params.config_filepath = rtc_cfg_path_.c_str();
-  params.room_handler = &RtcHeadlessSession::OnRoom;
-  params.P2P_state_handler = &RtcHeadlessSession::OnP2PState;
-  params.datachannel_state_handler = &RtcHeadlessSession::OnDataChannelState;
-  params.serverconnection_state_handler = &RtcHeadlessSession::OnServerConnectionState;
-  params.recv_msg_handler = &RtcHeadlessSession::OnRecvMessage;
-  params.recv_audioframe_handler = &RtcHeadlessSession::OnRecvAudioFrame;
-  params.recv_frame_handler = &RtcHeadlessSession::OnRecvFrame;
-  params.channel_network_stats_handler = &RtcHeadlessSession::OnChannelNetworkStats;
+  params.room_handler = &RtcSession::OnRoom;
+  params.P2P_state_handler = &RtcSession::OnP2PState;
+  params.datachannel_state_handler = &RtcSession::OnDataChannelState;
+  params.serverconnection_state_handler = &RtcSession::OnServerConnectionState;
+  params.recv_msg_handler = &RtcSession::OnRecvMessage;
+  params.recv_audioframe_handler = &RtcSession::OnRecvAudioFrame;
+  params.recv_frame_handler = &RtcSession::OnRecvFrame;
+  params.channel_network_stats_handler = &RtcSession::OnChannelNetworkStats;
 
   const RtcErrorCode init_code = RtcInitAgentV2(params);
   if (init_code != RtcErrorCode::OK) {
@@ -108,10 +108,6 @@ bool RtcHeadlessSession::Init() {
     const RtcErrorCode dc_code =
         RtcAddDataChannel(kDataChannelLabel, RtcPriorityType::High, true, -1);
     LogRtcCall("RtcAddDataChannel", dc_code);
-
-    const RtcErrorCode vision_dc_code = RtcAddDataChannel(
-        kVisionDetectionChannelLabel, RtcPriorityType::Medium, false, 0);
-    LogRtcCall("RtcAddDataChannel(vision.detect.v1)", vision_dc_code);
   }
 
   for (const DataChannelConfig& channel :
@@ -168,7 +164,7 @@ bool RtcHeadlessSession::Init() {
   return true;
 }
 
-void RtcHeadlessSession::Shutdown() {
+void RtcSession::Shutdown() {
   if (!rtc_inited_.exchange(false)) {
     return;
   }
@@ -189,7 +185,7 @@ void RtcHeadlessSession::Shutdown() {
   }
 }
 
-void RtcHeadlessSession::Tick() {
+void RtcSession::Tick() {
   if (!rtc_inited_.load()) {
     return;
   }
@@ -203,57 +199,57 @@ void RtcHeadlessSession::Tick() {
   }
 }
 
-void RtcHeadlessSession::NoteCapturedFrame() {
+void RtcSession::NoteCapturedFrame() {
   captured_frames_.fetch_add(1, std::memory_order_relaxed);
 }
 
-bool RtcHeadlessSession::IsRoomJoined() const {
+bool RtcSession::IsRoomJoined() const {
   return room_joined_.load();
 }
 
-bool RtcHeadlessSession::IsReadyToSend() const {
+bool RtcSession::IsReadyToSend() const {
   return room_joined_.load() && connected_peer_count_.load() > 0;
 }
 
-uint64_t RtcHeadlessSession::captured_frames() const {
+uint64_t RtcSession::captured_frames() const {
   return captured_frames_.load();
 }
 
-uint64_t RtcHeadlessSession::sent_frames() const {
+uint64_t RtcSession::sent_frames() const {
   return sent_frames_.load();
 }
 
-uint64_t RtcHeadlessSession::remote_video_frames() const {
+uint64_t RtcSession::remote_video_frames() const {
   return remote_video_frames_.load();
 }
 
-uint64_t RtcHeadlessSession::remote_audio_frames() const {
+uint64_t RtcSession::remote_audio_frames() const {
   return remote_audio_frames_.load();
 }
 
-uint64_t RtcHeadlessSession::received_messages() const {
+uint64_t RtcSession::received_messages() const {
   return received_messages_.load();
 }
 
-bool RtcHeadlessSession::SendI420Frame(const uint8_t* i420_data,
-                                       size_t i420_size,
-                                       size_t width,
-                                       size_t height,
-                                       size_t stride_y,
-                                       size_t stride_u,
-                                       size_t stride_v) {
+bool RtcSession::SendI420Frame(const uint8_t* i420_data,
+                               size_t i420_size,
+                               size_t width,
+                               size_t height,
+                               size_t stride_y,
+                               size_t stride_u,
+                               size_t stride_v) {
   return SendI420Frame(features_.external_video_source_id.c_str(), i420_data,
                        i420_size, width, height, stride_y, stride_u, stride_v);
 }
 
-bool RtcHeadlessSession::SendI420Frame(const char* video_source_id,
-                                       const uint8_t* i420_data,
-                                       size_t i420_size,
-                                       size_t width,
-                                       size_t height,
-                                       size_t stride_y,
-                                       size_t stride_u,
-                                       size_t stride_v) {
+bool RtcSession::SendI420Frame(const char* video_source_id,
+                               const uint8_t* i420_data,
+                               size_t i420_size,
+                               size_t width,
+                               size_t height,
+                               size_t stride_y,
+                               size_t stride_u,
+                               size_t stride_v) {
   if (video_source_id == nullptr || video_source_id[0] == '\0' ||
       i420_data == nullptr || i420_size == 0) {
     return false;
@@ -261,7 +257,7 @@ bool RtcHeadlessSession::SendI420Frame(const char* video_source_id,
   if (external_video_source_ids_.find(video_source_id) ==
       external_video_source_ids_.end()) {
     rtc_logging::LogError(std::string("尝试发送未注册的外部视频源：") +
-             video_source_id);
+                          video_source_id);
     return false;
   }
 
@@ -286,7 +282,7 @@ bool RtcHeadlessSession::SendI420Frame(const char* video_source_id,
   return true;
 }
 
-void RtcHeadlessSession::MaybeEnterRoom(
+void RtcSession::MaybeEnterRoom(
     std::chrono::steady_clock::time_point now) {
   if (server_state_.load() != ServerLogined || room_joined_.load()) {
     return;
@@ -319,7 +315,7 @@ void RtcHeadlessSession::MaybeEnterRoom(
   }
 }
 
-void RtcHeadlessSession::PrintStatus() const {
+void RtcSession::PrintStatus() const {
   const char* room_state_label =
       features_.room_action == RoomAction::Open ? "opened" : "joined";
   std::ostringstream oss;
@@ -337,7 +333,7 @@ void RtcHeadlessSession::PrintStatus() const {
   rtc_logging::LogInfo(oss.str());
 }
 
-void RtcHeadlessSession::LogRtcCall(const char* action, RtcErrorCode code) const {
+void RtcSession::LogRtcCall(const char* action, RtcErrorCode code) const {
   std::ostringstream oss;
   oss << action << ": " << RtcErrorMessage(code) << " ("
       << static_cast<int>(code) << ")";
@@ -348,7 +344,7 @@ void RtcHeadlessSession::LogRtcCall(const char* action, RtcErrorCode code) const
   }
 }
 
-void RtcHeadlessSession::OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
+void RtcSession::OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
   if (!instance_) {
     return;
   }
@@ -377,7 +373,7 @@ void RtcHeadlessSession::OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
   rtc_logging::LogInfo(oss.str());
 }
 
-void RtcHeadlessSession::OnP2PState(RtcSessionId sessionid, RtcP2PState state) {
+void RtcSession::OnP2PState(RtcSessionId sessionid, RtcP2PState state) {
   if (!instance_) {
     return;
   }
@@ -400,9 +396,9 @@ void RtcHeadlessSession::OnP2PState(RtcSessionId sessionid, RtcP2PState state) {
   }
 }
 
-void RtcHeadlessSession::OnDataChannelState(RtcSessionId sessionid,
-                                            RtcDataChannelLabel label,
-                                            RtcDataChannelState state) {
+void RtcSession::OnDataChannelState(RtcSessionId sessionid,
+                                    RtcDataChannelLabel label,
+                                    RtcDataChannelState state) {
   if (!instance_) {
     return;
   }
@@ -416,7 +412,7 @@ void RtcHeadlessSession::OnDataChannelState(RtcSessionId sessionid,
   }
 }
 
-void RtcHeadlessSession::OnServerConnectionState(RtcServerConnectionState state) {
+void RtcSession::OnServerConnectionState(RtcServerConnectionState state) {
   if (!instance_) {
     return;
   }
@@ -439,10 +435,10 @@ void RtcHeadlessSession::OnServerConnectionState(RtcServerConnectionState state)
   }
 }
 
-void RtcHeadlessSession::OnRecvMessage(RtcSessionId remote_sessionid,
-                                       RtcDataChannelLabel label,
-                                       const char* msg,
-                                       size_t msg_size) {
+void RtcSession::OnRecvMessage(RtcSessionId remote_sessionid,
+                               RtcDataChannelLabel label,
+                               const char* msg,
+                               size_t msg_size) {
   if (!instance_) {
     return;
   }
@@ -456,15 +452,15 @@ void RtcHeadlessSession::OnRecvMessage(RtcSessionId remote_sessionid,
   rtc_logging::LogInfo(oss.str());
 }
 
-void RtcHeadlessSession::OnRecvAudioFrame(RtcSessionId remote_sessionid,
-                                          RtcAudioSourceId sourceid,
-                                          RtcMediaSourceType source_type,
-                                          size_t bits_per_sample,
-                                          size_t sample_rate,
-                                          size_t number_of_channels,
-                                          size_t number_of_frames,
-                                          const void* audio_data,
-                                          size_t sz_audio_data) {
+void RtcSession::OnRecvAudioFrame(RtcSessionId remote_sessionid,
+                                  RtcAudioSourceId sourceid,
+                                  RtcMediaSourceType source_type,
+                                  size_t bits_per_sample,
+                                  size_t sample_rate,
+                                  size_t number_of_channels,
+                                  size_t number_of_frames,
+                                  const void* audio_data,
+                                  size_t sz_audio_data) {
   if (!instance_) {
     return;
   }
@@ -476,14 +472,14 @@ void RtcHeadlessSession::OnRecvAudioFrame(RtcSessionId remote_sessionid,
   }
 }
 
-void RtcHeadlessSession::OnRecvFrame(RtcSessionId remote_sessionid,
-                                     RtcVideoSourceId sourceid,
-                                     RtcMediaSourceType source_type,
-                                     size_t width,
-                                     size_t height,
-                                     size_t dimension,
-                                     const unsigned char* buffer,
-                                     size_t sz_buffer) {
+void RtcSession::OnRecvFrame(RtcSessionId remote_sessionid,
+                             RtcVideoSourceId sourceid,
+                             RtcMediaSourceType source_type,
+                             size_t width,
+                             size_t height,
+                             size_t dimension,
+                             const unsigned char* buffer,
+                             size_t sz_buffer) {
   if (!instance_) {
     return;
   }
@@ -504,6 +500,6 @@ void RtcHeadlessSession::OnRecvFrame(RtcSessionId remote_sessionid,
   }
 }
 
-void RtcHeadlessSession::OnChannelNetworkStats(RtcSessionId, RtcNetStats) {}
+void RtcSession::OnChannelNetworkStats(RtcSessionId, RtcNetStats) {}
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 rtc_runtime

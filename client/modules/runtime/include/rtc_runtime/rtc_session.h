@@ -1,7 +1,6 @@
 #pragma once
 
 #include "c_rtc.h"
-#include "rtc_headless/rtc_camera_common.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -14,9 +13,16 @@
 #include <unordered_set>
 #include <vector>
 
-namespace rtc_camera_headless {
+namespace rtc_runtime {
 
-class RtcHeadlessSession {
+struct SessionOptions {
+  std::string room_id = "zhejianglab";
+  std::string config_path;
+  int join_retry_ms = 3000;
+  int status_interval_sec = 5;
+};
+
+class RtcSession {
  public:
   enum class RoomAction {
     Join,
@@ -36,9 +42,9 @@ class RtcHeadlessSession {
   };
 
   struct Features {
-    bool enable_data_channel = true;
-    bool enable_external_video_source = true;
-    std::string external_video_source_id = "merged_image";
+    bool enable_data_channel = false;
+    bool enable_external_video_source = false;
+    std::string external_video_source_id;
     RoomAction room_action = RoomAction::Join;
     RtcRoomType open_room_type = RtcRoomType::VideoBroadcasting;
     bool open_room_force = false;
@@ -81,12 +87,12 @@ class RtcHeadlessSession {
     RecvFrameCallback recv_frame;
   };
 
-  explicit RtcHeadlessSession(const CaptureOptions& options);
-  RtcHeadlessSession(const CaptureOptions& options, const Features& features);
-  RtcHeadlessSession(const CaptureOptions& options,
-                     const Features& features,
-                     const Callbacks& callbacks);
-  ~RtcHeadlessSession();
+  explicit RtcSession(const SessionOptions& options);
+  RtcSession(const SessionOptions& options, const Features& features);
+  RtcSession(const SessionOptions& options,
+             const Features& features,
+             const Callbacks& callbacks);
+  ~RtcSession();
 
   bool Init();
   void Shutdown();
@@ -151,9 +157,9 @@ class RtcHeadlessSession {
                           size_t sz_buffer);
   static void OnChannelNetworkStats(RtcSessionId, RtcNetStats);
 
-  static RtcHeadlessSession* instance_;
+  static RtcSession* instance_;
 
-  CaptureOptions options_;
+  SessionOptions options_;
   Features features_;
   Callbacks callbacks_;
   std::string rtc_cfg_path_;
@@ -174,4 +180,4 @@ class RtcHeadlessSession {
   std::unordered_set<RtcSessionId> connected_peers_;
 };
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 rtc_runtime

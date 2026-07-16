@@ -1,7 +1,7 @@
 #include "rtc_vision/yolo_onnx_detector.h"
 
-#include "rtc_headless/rtc_camera_common.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/process_runtime.h"
 
 #include <NvInfer.h>
 #include <NvInferPlugin.h>
@@ -25,6 +25,10 @@
 
 namespace rtc_camera_headless {
 namespace {
+
+using rtc_runtime::ExecutableDir;
+using rtc_runtime::FileExists;
+using rtc_runtime::JoinPath;
 
 constexpr int kDefaultInputSize = 640;
 constexpr float kConfidenceThreshold = 0.25f;

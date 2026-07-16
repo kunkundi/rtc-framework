@@ -12,10 +12,14 @@
 #include <stdexcept>
 #include <utility>
 
-#include "rtc_headless/rtc_camera_common.h"
+#include "rtc_runtime/process_runtime.h"
 
 namespace rtc_camera_headless {
 namespace {
+
+using rtc_runtime::ExecutableDir;
+using rtc_runtime::FileExists;
+using rtc_runtime::JoinPath;
 
 constexpr int kDefaultInputSize = 640;
 constexpr float kConfidenceThreshold = 0.25f;

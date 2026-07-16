@@ -1,8 +1,8 @@
 #include "rtc_edge/single_camera_streaming_module.h"
 
 #include "rtc_camera/camera_frame_converter.h"
-#include "rtc_headless/rtc_headless_session.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/rtc_session.h"
 
 #include <stdexcept>
 
@@ -80,7 +80,7 @@ void SingleCameraStreamingModule::RequestStop() {
 }
 
 bool SingleCameraStreamingModule::Tick(
-    rtc_camera_headless::RtcHeadlessSession* rtc_session,
+    rtc_runtime::RtcSession* rtc_session,
     std::string* error_message) {
   if (!started_ || rtc_session == nullptr || !video_source_ || !rtc_frames_ ||
       !converter_) {

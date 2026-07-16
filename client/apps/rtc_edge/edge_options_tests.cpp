@@ -79,12 +79,12 @@ void TestValidConfig() {
   const std::string path = "/tmp/rtc_edge_options_valid.json";
   WriteConfig(path, MakeValidConfig());
 
-  const rtc_edge_headless::EdgeOptions options =
-      rtc_edge_headless::LoadEdgeOptions(path);
+  const rtc_edge_app::EdgeOptions options =
+      rtc_edge_app::LoadEdgeOptions(path);
   Check(options.log_path == "/tmp/rtc_edge_logs", "load log path");
   Check(options.rtc.room_id == "test-room", "load room");
   Check(options.rtc.join_retry_ms == 1200, "load join retry");
-  Check(options.rtc.frame_limit == 25, "load frame limit");
+  Check(options.frame_limit == 25, "load frame limit");
   Check(options.camera.capture.left_device == "/dev/video4",
         "load left camera");
   Check(options.camera.capture.buffer_count == 6, "load buffer count");
@@ -107,8 +107,8 @@ void TestValidConfig() {
 }
 
 void TestRepositoryConfig() {
-  const rtc_edge_headless::EdgeOptions options =
-      rtc_edge_headless::LoadEdgeOptions("rtc.cfg");
+  const rtc_edge_app::EdgeOptions options =
+      rtc_edge_app::LoadEdgeOptions("rtc.cfg");
   Check(options.log_path == "logs", "load repository log path");
   Check(!options.rtc.room_id.empty(), "load repository room");
   Check(options.camera.capture.left_device == "/dev/video0",
@@ -134,7 +134,7 @@ void TestInvalidWatchdog() {
 
   bool rejected = false;
   try {
-    rtc_edge_headless::LoadEdgeOptions(path);
+    rtc_edge_app::LoadEdgeOptions(path);
   } catch (const std::runtime_error& ex) {
     const std::string error_message = ex.what();
     rejected = error_message.find("edge.vehicle_control.watchdog_ms") !=
@@ -153,7 +153,7 @@ void TestMissingCameraDevice() {
 
   bool rejected = false;
   try {
-    rtc_edge_headless::LoadEdgeOptions(path);
+    rtc_edge_app::LoadEdgeOptions(path);
   } catch (const std::runtime_error& ex) {
     const std::string error_message = ex.what();
     rejected = error_message.find("edge.stereo_camera.right_device") !=
@@ -172,7 +172,7 @@ void TestMissingSurroundCameraDevice() {
 
   bool rejected = false;
   try {
-    rtc_edge_headless::LoadEdgeOptions(path);
+    rtc_edge_app::LoadEdgeOptions(path);
   } catch (const std::runtime_error& ex) {
     const std::string error_message = ex.what();
     rejected = error_message.find("edge.surround_camera.rear_device") !=
@@ -189,8 +189,8 @@ void TestEmptySurroundCameraDevice() {
   config["edge"]["surround_camera"]["front_device"] = "";
   WriteConfig(path, config);
 
-  const rtc_edge_headless::EdgeOptions options =
-      rtc_edge_headless::LoadEdgeOptions(path);
+  const rtc_edge_app::EdgeOptions options =
+      rtc_edge_app::LoadEdgeOptions(path);
   Check(options.surround_camera.front_device.empty(),
         "allow empty surround camera device");
   Check(options.surround_camera.rear_device == "/dev/video7",
@@ -206,7 +206,7 @@ void TestInvalidYoloDownscale() {
 
   bool rejected = false;
   try {
-    rtc_edge_headless::LoadEdgeOptions(path);
+    rtc_edge_app::LoadEdgeOptions(path);
   } catch (const std::runtime_error& ex) {
     const std::string error_message = ex.what();
     rejected = error_message.find("edge.yolo.processing_downscale") !=

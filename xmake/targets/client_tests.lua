@@ -1,45 +1,11 @@
 if vtsrtc_on_linux() then
-    target("rtc_headless_common")
-        set_kind("static")
-        add_files(
-            vtsrtc_path("client", "modules", "headless", "src", "rtc_camera_common.cpp")
-        )
-        add_includedirs(
-            vtsrtc_path("client", "modules", "headless", "include"),
-            {public = true}
-        )
-
-    target("rtc_dual_camera_image_source")
-        set_kind("static")
-        add_deps("rtc_camera", "rtc_logging")
-
-        add_files(
-            vtsrtc_path("client", "modules", "dual_camera", "src", "dual_camera_async_image_source.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "async_dual_camera_video_source.cpp")
-        )
-
-        add_includedirs(
-            vtsrtc_path("client", "modules", "dual_camera", "include"),
-            {public = true}
-        )
-        add_includedirs(
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal"),
-            vtsrtc_path("client", "modules", "headless", "include")
-        )
-        add_syslinks("pthread")
-
-        add_installfiles(
-            vtsrtc_path("client", "modules", "dual_camera", "include", "rtc_dual_camera", "dual_camera_async_image_source.h"),
-            {prefixdir = "vtsrtc/include/rtc_dual_camera"}
-        )
-
     target("rtc_dual_camera_headless")
         set_kind("binary")
         set_default(false)
         vtsrtc_add_client_dependency()
         add_deps(
             "rtc_logging",
-            "rtc_headless_common",
+            "rtc_runtime",
             "rtc_dual_camera_image_source",
             "rtc_vision_detection_protocol"
         )
@@ -50,12 +16,10 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "modules", "vision", "src", "stereo_detection_fuser.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "yolo_frame_consumer.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "vision_detection_sender.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu"),
-            vtsrtc_path("client", "modules", "headless", "src", "rtc_headless_session.cpp")
+            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu")
         )
 
         add_includedirs(
-            vtsrtc_path("client", "modules", "headless", "include"),
             vtsrtc_path("client", "modules", "dual_camera", "include"),
             vtsrtc_path("client", "modules", "dual_camera", "src", "internal"),
             vtsrtc_path("client", "modules", "vision", "include"),
@@ -109,15 +73,10 @@ if vtsrtc_on_linux() then
         set_kind("binary")
         set_default(false)
         vtsrtc_add_client_dependency()
-        add_deps("rtc_headless_common", "rtc_logging")
+        add_deps("rtc_runtime", "rtc_logging")
 
         add_files(
-            vtsrtc_path("client", "tests", "rtc_receiver_headless", "main.cpp"),
-            vtsrtc_path("client", "modules", "headless", "src", "rtc_headless_session.cpp")
-        )
-
-        add_includedirs(
-            vtsrtc_path("client", "modules", "headless", "include")
+            vtsrtc_path("client", "tests", "rtc_receiver_headless", "main.cpp")
         )
         vtsrtc_add_linux_runtime_rpath()
         add_syslinks("pthread")
@@ -125,5 +84,4 @@ if vtsrtc_on_linux() then
         after_buildcmd(function(target, batchcmds)
             batchcmds:cp(path.join(os.projectdir(), "config", "rtc.cfg"), target:targetdir())
         end)
-
 end

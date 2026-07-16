@@ -10,14 +10,14 @@ rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
    - 实时音视频通信
    - 实时数据通信
 * rtc_console是使用vtsrtc + Dear ImGui开发的RTC操作端
-* rtc_edge_headless是运行在工控机上的边缘端主程序，当前编排双目摄像头采集和车辆控制配置
+* rtc_edge是运行在工控机上的边缘端主程序，当前编排双目摄像头采集和车辆控制配置
 
 ### 工程结构
 
 ```text
 client/
   apps/                 可执行程序入口与应用专属代码
-  modules/              边缘端、headless、双摄像头、视觉和车辆业务模块
+  modules/              运行时、边缘端、摄像头、视觉和车辆业务模块
   protocols/
     vehicle/            车辆控制协议、生成代码和 codec
     vision/             视觉检测协议、生成代码和 codec

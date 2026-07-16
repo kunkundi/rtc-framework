@@ -8,9 +8,12 @@
 
 namespace rtc_camera_headless {
 class DualUyvyFrameConverter;
-class RtcHeadlessSession;
 class YoloFrameConsumer;
 }  // 命名空间 rtc_camera_headless
+
+namespace rtc_runtime {
+class RtcSession;
+}  // 命名空间 rtc_runtime
 
 namespace rtc_edge {
 
@@ -33,7 +36,7 @@ class DualCameraStreamingModule {
 
   bool Start(std::string* error_message);
   void Stop();
-  bool Tick(rtc_camera_headless::RtcHeadlessSession* rtc_session,
+  bool Tick(rtc_runtime::RtcSession* rtc_session,
             std::string* error_message);
 
   bool started() const { return started_; }

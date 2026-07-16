@@ -3,9 +3,8 @@
 #include "rtc_edge/camera_video_sources.h"
 
 #include "rtc_dual_camera/dual_uyvy_frame_converter.h"
-#include "rtc_headless/rtc_camera_common.h"
-#include "rtc_headless/rtc_headless_session.h"
 #include "rtc_logging/rtc_logging.h"
+#include "rtc_runtime/rtc_session.h"
 #include "rtc_vision/yolo_frame_consumer.h"
 
 #include <exception>
@@ -96,7 +95,7 @@ void DualCameraStreamingModule::Stop() {
 }
 
 bool DualCameraStreamingModule::Tick(
-    rtc_camera_headless::RtcHeadlessSession* rtc_session,
+    rtc_runtime::RtcSession* rtc_session,
     std::string* error_message) {
   if (!started_ || !rtc_session || !video_source_ || !rtc_frames_ ||
       !converter_) {

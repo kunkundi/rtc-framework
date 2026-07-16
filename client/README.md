@@ -5,7 +5,7 @@
 ## apps
 
 - `rtc_console/`：支持桌面交互和无渲染运行的 RTC 操作端。
-- `rtc_edge_headless/`：工控机边缘端主程序，当前加载车辆控制配置。
+- `rtc_edge/`：工控机边缘端主程序，当前加载车辆控制配置。
 
 应用目录只负责参数解析、依赖组装和生命周期管理。需要被多个应用复用的实现必须放入 `modules/`。
 
@@ -40,25 +40,25 @@ xmake r rtc_console --no-render --room my-room
 ./build/runtime/rtc_console --no-render --room my-room
 ```
 
-### rtc_edge_headless
+### rtc_edge
 
-`rtc_edge_headless` 仅在 Linux/Jetson 构建，需要摄像头、CUDA 和对应的 NVIDIA SDK 环境。使用构建时复制到运行目录的默认 `rtc.cfg` 启动：
+`rtc_edge` 仅在 Linux/Jetson 构建，需要摄像头、CUDA 和对应的 NVIDIA SDK 环境。使用构建时复制到运行目录的默认 `rtc.cfg` 启动：
 
 ```sh
-xmake b rtc_edge_headless
-xmake r rtc_edge_headless
+xmake b rtc_edge
+xmake r rtc_edge
 ```
 
 使用 `--config` 指定其他配置文件；RTC、摄像头、视觉和车辆控制运行参数均从该文件的 `edge` 配置段读取：
 
 ```sh
-xmake r rtc_edge_headless --config /path/to/rtc.cfg
+xmake r rtc_edge --config /path/to/rtc.cfg
 ```
 
 也可以直接运行构建产物：
 
 ```sh
-./build/runtime/rtc_edge_headless --config ./build/runtime/rtc.cfg
+./build/runtime/rtc_edge --config ./build/runtime/rtc.cfg
 ```
 
 ## tests
@@ -79,7 +79,7 @@ xmake r rtc_edge_headless --config /path/to/rtc.cfg
 
 - `camera/`：单相机 V4L2 采集、异步帧源和 I420 转换。
 - `logging/`：基于 spdlog 的公共日志模块。
-- `headless/`：RTC 会话和通用无界面运行参数。
+- `runtime/`：客户端进程生命周期、配置路径解析和可复用 RTC 会话。
 - `edge/`：边缘端的单相机、双目和环视推流编排。
 - `dual_camera/`：双摄像头异步图像源、帧订阅和 I420 转换。
 - `vision/`：检测发送、双目融合、YOLO 消费与推理适配。
@@ -88,7 +88,7 @@ xmake r rtc_edge_headless --config /path/to/rtc.cfg
 模块公共头文件统一放在 `include/<命名空间>/`。跨模块包含必须使用完整前缀，例如：
 
 ```cpp
-#include "rtc_headless/rtc_headless_session.h"
+#include "rtc_runtime/rtc_session.h"
 #include "rtc_dual_camera/dual_camera_async_image_source.h"
 #include "rtc_edge/dual_camera_streaming_module.h"
 #include "rtc_vision/vision_detection_sender.h"
