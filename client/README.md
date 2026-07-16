@@ -4,10 +4,62 @@
 
 ## apps
 
-- `p2p_imgui/`：桌面交互式 RTC 客户端。
+- `p2p_imgui/`：支持桌面交互和无渲染运行的 RTC 客户端。
 - `rtc_edge_headless/`：工控机边缘端主程序，当前加载车辆控制配置。
 
 应用目录只负责参数解析、依赖组装和生命周期管理。需要被多个应用复用的实现必须放入 `modules/`。
+
+## 构建和运行
+
+以下命令均在仓库根目录执行。运行前应先在 `config/rtc.cfg` 中配置可用的信令服务地址。
+
+### p2p_imgui
+
+构建并启动桌面界面：
+
+```sh
+xmake build p2p_imgui
+xmake run p2p_imgui
+```
+
+`p2p_imgui` 登录 RTC 服务后默认自动打开 `zhejianglab` 房间，使用 `--room` 可指定其他房间：
+
+```sh
+xmake run p2p_imgui -- --room my-room
+```
+
+服务器无屏幕环境使用 `--no-render`，此模式不会创建 SDL 窗口或 OpenGL 上下文；`--headless` 是等价别名：
+
+```sh
+xmake run p2p_imgui -- --no-render --room my-room
+```
+
+也可以直接运行构建产物：
+
+```sh
+./build/runtime/p2p_imgui --no-render --room my-room
+```
+
+### rtc_edge_headless
+
+`rtc_edge_headless` 仅在 Linux/Jetson 构建，需要摄像头、CUDA 和对应的 NVIDIA SDK 环境。使用构建时复制到运行目录的默认 `rtc.cfg` 启动：
+
+```sh
+xmake build rtc_edge_headless
+xmake run rtc_edge_headless
+```
+
+使用 `--config` 指定其他配置文件；RTC、摄像头、视觉和车辆控制运行参数均从该文件的 `edge` 配置段读取：
+
+```sh
+xmake run rtc_edge_headless -- --config /path/to/rtc.cfg
+```
+
+也可以直接运行构建产物：
+
+```sh
+./build/runtime/rtc_edge_headless --config ./build/runtime/rtc.cfg
+```
 
 ## tests
 

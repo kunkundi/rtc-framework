@@ -1,4 +1,6 @@
 #include "c_rtc.h"
+#include "p2p_imgui_options.h"
+#include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
 
 #include <imgui.h>
@@ -14,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cfloat>
 #include <cstdint>
 #include <cmath>
@@ -22,6 +25,7 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -44,6 +48,7 @@ namespace {
 constexpr const char* kDataChannelLabel = "datachannel";
 constexpr const char* kExternalAudioSource = "external_audio";
 constexpr const char* kExternalVideoSource = "merged_image";
+constexpr int kAutoOpenRetryMs = 3000;
 constexpr int kMainWindowWidth = 1060;
 constexpr int kMainWindowHeight = 910;
 constexpr float kPanelLeft = 16.0f;
@@ -62,6 +67,12 @@ constexpr float kLogPanelTopWithoutStats = kVideoPanelTop + kVideoPanelHeight + 
 constexpr float kVideoCardPadding = 14.0f;
 constexpr float kVideoOverlayPadding = 8.0f;
 constexpr float kFullscreenOverlayPadding = 20.0f;
+
+volatile std::sig_atomic_t g_stop_requested = 0;
+
+void HandleStopSignal(int) {
+  g_stop_requested = 1;
+}
 
 struct NetStatsView {
   bool input = false;
@@ -259,6 +270,19 @@ const char* P2PStateText(RtcP2PState state) {
       return "Failed";
     case P2PClosed:
       return "Closed";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* VehicleGearText(vts_rtc::vehicle::VehicleGear gear) {
+  switch (gear) {
+    case vts_rtc::vehicle::VehicleGear::Neutral:
+      return "Neutral";
+    case vts_rtc::vehicle::VehicleGear::Forward:
+      return "Forward";
+    case vts_rtc::vehicle::VehicleGear::Reverse:
+      return "Reverse";
     default:
       return "Unknown";
   }
@@ -621,13 +645,15 @@ class SDLOpenGLWindow {
 
 class RtcImguiApp {
  public:
-  RtcImguiApp() {
+  explicit RtcImguiApp(const rtc_p2p_imgui::AppOptions& options)
+      : options_(options) {
     instance_ = this;
     std::memset(open_room_id_, 0, sizeof(open_room_id_));
     std::memset(srs_url_, 0, sizeof(srs_url_));
     std::memset(send_msg_, 0, sizeof(send_msg_));
 
-    std::snprintf(open_room_id_, sizeof(open_room_id_), "%s", "zhejianglab");
+    std::snprintf(open_room_id_, sizeof(open_room_id_), "%s",
+                  options_.room_id.c_str());
     std::snprintf(srs_url_, sizeof(srs_url_), "%s",
                   "webrtc://47.96.251.52/AR/livestream");
     std::snprintf(send_msg_, sizeof(send_msg_), "%s", "hello world");
@@ -649,6 +675,11 @@ class RtcImguiApp {
   }
 
   void Run() {
+    if (options_.no_render) {
+      RunWithoutRenderer();
+      return;
+    }
+
     SDLOpenGLWindow window;
     if (!window.Init("rtc-framework | p2p_imgui", kMainWindowWidth,
                      kMainWindowHeight)) {
@@ -682,6 +713,7 @@ class RtcImguiApp {
 
     while (!should_close) {
       const auto now = std::chrono::steady_clock::now();
+      MaybeOpenConfiguredRoom(now);
       float delta = std::chrono::duration<float>(now - last_tick).count();
       last_tick = now;
       if (delta <= 0.0f) {
@@ -719,6 +751,41 @@ class RtcImguiApp {
   }
 
  private:
+  void RunWithoutRenderer() {
+    g_stop_requested = 0;
+    std::signal(SIGINT, HandleStopSignal);
+    std::signal(SIGTERM, HandleStopSignal);
+    AppendLog(std::string("No-render mode started; room=") + options_.room_id);
+
+    while (!g_stop_requested) {
+      MaybeOpenConfiguredRoom(std::chrono::steady_clock::now());
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    AppendLog("No-render mode stopped");
+  }
+
+  void MaybeOpenConfiguredRoom(std::chrono::steady_clock::time_point now) {
+    if (server_state_.load() != ServerLogined || auto_room_opened_.load()) {
+      return;
+    }
+    if (last_auto_open_attempt_.time_since_epoch().count() != 0 &&
+        now - last_auto_open_attempt_ <
+            std::chrono::milliseconds(kAutoOpenRetryMs)) {
+      return;
+    }
+
+    last_auto_open_attempt_ = now;
+    const RtcErrorCode code =
+        RtcOpenRoom(const_cast<char*>(options_.room_id.c_str()),
+                    RtcRoomType::VideoBroadcasting, false);
+    AppendLogWithCode("RtcOpenRoom(auto)", code);
+    if (code == RtcErrorCode::OK ||
+        code == RtcErrorCode::AgentAlreadyInRoom) {
+      auto_room_opened_.store(true);
+    }
+  }
+
   bool InitRtc() {
     RtcInitParams params;
     std::memset(&params, 0, sizeof(params));
@@ -759,7 +826,9 @@ class RtcImguiApp {
     AppendLog("RtcAddDataChannel(vision.detect.v1) success");
 
     rtc_inited_ = true;
-    LoadVideoSourceList();
+    if (!options_.no_render) {
+      LoadVideoSourceList();
+    }
     return true;
   }
 
@@ -1971,6 +2040,9 @@ class RtcImguiApp {
     if (logs_.size() > 2000) {
       logs_.erase(logs_.begin(), logs_.begin() + 500);
     }
+    if (options_.no_render) {
+      std::cout << message << std::endl;
+    }
   }
 
   void AppendLogWithCode(const char* action, RtcErrorCode code) {
@@ -2291,6 +2363,9 @@ class RtcImguiApp {
       return;
     }
     instance_->server_state_.store(state);
+    if (state != ServerLogined) {
+      instance_->auto_room_opened_.store(false);
+    }
     std::ostringstream oss;
     oss << "Server state: " << ServerStateText(state);
     instance_->AppendLog(oss.str());
@@ -2326,6 +2401,11 @@ class RtcImguiApp {
       instance_->HandleVisionDetectionMessage(remote_sessionid, msg, msg_size);
       return;
     }
+    if (label &&
+        std::strcmp(label, vts_rtc::vehicle::kVehicleStateChannelLabel) == 0) {
+      instance_->HandleVehicleStateMessage(remote_sessionid, msg, msg_size);
+      return;
+    }
 
     std::ostringstream oss;
     oss << "Recv msg from " << remote_sessionid << " [" << (label ? label : "")
@@ -2335,6 +2415,50 @@ class RtcImguiApp {
       oss << " preview='" << std::string(msg, msg + preview) << "'";
     }
     instance_->AppendLog(oss.str());
+  }
+
+  void HandleVehicleStateMessage(RtcSessionId remote_sessionid,
+                                 const char* msg,
+                                 size_t msg_size) {
+    if (!msg || msg_size == 0) {
+      std::ostringstream oss;
+      oss << "Vehicle state decode failed from " << remote_sessionid
+          << ": empty payload";
+      AppendLog(oss.str());
+      return;
+    }
+
+    const vts_rtc::vehicle::DecodeResult decoded =
+        vts_rtc::vehicle::DecodeEnvelope(
+            reinterpret_cast<const uint8_t*>(msg), msg_size);
+    if (!decoded) {
+      std::ostringstream oss;
+      oss << "Vehicle state decode failed from " << remote_sessionid
+          << " bytes=" << msg_size << ": " << decoded.error_message;
+      AppendLog(oss.str());
+      return;
+    }
+    if (decoded.envelope.type !=
+        vts_rtc::vehicle::MessageType::VehicleState) {
+      std::ostringstream oss;
+      oss << "Vehicle state decode failed from " << remote_sessionid
+          << " bytes=" << msg_size << ": unexpected message type="
+          << static_cast<uint32_t>(decoded.envelope.type);
+      AppendLog(oss.str());
+      return;
+    }
+
+    const vts_rtc::vehicle::VehicleState& state =
+        decoded.envelope.vehicle_state;
+    std::ostringstream oss;
+    oss << "Vehicle state from " << remote_sessionid << " ["
+        << vts_rtc::vehicle::kVehicleStateChannelLabel << "] bytes="
+        << msg_size << " seq=" << decoded.envelope.seq
+        << " active_gear=" << VehicleGearText(state.active_gear)
+        << " last_received_drive_seq=" << state.last_received_drive_seq
+        << " watchdog_stopped="
+        << (state.watchdog_stopped ? "true" : "false");
+    AppendLog(oss.str());
   }
 
   void HandleVisionDetectionMessage(RtcSessionId remote_sessionid,
@@ -2410,9 +2534,11 @@ class RtcImguiApp {
       return;
     }
     instance_->remote_audio_frames_.fetch_add(1);
-    instance_->remote_audio_player_.PushFrame(bits_per_sample, sample_rate,
-                                              number_of_channels, audio_data,
-                                              sz_audio_data);
+    if (!instance_->options_.no_render) {
+      instance_->remote_audio_player_.PushFrame(bits_per_sample, sample_rate,
+                                                number_of_channels, audio_data,
+                                                sz_audio_data);
+    }
   }
 
   static void OnRecvFrame(RtcSessionId remote_sessionid,
@@ -2429,6 +2555,9 @@ class RtcImguiApp {
 
     instance_->remote_video_frames_.fetch_add(1);
     if (!sourceid || !buffer || width == 0 || height == 0 || sz_buffer == 0) {
+      return;
+    }
+    if (instance_->options_.no_render) {
       return;
     }
 
@@ -2490,7 +2619,10 @@ class RtcImguiApp {
  private:
   static RtcImguiApp* instance_;
 
+  const rtc_p2p_imgui::AppOptions options_;
   std::atomic<RtcServerConnectionState> server_state_{ServerDisconnected};
+  std::atomic<bool> auto_room_opened_{false};
+  std::chrono::steady_clock::time_point last_auto_open_attempt_{};
   std::atomic<uint64_t> remote_video_frames_{0};
   std::atomic<uint64_t> remote_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frame_seq_{0};
@@ -2552,11 +2684,24 @@ RtcImguiApp* RtcImguiApp::instance_ = nullptr;
 
 }  // namespace
 
-int main() {
-  RtcImguiApp app;
-  if (!app.Init()) {
+int main(int argc, char** argv) {
+  try {
+    const rtc_p2p_imgui::AppOptions options =
+        rtc_p2p_imgui::ParseOptions(argc, argv);
+    if (options.show_help) {
+      rtc_p2p_imgui::PrintUsage(argv[0]);
+      return 0;
+    }
+
+    RtcImguiApp app(options);
+    if (!app.Init()) {
+      return 1;
+    }
+    app.Run();
+    return 0;
+  } catch (const std::exception& ex) {
+    std::cerr << "p2p_imgui: " << ex.what() << std::endl;
+    rtc_p2p_imgui::PrintUsage(argv[0]);
     return 1;
   }
-  app.Run();
-  return 0;
 }

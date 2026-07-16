@@ -1,10 +1,14 @@
 target("p2p_imgui")
     set_kind("binary")
     vtsrtc_add_client_dependency()
-    add_deps("rtc_vision_detection_protocol")
+    add_deps("rtc_vehicle_control_protocol", "rtc_vision_detection_protocol")
     add_packages("imgui")
 
-    add_files(vtsrtc_path("client", "apps", "p2p_imgui", "main.cpp"))
+    add_files(
+        vtsrtc_path("client", "apps", "p2p_imgui", "main.cpp"),
+        vtsrtc_path("client", "apps", "p2p_imgui", "p2p_imgui_options.cpp")
+    )
+    add_includedirs(vtsrtc_path("client", "apps", "p2p_imgui"))
     add_packages("nanopb")
     vtsrtc_add_linux_runtime_rpath()
     if vtsrtc_on_windows() then
@@ -29,3 +33,12 @@ target("p2p_imgui")
             end
         end)
     end
+
+target("p2p_imgui_options_tests")
+    set_kind("binary")
+    set_default(false)
+    add_files(
+        vtsrtc_path("client", "apps", "p2p_imgui", "p2p_imgui_options.cpp"),
+        vtsrtc_path("client", "apps", "p2p_imgui", "p2p_imgui_options_tests.cpp")
+    )
+    add_includedirs(vtsrtc_path("client", "apps", "p2p_imgui"))
