@@ -455,10 +455,19 @@ void RtcConnectionManager::InitWebsocket() {
         auto sdp_mid = msg_json["sdp_mid"].get<std::string>();
         int sdp_mline_index = msg_json["sdp_mline_index"].get<int>();
         webrtc::SdpParseError error;
-        auto candidate_object = webrtc::CreateIceCandidate(
-            sdp_mid, sdp_mline_index, candidate, &error);
+        std::unique_ptr<webrtc::IceCandidateInterface> candidate_object(
+            webrtc::CreateIceCandidate(sdp_mid, sdp_mline_index, candidate,
+                                       &error));
+        if (!candidate_object) {
+          LOG_ERROR(
+              "Websocket onmessage, parse ice candidate failed, line: %s, "
+              "description: %s",
+              error.line.c_str(), error.description.c_str());
+          return;
+        }
         if (rtc_conn && rtc_conn->peer_conn_) {
-          bool flag = rtc_conn->peer_conn_->AddIceCandidate(candidate_object);
+          bool flag =
+              rtc_conn->peer_conn_->AddIceCandidate(candidate_object.get());
           if (!flag) {
             LOG_ERROR(
                 "Websocket onmessage, rtc connection add ice candidate failed");
