@@ -7,6 +7,7 @@
 #include <NvInferPlugin.h>
 #include <NvOnnxParser.h>
 #include <cuda_runtime.h>
+#include <linux/videodev2.h>
 
 #include <algorithm>
 #include <array>
@@ -468,17 +469,53 @@ bool ResolveEngineInputShape(nvinfer1::ICudaEngine* engine,
                             concrete_shape, error_message);
 }
 
-bool BuildPreprocessInfo(const rtc_camera::dual::ImageFrame& frame,
-                         int input_width,
-                         int input_height,
-                         PreprocessInfo* info,
-                         std::string* error_message) {
+bool BuildPreprocessInfoForSize(size_t frame_width,
+                                size_t frame_height,
+                                int input_width,
+                                int input_height,
+                                PreprocessInfo* info,
+                                std::string* error_message) {
   if (!info) {
     if (error_message) {
       *error_message = "null preprocess info output";
     }
     return false;
   }
+  if (frame_width == 0 || frame_height == 0) {
+    if (error_message) {
+      *error_message = "invalid preprocessing frame size";
+    }
+    return false;
+  }
+
+  const float scale =
+      std::min(static_cast<float>(input_width) / frame_width,
+               static_cast<float>(input_height) / frame_height);
+  const int resized_width =
+      std::max(1, static_cast<int>(std::lround(frame_width * scale)));
+  const int resized_height =
+      std::max(1, static_cast<int>(std::lround(frame_height * scale)));
+  const int pad_x = (input_width - resized_width) / 2;
+  const int pad_y = (input_height - resized_height) / 2;
+
+  info->original_width = frame_width;
+  info->original_height = frame_height;
+  info->input_width = input_width;
+  info->input_height = input_height;
+  info->resized_width = resized_width;
+  info->resized_height = resized_height;
+  info->pad_x = pad_x;
+  info->pad_y = pad_y;
+  info->scale_x = static_cast<float>(resized_width) / frame_width;
+  info->scale_y = static_cast<float>(resized_height) / frame_height;
+  return true;
+}
+
+bool BuildPreprocessInfo(const rtc_camera::dual::ImageFrame& frame,
+                         int input_width,
+                         int input_height,
+                         PreprocessInfo* info,
+                         std::string* error_message) {
   if (frame.empty() || frame.width == 0 || frame.height == 0 ||
       frame.stride_y == 0 || frame.stride_u == 0 || frame.stride_v == 0) {
     if (error_message) {
@@ -498,27 +535,8 @@ bool BuildPreprocessInfo(const rtc_camera::dual::ImageFrame& frame,
     return false;
   }
 
-  const float scale =
-      std::min(static_cast<float>(input_width) / frame.width,
-               static_cast<float>(input_height) / frame.height);
-  const int resized_width =
-      std::max(1, static_cast<int>(std::lround(frame.width * scale)));
-  const int resized_height =
-      std::max(1, static_cast<int>(std::lround(frame.height * scale)));
-  const int pad_x = (input_width - resized_width) / 2;
-  const int pad_y = (input_height - resized_height) / 2;
-
-  info->original_width = frame.width;
-  info->original_height = frame.height;
-  info->input_width = input_width;
-  info->input_height = input_height;
-  info->resized_width = resized_width;
-  info->resized_height = resized_height;
-  info->pad_x = pad_x;
-  info->pad_y = pad_y;
-  info->scale_x = static_cast<float>(resized_width) / frame.width;
-  info->scale_y = static_cast<float>(resized_height) / frame.height;
-  return true;
+  return BuildPreprocessInfoForSize(frame.width, frame.height, input_width,
+                                    input_height, info, error_message);
 }
 
 float IoU(const Candidate& a, const Candidate& b) {
@@ -959,6 +977,64 @@ __global__ void I420ToRgbNchwLetterboxKernel(const uint8_t* src_y,
   dst[image_size * 2 + index] = blue;
 }
 
+__global__ void UyvyToRgbNchwLetterboxKernel(const uint8_t* src,
+                                             size_t src_stride_bytes,
+                                             int src_width,
+                                             int src_height,
+                                             int source_is_yuyv,
+                                             float* dst,
+                                             int input_width,
+                                             int input_height,
+                                             int resized_width,
+                                             int resized_height,
+                                             int pad_x,
+                                             int pad_y) {
+  const int index = blockIdx.x * blockDim.x + threadIdx.x;
+  const int image_size = input_width * input_height;
+  if (index >= image_size) {
+    return;
+  }
+
+  const int dst_y = index / input_width;
+  const int dst_x = index - dst_y * input_width;
+  float red = 114.0f / 255.0f;
+  float green = 114.0f / 255.0f;
+  float blue = 114.0f / 255.0f;
+
+  const int inner_x = dst_x - pad_x;
+  const int inner_y = dst_y - pad_y;
+  if (inner_x >= 0 && inner_x < resized_width && inner_y >= 0 &&
+      inner_y < resized_height) {
+    const int src_x =
+        min(src_width - 1,
+            static_cast<int>(static_cast<long long>(inner_x) * src_width /
+                             resized_width));
+    const int src_y =
+        min(src_height - 1,
+            static_cast<int>(static_cast<long long>(inner_y) * src_height /
+                             resized_height));
+    const uint8_t* pair =
+        src + src_y * src_stride_bytes + (src_x / 2) * 4;
+    const int y_value = source_is_yuyv
+                            ? pair[(src_x % 2) == 0 ? 0 : 2]
+                            : pair[(src_x % 2) == 0 ? 1 : 3];
+    const int u_value = source_is_yuyv ? pair[1] : pair[0];
+    const int v_value = source_is_yuyv ? pair[3] : pair[2];
+    const int c = y_value - 16;
+    const int d = u_value - 128;
+    const int e = v_value - 128;
+
+    red = ClampToByteDevice((298 * c + 409 * e + 128) >> 8) / 255.0f;
+    green =
+        ClampToByteDevice((298 * c - 100 * d - 208 * e + 128) >> 8) / 255.0f;
+    blue = ClampToByteDevice((298 * c + 516 * d + 128) >> 8) / 255.0f;
+  }
+
+  dst[index] = red;
+  dst[image_size + index] = green;
+  dst[image_size * 2 + index] = blue;
+}
+
 bool LaunchPreprocessKernel(const rtc_camera::dual::ImageFrame& frame,
                             const PreprocessInfo& info,
                             float* input_device,
@@ -1006,6 +1082,49 @@ bool LaunchPreprocessKernel(const rtc_camera::dual::ImageFrame& frame,
 
   return SetCudaError("I420ToRgbNchwLetterboxKernel",
                       cudaGetLastError(), error_message);
+}
+
+bool LaunchUyvyPreprocessKernel(const uint8_t* source,
+                                size_t source_size,
+                                size_t source_width,
+                                size_t source_height,
+                                size_t source_stride_bytes,
+                                bool source_is_yuyv,
+                                const PreprocessInfo& info,
+                                float* input_device,
+                                DeviceBuffer* frame_device,
+                                cudaStream_t stream,
+                                std::string* error_message) {
+  const size_t frame_bytes = source_stride_bytes * source_height;
+  if (!source || !input_device || !frame_device || source_width == 0 ||
+      source_height == 0 || (source_width % 2) != 0 ||
+      source_stride_bytes < source_width * 2 || source_size < frame_bytes) {
+    if (error_message) {
+      *error_message = "invalid UYVY/YUYV CUDA preprocessing input";
+    }
+    return false;
+  }
+  if (!frame_device->Resize(frame_bytes, error_message)) {
+    return false;
+  }
+  if (!SetCudaError("cudaMemcpyAsync(UYVY frame to device)",
+                    cudaMemcpyAsync(frame_device->data(), source, frame_bytes,
+                                    cudaMemcpyHostToDevice, stream),
+                    error_message)) {
+    return false;
+  }
+
+  const int image_size = info.input_width * info.input_height;
+  const int threads = 256;
+  const int blocks = (image_size + threads - 1) / threads;
+  UyvyToRgbNchwLetterboxKernel<<<blocks, threads, 0, stream>>>(
+      static_cast<const uint8_t*>(frame_device->data()), source_stride_bytes,
+      static_cast<int>(source_width), static_cast<int>(source_height),
+      source_is_yuyv ? 1 : 0, input_device, info.input_width,
+      info.input_height, info.resized_width, info.resized_height, info.pad_x,
+      info.pad_y);
+  return SetCudaError("UyvyToRgbNchwLetterboxKernel", cudaGetLastError(),
+                      error_message);
 }
 
 bool BuildSerializedEngine(const std::string& model_path,
@@ -1208,6 +1327,59 @@ struct YoloOnnxDetector::Impl {
   int batch_size = kDefaultBatchSize;
   int input_width = kDefaultInputSize;
   int input_height = kDefaultInputSize;
+
+  bool ExecuteBatch(const std::vector<PreprocessInfo>& preprocess,
+                    const uint64_t* frame_sequences,
+                    std::vector<YoloDetectionBox>* batch_boxes,
+                    std::string* error_message) {
+    if (!frame_sequences || !batch_boxes ||
+        preprocess.size() != static_cast<size_t>(batch_size)) {
+      if (error_message) {
+        *error_message = "invalid prepared YOLO batch";
+      }
+      return false;
+    }
+
+    if (!context->enqueueV3(stream)) {
+      if (error_message) {
+        *error_message = "TensorRT enqueueV3 failed";
+      }
+      return false;
+    }
+
+    for (size_t i = 0; i < output_names.size(); ++i) {
+      const size_t output_bytes = output_sizes[i] * sizeof(float);
+      if (!SetCudaError(
+              "cudaMemcpyAsync(output to host)",
+              cudaMemcpyAsync(output_host_buffers[i].data(),
+                              output_device_buffers[i].data(), output_bytes,
+                              cudaMemcpyDeviceToHost, stream),
+              error_message)) {
+        return false;
+      }
+    }
+
+    if (!SetCudaError("cudaStreamSynchronize", cudaStreamSynchronize(stream),
+                      error_message)) {
+      return false;
+    }
+
+    for (size_t batch = 0; batch < preprocess.size(); ++batch) {
+      std::vector<Candidate> candidates;
+      for (size_t i = 0; i < output_names.size(); ++i) {
+        std::string parse_error;
+        ParseTensorOutput(
+            static_cast<const float*>(output_host_buffers[i].data()),
+            output_shapes[i], batch, preprocess[batch], &candidates,
+            &parse_error);
+      }
+
+      const std::vector<Candidate> selected = ApplyNms(&candidates);
+      batch_boxes[batch] = ToDetectionBoxes(
+          selected, preprocess[batch], frame_sequences[batch]);
+    }
+    return true;
+  }
 };
 
 YoloOnnxDetector::YoloOnnxDetector(std::unique_ptr<Impl> impl)
@@ -1482,6 +1654,76 @@ bool YoloOnnxDetector::DetectStereo(
   return true;
 }
 
+bool YoloOnnxDetector::DetectStereoUyvy(
+    const rtc_camera::dual::ImageFrame& dual_frame,
+    std::vector<YoloDetectionBox>* left_boxes,
+    std::vector<YoloDetectionBox>* right_boxes,
+    std::string* error_message) {
+  if (!left_boxes || !right_boxes) {
+    if (error_message) {
+      *error_message = "null raw stereo detection output";
+    }
+    return false;
+  }
+  if (impl_->batch_size != 2 ||
+      dual_frame.format != rtc_camera::dual::ImagePixelFormat::kDualUyvy) {
+    if (error_message) {
+      *error_message = "raw stereo YOLO requires a batch=2 dual frame";
+    }
+    return false;
+  }
+
+  const uint32_t formats[2] = {dual_frame.left_pixel_format,
+                               dual_frame.right_pixel_format};
+  const uint8_t* sources[2] = {dual_frame.left_data,
+                               dual_frame.right_data};
+  const size_t source_sizes[2] = {dual_frame.left_data_size,
+                                  dual_frame.right_data_size};
+  const size_t widths[2] = {dual_frame.left_width, dual_frame.right_width};
+  const size_t heights[2] = {dual_frame.left_height,
+                             dual_frame.right_height};
+  const size_t strides[2] = {dual_frame.left_stride_bytes,
+                             dual_frame.right_stride_bytes};
+  std::vector<PreprocessInfo> preprocess(2);
+  std::vector<YoloDetectionBox> batch_boxes[2];
+  const size_t input_elements =
+      static_cast<size_t>(impl_->input_width) * impl_->input_height * 3;
+  float* input_device =
+      static_cast<float*>(impl_->input_device_buffer.data());
+
+  for (size_t batch = 0; batch < 2; ++batch) {
+    if (formats[batch] != V4L2_PIX_FMT_UYVY &&
+        formats[batch] != V4L2_PIX_FMT_YUYV) {
+      if (error_message) {
+        *error_message = "unsupported raw stereo pixel format";
+      }
+      return false;
+    }
+    if (!BuildPreprocessInfoForSize(
+            widths[batch], heights[batch], impl_->input_width,
+            impl_->input_height, &preprocess[batch], error_message) ||
+        !LaunchUyvyPreprocessKernel(
+            sources[batch], source_sizes[batch], widths[batch],
+            heights[batch], strides[batch],
+            formats[batch] == V4L2_PIX_FMT_YUYV, preprocess[batch],
+            input_device + batch * input_elements,
+            &impl_->frame_device_buffers[batch], impl_->stream,
+            error_message)) {
+      return false;
+    }
+  }
+
+  const uint64_t frame_sequences[2] = {dual_frame.sequence,
+                                       dual_frame.sequence};
+  if (!impl_->ExecuteBatch(preprocess, frame_sequences, batch_boxes,
+                           error_message)) {
+    return false;
+  }
+  *left_boxes = std::move(batch_boxes[0]);
+  *right_boxes = std::move(batch_boxes[1]);
+  return true;
+}
+
 bool YoloOnnxDetector::DetectBatch(
     const rtc_camera::dual::ImageFrame* frames,
     size_t frame_count,
@@ -1513,46 +1755,11 @@ bool YoloOnnxDetector::DetectBatch(
       return false;
     }
   }
-
-  if (!impl_->context->enqueueV3(impl_->stream)) {
-    if (error_message) {
-      *error_message = "TensorRT enqueueV3 failed";
-    }
-    return false;
-  }
-
-  for (size_t i = 0; i < impl_->output_names.size(); ++i) {
-    const size_t output_bytes = impl_->output_sizes[i] * sizeof(float);
-    if (!SetCudaError("cudaMemcpyAsync(output to host)",
-                      cudaMemcpyAsync(impl_->output_host_buffers[i].data(),
-                                      impl_->output_device_buffers[i].data(),
-                                      output_bytes, cudaMemcpyDeviceToHost,
-                                      impl_->stream),
-                      error_message)) {
-      return false;
-    }
-  }
-
-  if (!SetCudaError("cudaStreamSynchronize",
-                    cudaStreamSynchronize(impl_->stream), error_message)) {
-    return false;
-  }
-
-  for (size_t batch = 0; batch < frame_count; ++batch) {
-    std::vector<Candidate> candidates;
-    for (size_t i = 0; i < impl_->output_names.size(); ++i) {
-      std::string parse_error;
-      ParseTensorOutput(
-          static_cast<const float*>(impl_->output_host_buffers[i].data()),
-          impl_->output_shapes[i], batch, preprocess[batch], &candidates,
-          &parse_error);
-    }
-
-    const std::vector<Candidate> selected = ApplyNms(&candidates);
-    batch_boxes[batch] =
-        ToDetectionBoxes(selected, preprocess[batch], frames[batch].sequence);
-  }
-  return true;
+  const uint64_t frame_sequences[2] = {frames[0].sequence,
+                                       frame_count > 1 ? frames[1].sequence
+                                                       : frames[0].sequence};
+  return impl_->ExecuteBatch(preprocess, frame_sequences, batch_boxes,
+                             error_message);
 }
 
 const std::string& YoloOnnxDetector::model_path() const {

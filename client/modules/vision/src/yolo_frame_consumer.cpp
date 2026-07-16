@@ -818,89 +818,6 @@ bool BuildVisionWorkFrame(const ConvertedI420Frame& source,
   return true;
 }
 
-bool BuildUyvyI420Frame(const uint8_t* src,
-                        size_t src_size,
-                        size_t width,
-                        size_t height,
-                        size_t stride_bytes,
-                        VisionWorkFrame* output,
-                        std::string* error_message) {
-  if (!output) {
-    if (error_message) {
-      *error_message = "null UYVY I420 output";
-    }
-    return false;
-  }
-  output->frame = ConvertedI420Frame();
-  output->storage.clear();
-
-  if (!src || width == 0 || height == 0 || (width % 2) != 0 ||
-      stride_bytes < width * 2 || src_size < stride_bytes * height) {
-    if (error_message) {
-      *error_message = "invalid UYVY frame for monocular YOLO";
-    }
-    return false;
-  }
-
-  const size_t chroma_width = width / 2;
-  const size_t chroma_height = (height + 1) / 2;
-  const size_t dst_stride_y = width;
-  const size_t dst_stride_u = chroma_width;
-  const size_t dst_stride_v = chroma_width;
-  const size_t dst_y_bytes = dst_stride_y * height;
-  const size_t dst_u_bytes = dst_stride_u * chroma_height;
-  const size_t dst_v_bytes = dst_stride_v * chroma_height;
-  output->storage.resize(dst_y_bytes + dst_u_bytes + dst_v_bytes);
-
-  uint8_t* dst_y = output->storage.data();
-  uint8_t* dst_u = dst_y + dst_y_bytes;
-  uint8_t* dst_v = dst_u + dst_u_bytes;
-
-  for (size_t y = 0; y < height; ++y) {
-    const uint8_t* row = src + y * stride_bytes;
-    uint8_t* y_row = dst_y + y * dst_stride_y;
-    for (size_t x = 0; x < width; x += 2) {
-      const uint8_t* pair = row + x * 2;
-      y_row[x] = pair[1];
-      y_row[x + 1] = pair[3];
-    }
-  }
-
-  for (size_t cy = 0; cy < chroma_height; ++cy) {
-    const size_t src_y0 = cy * 2;
-    const size_t src_y1 = src_y0 + 1;
-    const uint8_t* row0 = src + src_y0 * stride_bytes;
-    const uint8_t* row1 =
-        src_y1 < height ? (src + src_y1 * stride_bytes) : nullptr;
-    for (size_t cx = 0; cx < chroma_width; ++cx) {
-      const size_t src_x = cx * 2;
-      const uint8_t* pair0 = row0 + src_x * 2;
-      int u_sum = pair0[0];
-      int v_sum = pair0[2];
-      int samples = 1;
-      if (row1) {
-        const uint8_t* pair1 = row1 + src_x * 2;
-        u_sum += pair1[0];
-        v_sum += pair1[2];
-        ++samples;
-      }
-      dst_u[cy * dst_stride_u + cx] =
-          static_cast<uint8_t>((u_sum + samples / 2) / samples);
-      dst_v[cy * dst_stride_v + cx] =
-          static_cast<uint8_t>((v_sum + samples / 2) / samples);
-    }
-  }
-
-  output->frame.data = output->storage.data();
-  output->frame.data_size = output->storage.size();
-  output->frame.width = width;
-  output->frame.height = height;
-  output->frame.stride_y = dst_stride_y;
-  output->frame.stride_u = dst_stride_u;
-  output->frame.stride_v = dst_stride_v;
-  return true;
-}
-
 YoloDetectionBox MapMonoDetectionToStereo(const YoloDetectionBox& box,
                                           size_t mono_x,
                                           size_t mono_width,
@@ -921,8 +838,6 @@ YoloDetectionBox MapMonoDetectionToStereo(const YoloDetectionBox& box,
 }
 
 bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
-                      const ConvertedI420Frame& left_frame,
-                      const ConvertedI420Frame& right_frame,
                       std::vector<YoloDetectionBox>* left_boxes,
                       std::vector<YoloDetectionBox>* right_boxes);
 
@@ -950,24 +865,9 @@ bool RunYoloInferenceOnOriginalMonoFrames(
     return false;
   }
 
-  VisionWorkFrame left_frame;
-  VisionWorkFrame right_frame;
-  if (!BuildUyvyI420Frame(source_frame.left_data, source_frame.left_data_size,
-                          source_frame.left_width, source_frame.left_height,
-                          source_frame.left_stride_bytes, &left_frame,
-                          error_message) ||
-      !BuildUyvyI420Frame(source_frame.right_data,
-                          source_frame.right_data_size,
-                          source_frame.right_width, source_frame.right_height,
-                          source_frame.right_stride_bytes, &right_frame,
-                          error_message)) {
-    return false;
-  }
-
   std::vector<YoloDetectionBox> left_boxes;
   std::vector<YoloDetectionBox> right_boxes;
-  if (!RunYoloInference(source_frame, left_frame.frame, right_frame.frame,
-                        &left_boxes, &right_boxes)) {
+  if (!RunYoloInference(source_frame, &left_boxes, &right_boxes)) {
     if (error_message) {
       *error_message = "original monocular YOLO inference failed";
     }
@@ -988,8 +888,6 @@ bool RunYoloInferenceOnOriginalMonoFrames(
 }
 
 bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
-                      const ConvertedI420Frame& left_frame,
-                      const ConvertedI420Frame& right_frame,
                       std::vector<YoloDetectionBox>* left_boxes,
                       std::vector<YoloDetectionBox>* right_boxes) {
 #ifdef VTSRTC_ENABLE_YOLO_TENSORRT
@@ -1019,23 +917,8 @@ bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
   }
 
   std::string error_message;
-  rtc_camera::dual::ImageFrame i420_frames[2];
-  const ConvertedI420Frame converted_frames[2] = {left_frame, right_frame};
-  for (size_t i = 0; i < 2; ++i) {
-    i420_frames[i].format = rtc_camera::dual::ImagePixelFormat::kI420;
-    i420_frames[i].sequence = source_frame.sequence;
-    i420_frames[i].timestamp_us = source_frame.timestamp_us;
-    i420_frames[i].width = converted_frames[i].width;
-    i420_frames[i].height = converted_frames[i].height;
-    i420_frames[i].stride_y = converted_frames[i].stride_y;
-    i420_frames[i].stride_u = converted_frames[i].stride_u;
-    i420_frames[i].stride_v = converted_frames[i].stride_v;
-    i420_frames[i].data = converted_frames[i].data;
-    i420_frames[i].data_size = converted_frames[i].data_size;
-  }
-
-  if (!detector->DetectStereo(i420_frames[0], i420_frames[1], left_boxes,
-                              right_boxes, &error_message)) {
+  if (!detector->DetectStereoUyvy(source_frame, left_boxes, right_boxes,
+                                  &error_message)) {
     if (!inference_error_logged) {
       inference_error_logged = true;
       rtc_logging::LogError(std::string("YOLO inference disabled after error: ") +
@@ -1049,8 +932,6 @@ bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
 #else
   static bool yolo_disabled_logged = false;
   (void)source_frame;
-  (void)left_frame;
-  (void)right_frame;
   if (left_boxes) {
     left_boxes->clear();
   }
@@ -1098,8 +979,7 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
 #ifndef VTSRTC_ENABLE_YOLO_TENSORRT
   std::vector<YoloDetectionBox> unused_left_boxes;
   std::vector<YoloDetectionBox> unused_right_boxes;
-  RunYoloInference(frame, ConvertedI420Frame(), ConvertedI420Frame(),
-                   &unused_left_boxes, &unused_right_boxes);
+  RunYoloInference(frame, &unused_left_boxes, &unused_right_boxes);
   (void)frame_converter;
   (void)options;
   (void)stabilizer;

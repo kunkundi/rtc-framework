@@ -32,6 +32,10 @@ class YoloOnnxDetector {
                     std::vector<YoloDetectionBox>* left_boxes,
                     std::vector<YoloDetectionBox>* right_boxes,
                     std::string* error_message);
+  bool DetectStereoUyvy(const rtc_camera::dual::ImageFrame& dual_frame,
+                        std::vector<YoloDetectionBox>* left_boxes,
+                        std::vector<YoloDetectionBox>* right_boxes,
+                        std::string* error_message);
 
   const std::string& model_path() const;
 
