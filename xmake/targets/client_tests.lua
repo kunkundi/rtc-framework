@@ -62,6 +62,14 @@ if vtsrtc_on_linux() then
                     local model_dir = path.join(target:targetdir(), "models")
                     batchcmds:mkdir(model_dir)
                     batchcmds:cp(model_path, model_dir)
+                    local engine_path = model_path .. ".trt"
+                    if os.isfile(engine_path) then
+                        batchcmds:cp(engine_path, model_dir)
+                        local metadata_path = engine_path .. ".meta"
+                        if os.isfile(metadata_path) then
+                            batchcmds:cp(metadata_path, model_dir)
+                        end
+                    end
                 end
             end
         end)

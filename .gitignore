@@ -8,6 +8,7 @@ models/*.engine
 models/*.onnx
 models/*.plan
 models/*.pt
+models/*.trt*
 
 # third_party large binaries — download via script instead
 third_party/webrtc/

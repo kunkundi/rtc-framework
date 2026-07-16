@@ -37,6 +37,45 @@ VTSRTC_YOLO_SOURCE=/path/to/yolo26n.pt xmake yolo_model
 
 如果 Jetson 上安装 PyTorch/Ultralytics 不方便，也可以在开发机上导出 `yolo26n.onnx`，然后放到本仓库的 `models/yolo26n.onnx`。
 
+# 预构建 TensorRT engine
+
+在目标 Orin NX 上可以于启动程序前预构建 engine：
+
+```bash
+xmake yolo_engine
+```
+
+该任务会调用 TensorRT 自带的 `trtexec`，默认使用 FP16、1 GiB workspace 和优化等级 3，并生成：
+
+```text
+models/yolo26n.onnx.trt
+models/yolo26n.onnx.trt.meta
+```
+
+TensorRT 执行 tactic profiling 时可能长时间没有原生日志。脚本不使用工程 logging 模块，`trtexec` 的原生输出会直接转发到终端。构建心跳默认每 `0.1` 秒刷新同一行，不会为每次刷新新建日志行：
+
+```text
+TensorRT engine building [|] elapsed=01:20, process active
+```
+
+TensorRT 不提供可靠的整体构建百分比，因此这里显示真实已耗时，避免使用误导性的估算进度。如果标准输出被重定向到文件或非交互式环境，脚本会自动回退为逐行输出，保证记录可读。
+
+`.meta` 中记录与运行时一致的 ONNX 内容指纹。构建 `rtc_edge` 或 `rtc_dual_camera_headless` 时，ONNX、engine 和元数据会一起复制到运行目录。程序启动后将直接加载 engine。
+
+可以通过环境变量修改路径和构建参数：
+
+```bash
+TRTEXEC=/usr/src/tensorrt/bin/trtexec \
+VTSRTC_YOLO_MODEL=/opt/rtc/models/yolo26n.onnx \
+VTSRTC_YOLO_TRT_ENGINE=/opt/rtc/models/yolo26n.onnx.trt \
+VTSRTC_YOLO_TRT_WORKSPACE=1G \
+VTSRTC_YOLO_TRT_OPT_LEVEL=3 \
+VTSRTC_YOLO_TRT_PROGRESS_INTERVAL=0.1 \
+xmake yolo_engine
+```
+
+engine 必须在目标 Orin NX 或软硬件环境一致的设备上构建。JetPack、TensorRT、模型、batch 或输入尺寸发生变化后，应重新执行 `xmake yolo_engine`。
+
 # YOLO 编译开关
 
 YOLO TensorRT 推理默认开启，正常构建即可：
@@ -51,7 +90,7 @@ xmake b -vy rtc_dual_camera_headless
 xmake f --enable_yolo=false
 ```
 
-启用后会链接 Jetson 系统 TensorRT/CUDA 库，并在构建后把 `models/yolo26n.onnx` 复制到运行目录。程序首次启动会从 ONNX 构建 TensorRT engine，默认缓存为 `models/yolo26n.onnx.trt`；旁边的 `.trt.meta` 会记录 ONNX 内容指纹，后续启动只要模型内容没变就会直接加载缓存。旧的 batch=1 ONNX 模型需要重新执行 `xmake yolo_model` 导出。
+启用后会链接 Jetson 系统 TensorRT/CUDA 库，并在构建后把 `models/yolo26n.onnx`、已存在的 `.trt` 和 `.trt.meta` 复制到运行目录。如果未预构建 engine，程序首次启动会从 ONNX 构建并缓存；后续启动只要模型内容没变就会直接加载缓存。旧的 batch=1 ONNX 模型需要重新执行 `xmake yolo_model` 导出。
 
 # 运行
  xmake r rtc_dual_camera_headless --room zhejianglab
