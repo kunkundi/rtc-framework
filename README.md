@@ -9,7 +9,7 @@ rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
    - 房间管理
    - 实时音视频通信
    - 实时数据通信
-* p2p_imgui是使用vtsrtc + Dear ImGui开发的DEMO
+* rtc_console是使用vtsrtc + Dear ImGui开发的RTC操作端
 * rtc_edge_headless是运行在工控机上的边缘端主程序，当前编排双目摄像头采集和车辆控制配置
 
 ### 工程结构
@@ -18,15 +18,15 @@ rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
 client/
   apps/                 可执行程序入口与应用专属代码
   modules/              边缘端、headless、双摄像头、视觉和车辆业务模块
-protocol/
-  vehicle/              车辆控制协议、生成代码和 codec
-  vision/               视觉检测协议、生成代码和 codec
+  protocols/
+    vehicle/            车辆控制协议、生成代码和 codec
+    vision/             视觉检测协议、生成代码和 codec
 signaling-server/       HTTP 房间管理和 WebSocket 信令服务
 vtsrtc/                 RTC 动态库及稳定 C ABI
 xmake/                  构建选项、依赖和目标定义
 ```
 
-客户端详细分层见 `client/README.md`，协议目录说明见 `protocol/README.md`。
+客户端详细分层见 `client/README.md`，协议目录说明见 `client/protocols/README.md`。
 
 ### 构建与编译
 工程使用xmake组织管理，目前支持：Windows和Linux平台。
@@ -91,7 +91,7 @@ scripts\download_third_party.bat
 1. 通用Linux环境执行 `./run_xmake.sh`
 2. Jetson(aarch64)环境执行 `./run_xmake_aarch64.sh`
 3. 构建产物默认输出到 `build/runtime`，安装输出到 `install`
-4. 示例程序为 `build/runtime/p2p_imgui`
+4. RTC操作端为 `build/runtime/rtc_console`
 5. 习惯使用IDE开发，可执行 `xmake project -k compile_commands` 生成 `compile_commands.json`
 
 #### 常用xmake命令

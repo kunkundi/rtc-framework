@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace rtc_p2p_imgui {
+namespace rtc_console {
 
 struct AppOptions {
   bool no_render = false;

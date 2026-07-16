@@ -8,7 +8,7 @@ Use a dedicated RTC DataChannel label:
 constexpr const char* kVisionDetectionChannelLabel = "vision.detect.v1";
 ```
 
-Detection metadata is encoded with nanopb from `protocol/vision/schema/vision_detection.proto`
+Detection metadata is encoded with nanopb from `client/protocols/vision/schema/vision_detection.proto`
 and sent through `RtcBroadcastData`. The payload is binary, so pass the encoded
 buffer and its exact byte size.
 
@@ -85,7 +85,7 @@ For v1.x evolution:
 - Add new fields only as `optional` or `repeated`.
 - Never reuse field numbers.
 - Reserve field numbers/names when a field is removed.
-- Keep bounded nanopb fields updated in `protocol/vision/schema/vision_detection.options`.
+- Keep bounded nanopb fields updated in `client/protocols/vision/schema/vision_detection.options`.
 - Receivers must ignore unknown fields and unknown optional submessages.
 
 Increment `protocol_major` only for incompatible changes, such as changing the
@@ -116,8 +116,8 @@ python tools/generate_nanopb.py --protocol vision --check
 Expected generated files:
 
 ```text
-protocol/vision/generated/vision_detection.pb.h
-protocol/vision/generated/vision_detection.pb.c
+client/protocols/vision/generated/vision_detection.pb.h
+client/protocols/vision/generated/vision_detection.pb.c
 ```
 
 Add the generated `.pb.c` file and generated include directory to the target:
@@ -126,12 +126,12 @@ Add the generated `.pb.c` file and generated include directory to the target:
 target("rtc_vision_detection_protocol")
     add_packages("nanopb")
     add_includedirs(
-        "protocol/vision/include",
-        "protocol/vision/generated"
+        "client/protocols/vision/include",
+        "client/protocols/vision/generated"
     )
     add_files(
-        "protocol/vision/generated/vision_detection.pb.c",
-        "protocol/vision/src/vision_detection_codec.cpp"
+        "client/protocols/vision/generated/vision_detection.pb.c",
+        "client/protocols/vision/src/vision_detection_codec.cpp"
     )
 ```
 

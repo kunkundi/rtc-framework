@@ -73,9 +73,8 @@ class VehicleControlInterface {
 Linux/Jetson 需要现有双摄像头依赖和 CUDA 运行环境：
 
 ```sh
-xmake build rtc_edge_headless
-xmake run rtc_edge_headless -- \
-  --config rtc.cfg
+xmake b rtc_edge_headless
+xmake r rtc_edge_headless --config rtc.cfg
 ```
 
 源码树中的配置文件位于 `config/rtc.cfg`，构建时会复制到可执行程序目录，
@@ -136,8 +135,8 @@ xmake run rtc_edge_headless -- \
 控制模块单测不依赖摄像头或工控机，可在 Windows/Linux 单独运行：
 
 ```sh
-xmake build rtc_vehicle_control_module_tests
-xmake run rtc_vehicle_control_module_tests
-xmake build rtc_edge_options_tests
-xmake run rtc_edge_options_tests
+xmake b rtc_vehicle_control_module_tests
+xmake r rtc_vehicle_control_module_tests
+xmake b rtc_edge_options_tests
+xmake r rtc_edge_options_tests
 ```

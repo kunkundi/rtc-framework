@@ -1,5 +1,5 @@
 #include "c_rtc.h"
-#include "p2p_imgui_options.h"
+#include "rtc_console_options.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
 
@@ -643,9 +643,9 @@ class SDLOpenGLWindow {
   int height_ = 0;
 };
 
-class RtcImguiApp {
+class RtcConsoleApp {
  public:
-  explicit RtcImguiApp(const rtc_p2p_imgui::AppOptions& options)
+  explicit RtcConsoleApp(const rtc_console::AppOptions& options)
       : options_(options) {
     instance_ = this;
     std::memset(open_room_id_, 0, sizeof(open_room_id_));
@@ -659,7 +659,7 @@ class RtcImguiApp {
     std::snprintf(send_msg_, sizeof(send_msg_), "%s", "hello world");
   }
 
-  ~RtcImguiApp() {
+  ~RtcConsoleApp() {
     StopMediaFeed();
     DestroyRtc();
     FreeMediaBuffers();
@@ -681,7 +681,7 @@ class RtcImguiApp {
     }
 
     SDLOpenGLWindow window;
-    if (!window.Init("rtc-framework | p2p_imgui", kMainWindowWidth,
+    if (!window.Init("rtc-framework | rtc_console", kMainWindowWidth,
                      kMainWindowHeight)) {
       AppendLog("SDLOpenGLWindow init failed");
       return;
@@ -790,16 +790,16 @@ class RtcImguiApp {
     RtcInitParams params;
     std::memset(&params, 0, sizeof(params));
     params.config_filepath = rtc_cfg_path_.c_str();
-    params.room_handler = &RtcImguiApp::OnRoom;
-    params.P2P_state_handler = &RtcImguiApp::OnP2PState;
-    params.datachannel_state_handler = &RtcImguiApp::OnDataChannelState;
-    params.serverconnection_state_handler = &RtcImguiApp::OnServerConnectionState;
-    params.SRS_state_handler = &RtcImguiApp::OnSRSState;
-    params.SRS_response_handler = &RtcImguiApp::OnSRSResponse;
-    params.recv_msg_handler = &RtcImguiApp::OnRecvMessage;
-    params.recv_audioframe_handler = &RtcImguiApp::OnRecvAudioFrame;
-    params.recv_frame_handler = &RtcImguiApp::OnRecvFrame;
-    params.channel_network_stats_handler = &RtcImguiApp::OnChannelNetworkStats;
+    params.room_handler = &RtcConsoleApp::OnRoom;
+    params.P2P_state_handler = &RtcConsoleApp::OnP2PState;
+    params.datachannel_state_handler = &RtcConsoleApp::OnDataChannelState;
+    params.serverconnection_state_handler = &RtcConsoleApp::OnServerConnectionState;
+    params.SRS_state_handler = &RtcConsoleApp::OnSRSState;
+    params.SRS_response_handler = &RtcConsoleApp::OnSRSResponse;
+    params.recv_msg_handler = &RtcConsoleApp::OnRecvMessage;
+    params.recv_audioframe_handler = &RtcConsoleApp::OnRecvAudioFrame;
+    params.recv_frame_handler = &RtcConsoleApp::OnRecvFrame;
+    params.channel_network_stats_handler = &RtcConsoleApp::OnChannelNetworkStats;
 
     const RtcErrorCode init_code = RtcInitAgentV2(params);
     if (init_code != RtcErrorCode::OK) {
@@ -2617,9 +2617,9 @@ class RtcImguiApp {
   }
 
  private:
-  static RtcImguiApp* instance_;
+  static RtcConsoleApp* instance_;
 
-  const rtc_p2p_imgui::AppOptions options_;
+  const rtc_console::AppOptions options_;
   std::atomic<RtcServerConnectionState> server_state_{ServerDisconnected};
   std::atomic<bool> auto_room_opened_{false};
   std::chrono::steady_clock::time_point last_auto_open_attempt_{};
@@ -2680,28 +2680,28 @@ class RtcImguiApp {
   std::vector<RtcYUV420pFrame> yuv_frames_;
 };
 
-RtcImguiApp* RtcImguiApp::instance_ = nullptr;
+RtcConsoleApp* RtcConsoleApp::instance_ = nullptr;
 
 }  // namespace
 
 int main(int argc, char** argv) {
   try {
-    const rtc_p2p_imgui::AppOptions options =
-        rtc_p2p_imgui::ParseOptions(argc, argv);
+    const rtc_console::AppOptions options =
+        rtc_console::ParseOptions(argc, argv);
     if (options.show_help) {
-      rtc_p2p_imgui::PrintUsage(argv[0]);
+      rtc_console::PrintUsage(argv[0]);
       return 0;
     }
 
-    RtcImguiApp app(options);
+    RtcConsoleApp app(options);
     if (!app.Init()) {
       return 1;
     }
     app.Run();
     return 0;
   } catch (const std::exception& ex) {
-    std::cerr << "p2p_imgui: " << ex.what() << std::endl;
-    rtc_p2p_imgui::PrintUsage(argv[0]);
+    std::cerr << "rtc_console: " << ex.what() << std::endl;
+    rtc_console::PrintUsage(argv[0]);
     return 1;
   }
 }

@@ -71,6 +71,6 @@ python tools/generate_nanopb.py --protocol vehicle
 构建并运行协议测试：
 
 ```powershell
-xmake build rtc_vehicle_control_protocol_tests
-xmake run rtc_vehicle_control_protocol_tests
+xmake b rtc_vehicle_control_protocol_tests
+xmake r rtc_vehicle_control_protocol_tests
 ```

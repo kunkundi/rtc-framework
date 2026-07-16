@@ -1,9 +1,9 @@
-#include "p2p_imgui_options.h"
+#include "rtc_console_options.h"
 
 #include <iostream>
 #include <stdexcept>
 
-namespace rtc_p2p_imgui {
+namespace rtc_console {
 
 AppOptions ParseOptions(int argc, char** argv) {
   AppOptions options;

@@ -34,8 +34,8 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "modules", "dual_camera", "include"),
             vtsrtc_path("client", "modules", "dual_camera", "src", "internal"),
             vtsrtc_path("client", "modules", "vision", "include"),
-            vtsrtc_path("protocol", "vehicle", "include"),
-            vtsrtc_path("protocol", "vision", "include")
+            vtsrtc_path("client", "protocols", "vehicle", "include"),
+            vtsrtc_path("client", "protocols", "vision", "include")
         )
         add_packages("nanopb")
         vtsrtc_add_json_config()
@@ -95,7 +95,7 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "modules", "vehicle", "include"),
             vtsrtc_path("client", "modules", "headless", "include"),
             vtsrtc_path("client", "modules", "dual_camera", "include"),
-            vtsrtc_path("protocol", "vehicle", "include"),
+            vtsrtc_path("client", "protocols", "vehicle", "include"),
             vtsrtc_path("vtsrtc", "src")
         )
         vtsrtc_add_json_config()

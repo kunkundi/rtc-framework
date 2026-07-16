@@ -12,13 +12,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROTOCOLS = {
     "vehicle": (
-        PROJECT_ROOT / "protocol" / "vehicle" / "schema",
-        PROJECT_ROOT / "protocol" / "vehicle" / "generated",
+        PROJECT_ROOT / "client" / "protocols" / "vehicle" / "schema",
+        PROJECT_ROOT / "client" / "protocols" / "vehicle" / "generated",
         "rtc_vehicle.proto",
     ),
     "vision": (
-        PROJECT_ROOT / "protocol" / "vision" / "schema",
-        PROJECT_ROOT / "protocol" / "vision" / "generated",
+        PROJECT_ROOT / "client" / "protocols" / "vision" / "schema",
+        PROJECT_ROOT / "client" / "protocols" / "vision" / "generated",
         "vision_detection.proto",
     ),
 }

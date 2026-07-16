@@ -10,7 +10,7 @@
 - `vtsrtc/`：可复用的 RTC 动态库，通过 `c_rtc.h` 提供稳定的 C ABI。
 - `client/apps/`：ImGui、摄像头、接收端和边缘端可执行程序入口。
 - `client/modules/`：headless、边缘端、双摄像头、视觉和车辆业务的可复用客户端模块。
-- `protocol/`：基于 nanopb 的车辆控制与视觉检测协议、生成代码和编解码库。
+- `client/protocols/`：基于 nanopb 的车辆控制与视觉检测协议、生成代码和编解码库。
 - `docs/`：信令、视觉检测元数据和车辆控制协议文档。
 - `xmake/`：构建选项、依赖辅助函数和目标定义。
 
@@ -43,10 +43,10 @@ Jetson/aarch64 Release 构建与安装：
 ```powershell
 xmake require -y
 xmake f -m release --enable_cuda=n
-xmake build <target>
-xmake run <binary-target>
-xmake build rtc_vehicle_control_protocol_tests
-xmake run rtc_vehicle_control_protocol_tests
+xmake b <target>
+xmake r <binary-target>
+xmake b rtc_vehicle_control_protocol_tests
+xmake r rtc_vehicle_control_protocol_tests
 ```
 
 Linux 构建脚本要求系统已安装 `libasio-dev`，或者通过 `ASIO_PATH` 指定 standalone Asio。摄像头、CUDA、TensorRT、NVENC 和 Jetson 目标需要对应的硬件与 SDK。如果无法完成全量构建，应构建并测试受影响的最小目标，并在交付说明中写明缺失的环境依赖。
@@ -90,7 +90,7 @@ feat(control): 增加车辆控制协议编解码
 
 ## Protobuf 与生成代码
 
-工程使用 nanopb 0.4.9。`protocol/*/schema/` 下的 `.proto` 和 `.options` 文件是协议定义的唯一事实来源。
+工程使用 nanopb 0.4.9。`client/protocols/*/schema/` 下的 `.proto` 和 `.options` 文件是协议定义的唯一事实来源。
 
 - 不得手工修改生成的 `.pb.h` 或 `.pb.c` 文件。
 - 修改 schema 后必须重新生成并提交对应的两个生成文件。
