@@ -50,6 +50,7 @@ constexpr const char* kDataChannelLabel = "datachannel";
 constexpr const char* kExternalAudioSource = "external_audio";
 constexpr const char* kExternalVideoSource = "merged_image";
 constexpr int kAutoOpenRetryMs = 3000;
+constexpr int kNoRenderStatusIntervalMs = 5000;
 constexpr int kMainWindowWidth = 1060;
 constexpr int kMainWindowHeight = 910;
 constexpr float kPanelLeft = 16.0f;
@@ -757,13 +758,32 @@ class RtcConsoleApp {
     std::signal(SIGINT, HandleStopSignal);
     std::signal(SIGTERM, HandleStopSignal);
     AppendLog(std::string("No-render mode started; room=") + options_.room_id);
+    auto next_status_at = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(
+                              kNoRenderStatusIntervalMs);
 
     while (!g_stop_requested) {
-      MaybeOpenConfiguredRoom(std::chrono::steady_clock::now());
+      const auto now = std::chrono::steady_clock::now();
+      MaybeOpenConfiguredRoom(now);
+      if (now >= next_status_at) {
+        AppendNoRenderStatus();
+        next_status_at = now +
+                         std::chrono::milliseconds(
+                             kNoRenderStatusIntervalMs);
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     AppendLog("No-render mode stopped");
+  }
+
+  void AppendNoRenderStatus() {
+    std::ostringstream oss;
+    oss << "No-render status: server=" << ServerStateText(server_state_.load())
+        << " room_opened=" << (auto_room_opened_.load() ? "yes" : "no")
+        << " recv_video=" << remote_video_frames_.load()
+        << " recv_audio=" << remote_audio_frames_.load();
+    AppendLog(oss.str());
   }
 
   void MaybeOpenConfiguredRoom(std::chrono::steady_clock::time_point now) {
@@ -798,10 +818,8 @@ class RtcConsoleApp {
     params.SRS_state_handler = &RtcConsoleApp::OnSRSState;
     params.SRS_response_handler = &RtcConsoleApp::OnSRSResponse;
     params.recv_msg_handler = &RtcConsoleApp::OnRecvMessage;
-    if (!options_.no_render) {
-      params.recv_audioframe_handler = &RtcConsoleApp::OnRecvAudioFrame;
-      params.recv_frame_handler = &RtcConsoleApp::OnRecvFrame;
-    }
+    params.recv_audioframe_handler = &RtcConsoleApp::OnRecvAudioFrame;
+    params.recv_frame_handler = &RtcConsoleApp::OnRecvFrame;
     params.channel_network_stats_handler = &RtcConsoleApp::OnChannelNetworkStats;
 
     const RtcErrorCode init_code = RtcInitAgentV2(params);
