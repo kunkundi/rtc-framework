@@ -60,6 +60,7 @@ nlohmann::json MakeValidConfig() {
   root["edge"]["surround_camera"]["frame_wait_ms"] = 10;
 
   root["edge"]["yolo"]["enabled"] = true;
+  root["edge"]["yolo"]["max_fps"] = 12;
   root["edge"]["yolo"]["processing_downscale"] = 4;
 
   root["edge"]["vehicle_control"]["watchdog_ms"] = 250;
@@ -98,6 +99,7 @@ void TestValidConfig() {
   Check(options.surround_camera.frame_wait.count() == 10,
         "load surround frame wait");
   Check(options.camera.yolo_enabled, "load YOLO enabled");
+  Check(options.camera.yolo_max_fps == 12, "load YOLO max FPS");
   Check(options.camera.yolo_processing_downscale == 4,
         "load YOLO processing downscale");
   Check(options.control.watchdog_ms == 250, "load watchdog");
@@ -120,6 +122,8 @@ void TestRepositoryConfig() {
   Check(options.surround_camera.right_device.empty(),
         "load disabled repository surround right camera");
   Check(options.camera.yolo_enabled, "load repository YOLO enabled");
+  Check(options.camera.yolo_max_fps == 15,
+        "load repository YOLO max FPS");
   Check(options.camera.yolo_processing_downscale == 2,
         "load repository YOLO processing downscale");
   Check(options.control.watchdog_ms == 300,
@@ -217,6 +221,23 @@ void TestInvalidYoloDownscale() {
   std::remove(path.c_str());
 }
 
+void TestInvalidYoloMaxFps() {
+  const std::string path = "/tmp/rtc_edge_options_yolo_max_fps.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["yolo"]["max_fps"] = 241;
+  WriteConfig(path, config);
+
+  bool rejected = false;
+  try {
+    rtc_edge_app::LoadEdgeOptions(path);
+  } catch (const std::runtime_error& ex) {
+    rejected = std::string(ex.what()).find("edge.yolo.max_fps") !=
+               std::string::npos;
+  }
+  Check(rejected, "reject invalid YOLO max FPS");
+  std::remove(path.c_str());
+}
+
 }  // 匿名命名空间
 
 int main() {
@@ -227,6 +248,7 @@ int main() {
   TestMissingSurroundCameraDevice();
   TestEmptySurroundCameraDevice();
   TestInvalidYoloDownscale();
+  TestInvalidYoloMaxFps();
   std::cout << "rtc_edge_options_tests passed" << std::endl;
   return 0;
 }

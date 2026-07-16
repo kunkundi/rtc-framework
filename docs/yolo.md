@@ -75,12 +75,15 @@ VTSRTC_YOLO_TRT_ENGINE=/path/to/yolo26n.onnx.trt xmake r rtc_dual_camera_headles
 ```json
 "edge": {
     "yolo": {
+        "max_fps": 15,
         "processing_downscale": 2
     }
 }
 ```
 
 `processing_downscale` 默认为 `2`，取值范围为 `1..8`，`1` 表示不缩放。该缩放只影响显示拼接工作帧和 OpenCV ORB/RANSAC；YOLO 只检测原始左、右相机单目帧，再按显示端横向抽样/拼接比例把框映射回拼接图坐标。没有原始双目帧时不会回退到拼接工作帧检测。
+
+`max_fps` 默认为 `15`，用于限制 YOLO 消费端的最大处理帧率；设为 `0` 可关闭限制。帧队列深度为 `1`，跳过的旧帧不会积压，因此不会额外增加检测链路延迟。
 
 # 编译并运行
  xmake b -vy rtc_dual_camera_headless && xmake r rtc_dual_camera_headless --room zhejianglab

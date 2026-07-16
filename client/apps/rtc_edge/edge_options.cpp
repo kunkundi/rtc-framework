@@ -272,6 +272,8 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       std::chrono::milliseconds(surround_frame_wait_ms);
 
   options.camera.yolo_enabled = ReadBoolean(yolo, "enabled", "edge.yolo");
+  options.camera.yolo_max_fps = static_cast<size_t>(
+      ReadInteger(yolo, "max_fps", "edge.yolo", 0, 240));
   options.camera.yolo_processing_downscale = static_cast<size_t>(ReadInteger(
       yolo, "processing_downscale", "edge.yolo", 1, 8));
 

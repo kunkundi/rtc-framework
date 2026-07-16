@@ -58,6 +58,7 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
     video_source_->Start();
     if (options_.yolo_enabled) {
       rtc_camera_headless::YoloFrameConsumerOptions yolo_options;
+      yolo_options.max_fps = options_.yolo_max_fps;
       yolo_options.processing_downscale =
           options_.yolo_processing_downscale;
       yolo_consumer_.reset(new rtc_camera_headless::YoloFrameConsumer(

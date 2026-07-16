@@ -1222,6 +1222,11 @@ void YoloFrameConsumer::Run() {
   DualUyvyFrameConverter frame_converter;
   DetectionStabilizer stabilizer;
   VisionPerfStats stats;
+  std::chrono::steady_clock::time_point last_processed_at;
+  const std::chrono::microseconds minimum_interval =
+      options_.max_fps > 0
+          ? std::chrono::microseconds(1000000 / options_.max_fps)
+          : std::chrono::microseconds(0);
   while (!stop_requested_.load() && !rtc_runtime::StopRequested()) {
     rtc_camera::dual::ImageFrame frame;
     if (!frames_ || !frames_->WaitNext(&frame, std::chrono::milliseconds(50))) {
@@ -1238,6 +1243,16 @@ void YoloFrameConsumer::Run() {
       first_frame_logged = true;
       rtc_logging::LogInfo("first raw frame received by YOLO consumer");
     }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (minimum_interval.count() > 0 &&
+        last_processed_at.time_since_epoch().count() != 0 &&
+        now - last_processed_at < minimum_interval) {
+      ++stats.received_frames;
+      MaybeLogVisionPerfStats(&stats);
+      continue;
+    }
+    last_processed_at = now;
 
     ProcessYoloFrame(frame, &frame_converter, options_, &stabilizer, &stats);
     MaybeLogVisionPerfStats(&stats);

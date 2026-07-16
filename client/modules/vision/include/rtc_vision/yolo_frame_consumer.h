@@ -11,6 +11,7 @@
 namespace rtc_camera_headless {
 
 struct YoloFrameConsumerOptions {
+  size_t max_fps = 15;
   size_t processing_downscale = 2;
 };
 
