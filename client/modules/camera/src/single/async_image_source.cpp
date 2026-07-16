@@ -1,4 +1,4 @@
-#include "rtc_camera/async_camera_image_source.h"
+#include "rtc_camera/single/async_image_source.h"
 
 #include "rtc_camera/v4l2_camera.h"
 #include "rtc_logging/rtc_logging.h"
@@ -12,6 +12,7 @@
 #include <vector>
 
 namespace rtc_camera {
+namespace single {
 namespace {
 
 struct OwnedCameraFrame {
@@ -406,4 +407,5 @@ uint64_t AsyncCameraImageSource::captured_frames() const {
   return impl_->captured_frames;
 }
 
+}  // 命名空间 single
 }  // 命名空间 rtc_camera

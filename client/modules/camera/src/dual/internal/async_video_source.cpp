@@ -1,4 +1,4 @@
-#include "async_dual_camera_video_source.h"
+#include "async_video_source.h"
 
 #include "rtc_camera/v4l2_camera.h"
 #include "rtc_logging/rtc_logging.h"
@@ -8,7 +8,8 @@
 #include <cstring>
 #include <stdexcept>
 
-namespace rtc_dual_camera {
+namespace rtc_camera {
+namespace dual {
 namespace internal {
 namespace {
 
@@ -378,4 +379,5 @@ void AsyncDualCameraVideoSource::SetError(const std::string& error_message) {
 }
 
 }  // 命名空间 internal
-}  // 命名空间 rtc_dual_camera
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

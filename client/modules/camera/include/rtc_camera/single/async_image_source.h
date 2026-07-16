@@ -10,6 +10,7 @@
 #include <string>
 
 namespace rtc_camera {
+namespace single {
 
 struct CameraFrame {
   uint64_t sequence = 0;
@@ -75,4 +76,5 @@ class AsyncCameraImageSource {
   std::unique_ptr<Impl> impl_;
 };
 
+}  // 命名空间 single
 }  // 命名空间 rtc_camera

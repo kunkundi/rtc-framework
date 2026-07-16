@@ -77,11 +77,10 @@ xmake r rtc_edge --config /path/to/rtc.cfg
 
 ## modules
 
-- `camera/`：单相机 V4L2 采集、异步帧源和 I420 转换。
+- `camera/`：公共 V4L2 能力以及 `single/`、`dual/` 单双摄采集和转换。
 - `logging/`：基于 spdlog 的公共日志模块。
 - `runtime/`：客户端进程生命周期、配置路径解析和可复用 RTC 会话。
 - `edge/`：边缘端的单相机、双目和环视推流编排。
-- `dual_camera/`：双摄像头异步图像源、帧订阅和 I420 转换。
 - `vision/`：检测发送、双目融合、YOLO 消费与推理适配。
 - `vehicle/`：车辆控制接收、安全门控和本地车辆控制适配。
 
@@ -89,7 +88,8 @@ xmake r rtc_edge --config /path/to/rtc.cfg
 
 ```cpp
 #include "rtc_runtime/rtc_session.h"
-#include "rtc_dual_camera/dual_camera_async_image_source.h"
+#include "rtc_camera/single/async_image_source.h"
+#include "rtc_camera/dual/async_image_source.h"
 #include "rtc_edge/dual_camera_streaming_module.h"
 #include "rtc_vision/vision_detection_sender.h"
 #include "rtc_vehicle/vehicle_control_module.h"

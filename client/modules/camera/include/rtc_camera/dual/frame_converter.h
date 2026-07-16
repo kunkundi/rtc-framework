@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rtc_dual_camera/dual_camera_async_image_source.h"
+#include "rtc_camera/dual/async_image_source.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -9,9 +9,10 @@
 #include <string>
 #include <vector>
 
-class DualUyvyToI420StitchCudaConverter;
+namespace rtc_camera {
+namespace dual {
 
-namespace rtc_camera_headless {
+class DualUyvyToI420StitchCudaConverter;
 
 struct ConvertedI420Frame {
   const uint8_t* data = nullptr;
@@ -31,14 +32,14 @@ class DualUyvyFrameConverter {
   DualUyvyFrameConverter(const DualUyvyFrameConverter&) = delete;
   DualUyvyFrameConverter& operator=(const DualUyvyFrameConverter&) = delete;
 
-  bool ConvertToI420(const rtc_dual_camera::ImageFrame& frame,
+  bool ConvertToI420(const ImageFrame& frame,
                      ConvertedI420Frame* output,
                      std::string* error_message);
 
  private:
-  bool EnsureConverter(const rtc_dual_camera::ImageFrame& frame,
+  bool EnsureConverter(const ImageFrame& frame,
                        std::string* error_message);
-  bool ConvertNv12DualToI420(const rtc_dual_camera::ImageFrame& frame,
+  bool ConvertNv12DualToI420(const ImageFrame& frame,
                              ConvertedI420Frame* output,
                              std::string* error_message);
 
@@ -50,7 +51,7 @@ class DualUyvyFrameConverter {
   size_t right_height_ = 0;
   size_t right_stride_bytes_ = 0;
 
-  // NV12 CPU conversion buffers.
+  // NV12 CPU 转换缓冲区。
   std::vector<uint8_t> left_y_;
   std::vector<uint8_t> left_u_;
   std::vector<uint8_t> left_v_;
@@ -60,4 +61,5 @@ class DualUyvyFrameConverter {
   std::vector<uint8_t> stitched_i420_;
 };
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

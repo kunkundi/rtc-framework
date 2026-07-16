@@ -2,7 +2,7 @@
 
 #include "rtc_edge/camera_video_sources.h"
 
-#include "rtc_dual_camera/dual_uyvy_frame_converter.h"
+#include "rtc_camera/dual/frame_converter.h"
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/rtc_session.h"
 #include "rtc_vision/yolo_frame_consumer.h"
@@ -35,7 +35,7 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
 #endif
   try {
     video_source_.reset(
-        new rtc_dual_camera::AsyncDualCameraImageSource(options_.capture));
+        new rtc_camera::dual::AsyncDualCameraImageSource(options_.capture));
     rtc_frames_ = video_source_->Subscribe(2);
     if (!rtc_frames_) {
       if (error_message) {
@@ -54,7 +54,7 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
         return false;
       }
     }
-    converter_.reset(new rtc_camera_headless::DualUyvyFrameConverter());
+    converter_.reset(new rtc_camera::dual::DualUyvyFrameConverter());
     video_source_->Start();
     if (options_.yolo_enabled) {
       rtc_camera_headless::YoloFrameConsumerOptions yolo_options;
@@ -105,7 +105,7 @@ bool DualCameraStreamingModule::Tick(
     return false;
   }
 
-  rtc_dual_camera::ImageFrame frame;
+  rtc_camera::dual::ImageFrame frame;
   if (!rtc_frames_->WaitNext(&frame, options_.frame_wait)) {
     if (video_source_->failed()) {
       if (error_message) {
@@ -132,7 +132,7 @@ bool DualCameraStreamingModule::Tick(
     return false;
   }
 
-  rtc_camera_headless::ConvertedI420Frame converted;
+  rtc_camera::dual::ConvertedI420Frame converted;
   std::string convert_error;
   if (!converter_->ConvertToI420(frame, &converted, &convert_error)) {
     if (error_message) {

@@ -1,5 +1,5 @@
-#include "rtc_camera/async_camera_image_source.h"
-#include "rtc_camera/camera_frame_converter.h"
+#include "rtc_camera/single/async_image_source.h"
+#include "rtc_camera/single/frame_converter.h"
 
 #include <linux/videodev2.h>
 
@@ -18,7 +18,7 @@ void Check(bool condition, const std::string& message) {
 }
 
 void TestFrameState() {
-  rtc_camera::CameraFrame frame;
+  rtc_camera::single::CameraFrame frame;
   Check(frame.empty(), "default frame is empty");
 
   const uint8_t data[] = {1, 2, 3, 4};
@@ -30,13 +30,13 @@ void TestFrameState() {
 void TestClosedSubscription() {
   rtc_camera::CameraCaptureOptions options;
   options.device = "/dev/video-test";
-  rtc_camera::AsyncCameraImageSource source(options);
-  std::shared_ptr<rtc_camera::CameraFrameSubscription> subscription =
+  rtc_camera::single::AsyncCameraImageSource source(options);
+  std::shared_ptr<rtc_camera::single::CameraFrameSubscription> subscription =
       source.Subscribe(1);
   Check(static_cast<bool>(subscription), "create subscription");
 
   subscription->Close();
-  rtc_camera::CameraFrame frame;
+  rtc_camera::single::CameraFrame frame;
   Check(!subscription->WaitNext(&frame, std::chrono::milliseconds(0)),
         "closed subscription has no frame");
   Check(!source.running(), "source is stopped by default");
@@ -56,7 +56,7 @@ void TestNv12Conversion() {
       10, 12,
   };
 
-  rtc_camera::CameraFrame frame;
+  rtc_camera::single::CameraFrame frame;
   frame.pixel_format = V4L2_PIX_FMT_NV12;
   frame.width = 4;
   frame.height = 2;
@@ -64,8 +64,8 @@ void TestNv12Conversion() {
   frame.data = nv12.data();
   frame.data_size = nv12.size();
 
-  rtc_camera::CameraFrameConverter converter;
-  rtc_camera::ConvertedCameraFrame converted;
+  rtc_camera::single::CameraFrameConverter converter;
+  rtc_camera::single::ConvertedCameraFrame converted;
   std::string error_message;
   Check(converter.ConvertToI420(frame, &converted, &error_message),
         "convert NV12 frame: " + error_message);

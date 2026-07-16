@@ -10,7 +10,7 @@
 - `client/apps/rtc_edge/edge_options_tests.cpp`：覆盖配置读取、必填项和车辆看门狗上限。
 - `client/modules/edge/`：与设备类型无关的摄像头推流编排。
 - `client/modules/vehicle/`：车辆控制接收、安全门控和本地控制接口。
-- `client/modules/dual_camera/`：双摄像头异步采集和 I420 转换。
+- `client/modules/camera/`：公共 V4L2 能力以及单摄、双摄采集和转换。
 - `client/modules/runtime/`：进程生命周期、配置路径解析和 RTC 会话。
 
 控制数据流：

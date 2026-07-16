@@ -7,7 +7,8 @@
 #include <memory>
 #include <string>
 
-namespace rtc_dual_camera {
+namespace rtc_camera {
+namespace dual {
 
 class AsyncImageFrameSubscription;
 
@@ -20,20 +21,18 @@ struct ImageFrame {
   ImagePixelFormat format = ImagePixelFormat::kI420;
   uint64_t sequence = 0;
   int64_t timestamp_us = 0;
-  // Logical output size for consumers. For kDualUyvy this is the side-by-side
-  // sampled size that consumers get after converting the raw camera pair.
+  // 消费者完成双路采样和拼接后得到的逻辑输出尺寸。
   size_t width = 0;
   size_t height = 0;
 
-  // I420 fields.
+  // I420 帧字段。
   size_t stride_y = 0;
   size_t stride_u = 0;
   size_t stride_v = 0;
   const uint8_t* data = nullptr;
   size_t data_size = 0;
 
-  // kDualUyvy fields. The two raw camera frames are kept separate so each
-  // consumer can choose its own conversion path.
+  // 双路 UYVY 帧保持独立存储，由消费者选择具体转换方式。
   uint32_t left_pixel_format = 0;
   uint32_t right_pixel_format = 0;
   size_t left_width = 0;
@@ -114,4 +113,5 @@ class AsyncDualCameraImageSource {
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace rtc_dual_camera
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

@@ -1,20 +1,21 @@
-#include "rtc_dual_camera/dual_uyvy_frame_converter.h"
+#include "rtc_camera/dual/frame_converter.h"
 
-#include "dual_uyvy_to_i420_stitch_cuda.h"
+#include "internal/uyvy_to_i420_stitch_cuda.h"
 
 #include <linux/videodev2.h>
 #include <cstring>
 #include <memory>
 
-namespace rtc_camera_headless {
+namespace rtc_camera {
+namespace dual {
 
 DualUyvyFrameConverter::DualUyvyFrameConverter() = default;
 DualUyvyFrameConverter::~DualUyvyFrameConverter() = default;
 
 bool DualUyvyFrameConverter::EnsureConverter(
-    const rtc_dual_camera::ImageFrame& frame,
+    const ImageFrame& frame,
     std::string* error_message) {
-  if (frame.format != rtc_dual_camera::ImagePixelFormat::kDualUyvy) {
+  if (frame.format != ImagePixelFormat::kDualUyvy) {
     if (error_message) {
       *error_message = "frame is not a dual UYVY frame";
     }
@@ -61,7 +62,7 @@ bool DualUyvyFrameConverter::EnsureConverter(
 }
 
 bool DualUyvyFrameConverter::ConvertToI420(
-    const rtc_dual_camera::ImageFrame& frame,
+    const ImageFrame& frame,
     ConvertedI420Frame* output,
     std::string* error_message) {
   if (!output) {
@@ -72,7 +73,7 @@ bool DualUyvyFrameConverter::ConvertToI420(
   }
   *output = ConvertedI420Frame();
 
-  if (frame.format == rtc_dual_camera::ImagePixelFormat::kI420) {
+  if (frame.format == ImagePixelFormat::kI420) {
     if (frame.empty() || frame.stride_y == 0 || frame.stride_u == 0 ||
         frame.stride_v == 0) {
       if (error_message) {
@@ -90,13 +91,13 @@ bool DualUyvyFrameConverter::ConvertToI420(
     return true;
   }
 
-  // NV12 cameras: use CPU deinterleave + stitch path
+  // NV12 使用 CPU 完成色度分离和双路拼接。
   if (frame.left_pixel_format == V4L2_PIX_FMT_NV12 ||
       frame.right_pixel_format == V4L2_PIX_FMT_NV12) {
     return ConvertNv12DualToI420(frame, output, error_message);
   }
 
-  // UYVY / YUYV cameras: use CUDA conversion path
+  // UYVY 和 YUYV 使用 CUDA 完成转换和双路拼接。
   if (!EnsureConverter(frame, error_message)) {
     return false;
   }
@@ -138,7 +139,7 @@ bool ConvertSingleNv12ToI420(const uint8_t* nv12_data,
     return false;
   }
 
-  // NV12 layout: Y plane at stride*height, followed by interleaved UV
+  // NV12 先存放 Y 平面，随后存放交错排列的 UV 平面。
   const size_t y_plane_size = stride_bytes * height;
   const size_t uv_plane_size = stride_bytes * (height / 2);
   const size_t expected_size = y_plane_size + uv_plane_size;
@@ -152,14 +153,14 @@ bool ConvertSingleNv12ToI420(const uint8_t* nv12_data,
     return false;
   }
 
-  // Copy Y plane row-by-row (handle stride > width padding)
+  // 逐行复制 Y 平面，同时跳过步长中超出有效宽度的填充。
   y_plane->resize(width * height);
   for (size_t row = 0; row < height; ++row) {
     std::memcpy(y_plane->data() + row * width,
                 nv12_data + row * stride_bytes, width);
   }
 
-  // Deinterleave UV plane (UVUVUV... → UUU... + VVV...)
+  // 将交错 UV 平面拆分为独立的 U、V 平面。
   const uint8_t* uv_src = nv12_data + y_plane_size;
   const size_t uv_rows = height / 2;
   const size_t uv_cols = width / 2;
@@ -178,20 +179,20 @@ bool ConvertSingleNv12ToI420(const uint8_t* nv12_data,
   return true;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 bool DualUyvyFrameConverter::ConvertNv12DualToI420(
-    const rtc_dual_camera::ImageFrame& frame,
+    const ImageFrame& frame,
     ConvertedI420Frame* output,
     std::string* error_message) {
-  if (frame.format != rtc_dual_camera::ImagePixelFormat::kDualUyvy) {
+  if (frame.format != ImagePixelFormat::kDualUyvy) {
     if (error_message) {
       *error_message = "NV12 conversion requires a dual-camera frame";
     }
     return false;
   }
 
-  // Convert left camera NV12 → planar Y/U/V
+  // 将左路 NV12 转换为平面 Y、U、V 数据。
   if (!ConvertSingleNv12ToI420(frame.left_data, frame.left_data_size,
                                frame.left_width, frame.left_height,
                                frame.left_stride_bytes, &left_y_, &left_u_,
@@ -199,7 +200,7 @@ bool DualUyvyFrameConverter::ConvertNv12DualToI420(
     return false;
   }
 
-  // Convert right camera NV12 → planar Y/U/V
+  // 将右路 NV12 转换为平面 Y、U、V 数据。
   if (!ConvertSingleNv12ToI420(frame.right_data, frame.right_data_size,
                                frame.right_width, frame.right_height,
                                frame.right_stride_bytes, &right_y_, &right_u_,
@@ -207,7 +208,7 @@ bool DualUyvyFrameConverter::ConvertNv12DualToI420(
     return false;
   }
 
-  // Stitch side-by-side I420
+  // 按左右顺序拼接 I420 输出。
   const size_t out_width = frame.left_width + frame.right_width;
   const size_t out_height = frame.left_height;
   const size_t out_y_stride = out_width;
@@ -226,7 +227,7 @@ bool DualUyvyFrameConverter::ConvertNv12DualToI420(
   const size_t left_chroma_h = (frame.left_height + 1) / 2;
   const size_t right_chroma_h = (frame.right_height + 1) / 2;
 
-  // Stitch Y planes
+  // 拼接 Y 平面。
   for (size_t row = 0; row < out_height; ++row) {
     std::memcpy(dst_y + row * out_y_stride,
                 left_y_.data() + row * frame.left_width, frame.left_width);
@@ -235,7 +236,7 @@ bool DualUyvyFrameConverter::ConvertNv12DualToI420(
                 frame.right_width);
   }
 
-  // Stitch U planes
+  // 拼接 U 平面。
   for (size_t row = 0; row < chroma_height; ++row) {
     const size_t dst_row = row * out_u_stride;
     if (row < left_chroma_h) {
@@ -250,7 +251,7 @@ bool DualUyvyFrameConverter::ConvertNv12DualToI420(
     }
   }
 
-  // Stitch V planes
+  // 拼接 V 平面。
   for (size_t row = 0; row < chroma_height; ++row) {
     const size_t dst_row = row * out_v_stride;
     if (row < left_chroma_h) {
@@ -275,4 +276,5 @@ bool DualUyvyFrameConverter::ConvertNv12DualToI420(
   return true;
 }
 
-}  // namespace rtc_camera_headless
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

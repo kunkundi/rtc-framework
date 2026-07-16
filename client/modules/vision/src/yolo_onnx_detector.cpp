@@ -115,7 +115,8 @@ std::string ResolveDefaultModelPath() {
   return candidates.front();
 }
 
-bool BuildInputTensor(const rtc_dual_camera::ImageFrame& frame, int input_width,
+bool BuildInputTensor(const rtc_camera::dual::ImageFrame& frame,
+                      int input_width,
                       int input_height, std::vector<float>* input,
                       PreprocessInfo* info, std::string* error_message) {
   if (!input || !info) {
@@ -561,7 +562,7 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
   }
 }
 
-bool YoloOnnxDetector::Detect(const rtc_dual_camera::ImageFrame& frame,
+bool YoloOnnxDetector::Detect(const rtc_camera::dual::ImageFrame& frame,
                               std::vector<YoloDetectionBox>* boxes,
                               std::string* error_message) {
   if (!boxes) {

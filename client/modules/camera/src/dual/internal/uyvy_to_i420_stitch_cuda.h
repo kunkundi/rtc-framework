@@ -5,6 +5,9 @@
 
 #include <string>
 
+namespace rtc_camera {
+namespace dual {
+
 class DualUyvyToI420StitchCudaConverter {
  public:
   DualUyvyToI420StitchCudaConverter();
@@ -42,3 +45,6 @@ class DualUyvyToI420StitchCudaConverter {
   struct Impl;
   Impl* impl_ = nullptr;
 };
+
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

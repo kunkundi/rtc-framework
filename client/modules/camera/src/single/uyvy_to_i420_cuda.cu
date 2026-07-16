@@ -1,4 +1,4 @@
-#include "rtc_camera/uyvy_to_i420_cuda.h"
+#include "internal/uyvy_to_i420_cuda.h"
 
 #include <cuda_runtime.h>
 
@@ -74,6 +74,7 @@ __global__ void UYVYToI420Kernel(const uint8_t* src,
 }  // 匿名命名空间
 
 namespace rtc_camera {
+namespace single {
 
 struct UyvyToI420CudaConverter::Impl {
   size_t width = 0;
@@ -313,4 +314,5 @@ size_t UyvyToI420CudaConverter::v_stride() const {
   return impl_ ? impl_->v_stride : 0;
 }
 
+}  // 命名空间 single
 }  // 命名空间 rtc_camera

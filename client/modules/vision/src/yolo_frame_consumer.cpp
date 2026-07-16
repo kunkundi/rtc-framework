@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "rtc_dual_camera/dual_uyvy_frame_converter.h"
+#include "rtc_camera/dual/frame_converter.h"
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/process_runtime.h"
 #include "rtc_vision/stereo_detection_fuser.h"
@@ -20,6 +20,10 @@
 #endif
 
 namespace rtc_camera_headless {
+
+using rtc_camera::dual::ConvertedI420Frame;
+using rtc_camera::dual::DualUyvyFrameConverter;
+
 namespace {
 
 constexpr bool kSendYoloDetections = true;
@@ -916,12 +920,12 @@ YoloDetectionBox MapMonoDetectionToStereo(const YoloDetectionBox& box,
   return mapped;
 }
 
-bool RunYoloInference(const rtc_dual_camera::ImageFrame& source_frame,
+bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
                       const ConvertedI420Frame& converted_frame,
                       std::vector<YoloDetectionBox>* yolo_boxes);
 
 bool RunYoloInferenceOnOriginalMonoFrames(
-    const rtc_dual_camera::ImageFrame& source_frame,
+    const rtc_camera::dual::ImageFrame& source_frame,
     const ConvertedI420Frame& stereo_frame,
     size_t left_width,
     std::vector<YoloDetectionBox>* yolo_boxes,
@@ -933,7 +937,7 @@ bool RunYoloInferenceOnOriginalMonoFrames(
     return false;
   }
   yolo_boxes->clear();
-  if (source_frame.format != rtc_dual_camera::ImagePixelFormat::kDualUyvy ||
+  if (source_frame.format != rtc_camera::dual::ImagePixelFormat::kDualUyvy ||
       !source_frame.left_data || !source_frame.right_data ||
       source_frame.left_width == 0 || source_frame.right_width == 0 ||
       source_frame.left_height == 0 || source_frame.right_height == 0 ||
@@ -981,7 +985,7 @@ bool RunYoloInferenceOnOriginalMonoFrames(
   return true;
 }
 
-bool RunYoloInference(const rtc_dual_camera::ImageFrame& source_frame,
+bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
                       const ConvertedI420Frame& converted_frame,
                       std::vector<YoloDetectionBox>* yolo_boxes) {
 #ifdef VTSRTC_ENABLE_YOLO_TENSORRT
@@ -1011,8 +1015,8 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& source_frame,
   }
 
   std::string error_message;
-  rtc_dual_camera::ImageFrame i420_frame;
-  i420_frame.format = rtc_dual_camera::ImagePixelFormat::kI420;
+  rtc_camera::dual::ImageFrame i420_frame;
+  i420_frame.format = rtc_camera::dual::ImagePixelFormat::kI420;
   i420_frame.sequence = source_frame.sequence;
   i420_frame.timestamp_us = source_frame.timestamp_us;
   i420_frame.width = converted_frame.width;
@@ -1049,9 +1053,9 @@ bool RunYoloInference(const rtc_dual_camera::ImageFrame& source_frame,
 #endif
 }
 
-size_t StereoLeftWidth(const rtc_dual_camera::ImageFrame& frame,
+size_t StereoLeftWidth(const rtc_camera::dual::ImageFrame& frame,
                        const ConvertedI420Frame& converted_frame) {
-  if (frame.format == rtc_dual_camera::ImagePixelFormat::kDualUyvy &&
+  if (frame.format == rtc_camera::dual::ImagePixelFormat::kDualUyvy &&
       frame.left_width > 0 && frame.right_width > 0) {
     const size_t total_sampled = frame.left_width / 2 + frame.right_width / 2;
     if (total_sampled > 0) {
@@ -1061,7 +1065,7 @@ size_t StereoLeftWidth(const rtc_dual_camera::ImageFrame& frame,
   return converted_frame.width / 2;
 }
 
-void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame,
+void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
                       DualUyvyFrameConverter* frame_converter,
                       const YoloFrameConsumerOptions& options,
                       DetectionStabilizer* stabilizer,
@@ -1189,7 +1193,7 @@ void ProcessYoloFrame(const rtc_dual_camera::ImageFrame& frame,
 }  // namespace
 
 YoloFrameConsumer::YoloFrameConsumer(
-    const std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription>& frames,
+    const std::shared_ptr<rtc_camera::dual::AsyncImageFrameSubscription>& frames,
     const YoloFrameConsumerOptions& options)
     : frames_(frames), options_(options) {}
 
@@ -1219,7 +1223,7 @@ void YoloFrameConsumer::Run() {
   DetectionStabilizer stabilizer;
   VisionPerfStats stats;
   while (!stop_requested_.load() && !rtc_runtime::StopRequested()) {
-    rtc_dual_camera::ImageFrame frame;
+    rtc_camera::dual::ImageFrame frame;
     if (!frames_ || !frames_->WaitNext(&frame, std::chrono::milliseconds(50))) {
       MaybeLogVisionPerfStats(&stats);
       continue;

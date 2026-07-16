@@ -1,15 +1,20 @@
 #pragma once
 
-#include "rtc_dual_camera/dual_camera_async_image_source.h"
+#include "rtc_camera/dual/async_image_source.h"
 
 #include <chrono>
 #include <memory>
 #include <string>
 
 namespace rtc_camera_headless {
-class DualUyvyFrameConverter;
 class YoloFrameConsumer;
 }  // 命名空间 rtc_camera_headless
+
+namespace rtc_camera {
+namespace dual {
+class DualUyvyFrameConverter;
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera
 
 namespace rtc_runtime {
 class RtcSession;
@@ -18,7 +23,7 @@ class RtcSession;
 namespace rtc_edge {
 
 struct DualCameraStreamingModuleOptions {
-  rtc_dual_camera::AsyncDualCameraImageSourceOptions capture;
+  rtc_camera::dual::AsyncDualCameraImageSourceOptions capture;
   std::chrono::milliseconds frame_wait{20};
   bool yolo_enabled = false;
   size_t yolo_processing_downscale = 1;
@@ -44,10 +49,10 @@ class DualCameraStreamingModule {
 
  private:
   DualCameraStreamingModuleOptions options_;
-  std::unique_ptr<rtc_dual_camera::AsyncDualCameraImageSource> video_source_;
-  std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription> rtc_frames_;
-  std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription> yolo_frames_;
-  std::unique_ptr<rtc_camera_headless::DualUyvyFrameConverter> converter_;
+  std::unique_ptr<rtc_camera::dual::AsyncDualCameraImageSource> video_source_;
+  std::shared_ptr<rtc_camera::dual::AsyncImageFrameSubscription> rtc_frames_;
+  std::shared_ptr<rtc_camera::dual::AsyncImageFrameSubscription> yolo_frames_;
+  std::unique_ptr<rtc_camera::dual::DualUyvyFrameConverter> converter_;
   std::unique_ptr<rtc_camera_headless::YoloFrameConsumer> yolo_consumer_;
   bool started_ = false;
   bool first_frame_logged_ = false;

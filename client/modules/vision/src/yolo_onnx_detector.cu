@@ -462,7 +462,7 @@ bool ResolveEngineInputShape(nvinfer1::ICudaEngine* engine,
                             error_message);
 }
 
-bool BuildPreprocessInfo(const rtc_dual_camera::ImageFrame& frame,
+bool BuildPreprocessInfo(const rtc_camera::dual::ImageFrame& frame,
                          int input_width,
                          int input_height,
                          PreprocessInfo* info,
@@ -947,7 +947,7 @@ __global__ void I420ToRgbNchwLetterboxKernel(const uint8_t* src_y,
   dst[image_size * 2 + index] = blue;
 }
 
-bool LaunchPreprocessKernel(const rtc_dual_camera::ImageFrame& frame,
+bool LaunchPreprocessKernel(const rtc_camera::dual::ImageFrame& frame,
                             const PreprocessInfo& info,
                             DeviceBuffer* input_device,
                             DeviceBuffer* frame_device,
@@ -1419,7 +1419,7 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
   }
 }
 
-bool YoloOnnxDetector::Detect(const rtc_dual_camera::ImageFrame& frame,
+bool YoloOnnxDetector::Detect(const rtc_camera::dual::ImageFrame& frame,
                               std::vector<YoloDetectionBox>* boxes,
                               std::string* error_message) {
   if (!boxes) {

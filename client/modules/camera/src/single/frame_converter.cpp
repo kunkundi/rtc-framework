@@ -1,6 +1,6 @@
-#include "rtc_camera/camera_frame_converter.h"
+#include "rtc_camera/single/frame_converter.h"
 
-#include "rtc_camera/uyvy_to_i420_cuda.h"
+#include "internal/uyvy_to_i420_cuda.h"
 
 #include <linux/videodev2.h>
 
@@ -8,6 +8,7 @@
 #include <utility>
 
 namespace rtc_camera {
+namespace single {
 
 CameraFrameConverter::CameraFrameConverter() = default;
 CameraFrameConverter::~CameraFrameConverter() = default;
@@ -146,4 +147,5 @@ bool CameraFrameConverter::EnsureCudaConverter(
   return true;
 }
 
+}  // 命名空间 single
 }  // 命名空间 rtc_camera

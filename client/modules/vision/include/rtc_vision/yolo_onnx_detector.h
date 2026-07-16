@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rtc_dual_camera/dual_camera_async_image_source.h"
+#include "rtc_camera/dual/async_image_source.h"
 #include "rtc_vision/vision_detection_sender.h"
 
 #include <memory>
@@ -22,7 +22,7 @@ class YoloOnnxDetector {
   YoloOnnxDetector(const YoloOnnxDetector&) = delete;
   YoloOnnxDetector& operator=(const YoloOnnxDetector&) = delete;
 
-  bool Detect(const rtc_dual_camera::ImageFrame& frame,
+  bool Detect(const rtc_camera::dual::ImageFrame& frame,
               std::vector<YoloDetectionBox>* boxes,
               std::string* error_message);
 

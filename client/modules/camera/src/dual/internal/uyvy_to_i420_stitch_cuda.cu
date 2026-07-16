@@ -1,4 +1,4 @@
-#include "dual_uyvy_to_i420_stitch_cuda.h"
+#include "uyvy_to_i420_stitch_cuda.h"
 
 #include <cuda_runtime.h>
 
@@ -63,11 +63,11 @@ __global__ void DualUyvyToSampledI420SideBySideKernel(
   uint8_t y00, u00, v00;
   uint8_t y01, u01, v01;
   if (is_yuyv) {
-    // YUYV: Y0 U0 Y1 V0
+    // YUYV 字节顺序：Y0 U0 Y1 V0。
     y00 = pair00[0]; u00 = pair00[1]; v00 = pair00[3];
     y01 = pair01[0]; u01 = pair01[1]; v01 = pair01[3];
   } else {
-    // UYVY: U0 Y0 V0 Y1
+    // UYVY 字节顺序：U0 Y0 V0 Y1。
     u00 = pair00[0]; y00 = pair00[1]; v00 = pair00[2];
     u01 = pair01[0]; y01 = pair01[1]; v01 = pair01[2];
   }
@@ -108,7 +108,10 @@ __global__ void DualUyvyToSampledI420SideBySideKernel(
       static_cast<uint8_t>((v_sum + uv_samples / 2) / uv_samples);
 }
 
-}  // namespace
+}  // 匿名命名空间
+
+namespace rtc_camera {
+namespace dual {
 
 struct DualUyvyToI420StitchCudaConverter::Impl {
   size_t left_width = 0;
@@ -432,3 +435,6 @@ size_t DualUyvyToI420StitchCudaConverter::u_stride() const {
 size_t DualUyvyToI420StitchCudaConverter::v_stride() const {
   return impl_ ? impl_->v_stride : 0;
 }
+
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

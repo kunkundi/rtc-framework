@@ -10,6 +10,9 @@
 #include <vector>
 
 namespace rtc_camera_headless {
+
+using rtc_camera::dual::ConvertedI420Frame;
+
 namespace {
 
 constexpr size_t kMaxStereoDetections = 64;

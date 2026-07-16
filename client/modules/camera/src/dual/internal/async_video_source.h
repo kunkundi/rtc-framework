@@ -14,7 +14,8 @@
 #include <thread>
 #include <vector>
 
-namespace rtc_dual_camera {
+namespace rtc_camera {
+namespace dual {
 namespace internal {
 
 enum class VideoFrameFormat {
@@ -118,4 +119,5 @@ class AsyncDualCameraVideoSource {
 };
 
 }  // 命名空间 internal
-}  // 命名空间 rtc_dual_camera
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

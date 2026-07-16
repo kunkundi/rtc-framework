@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rtc_dual_camera/dual_camera_async_image_source.h"
+#include "rtc_camera/dual/async_image_source.h"
 
 #include <stddef.h>
 
@@ -17,7 +17,7 @@ struct YoloFrameConsumerOptions {
 class YoloFrameConsumer {
  public:
   explicit YoloFrameConsumer(
-      const std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription>&
+      const std::shared_ptr<rtc_camera::dual::AsyncImageFrameSubscription>&
           frames,
       const YoloFrameConsumerOptions& options = YoloFrameConsumerOptions());
   ~YoloFrameConsumer();
@@ -32,7 +32,7 @@ class YoloFrameConsumer {
   void Run();
 
   std::atomic<bool> stop_requested_{false};
-  std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription> frames_;
+  std::shared_ptr<rtc_camera::dual::AsyncImageFrameSubscription> frames_;
   YoloFrameConsumerOptions options_;
   std::thread thread_;
 };

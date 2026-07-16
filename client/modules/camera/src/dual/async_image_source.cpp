@@ -1,13 +1,14 @@
-#include "rtc_dual_camera/dual_camera_async_image_source.h"
+#include "rtc_camera/dual/async_image_source.h"
 
-#include "async_dual_camera_video_source.h"
+#include "internal/async_video_source.h"
 
-namespace rtc_dual_camera {
+namespace rtc_camera {
+namespace dual {
 namespace {
 
-rtc_dual_camera::internal::DualCameraVideoSourceConfig MakeVideoSourceConfig(
+internal::DualCameraVideoSourceConfig MakeVideoSourceConfig(
     const AsyncDualCameraImageSourceOptions& options) {
-  rtc_dual_camera::internal::DualCameraVideoSourceConfig config;
+  internal::DualCameraVideoSourceConfig config;
   config.left_device = options.left_device;
   config.right_device = options.right_device;
   config.options.width = options.width;
@@ -20,17 +21,17 @@ rtc_dual_camera::internal::DualCameraVideoSourceConfig MakeVideoSourceConfig(
 }
 
 ImagePixelFormat ConvertFormat(
-    rtc_dual_camera::internal::VideoFrameFormat source_format) {
+    internal::VideoFrameFormat source_format) {
   switch (source_format) {
-    case rtc_dual_camera::internal::VideoFrameFormat::kI420:
+    case internal::VideoFrameFormat::kI420:
       return ImagePixelFormat::kI420;
-    case rtc_dual_camera::internal::VideoFrameFormat::kDualUyvy:
+    case internal::VideoFrameFormat::kDualUyvy:
       return ImagePixelFormat::kDualUyvy;
   }
   return ImagePixelFormat::kI420;
 }
 
-void CopyFrame(const rtc_dual_camera::internal::VideoFrame& source,
+void CopyFrame(const internal::VideoFrame& source,
                ImageFrame* destination) {
   destination->format = ConvertFormat(source.format);
   destination->sequence = source.sequence;
@@ -58,7 +59,7 @@ void CopyFrame(const rtc_dual_camera::internal::VideoFrame& source,
   destination->right_data_size = source.right_data.size();
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 bool ImageFrame::empty() const {
   if (format == ImagePixelFormat::kDualUyvy) {
@@ -70,12 +71,11 @@ bool ImageFrame::empty() const {
 
 struct AsyncImageFrameSubscription::Impl {
   explicit Impl(
-      const std::shared_ptr<rtc_dual_camera::internal::VideoSourceSubscription>&
+      const std::shared_ptr<internal::VideoSourceSubscription>&
           source_subscription)
       : source_subscription(source_subscription) {}
 
-  std::shared_ptr<rtc_dual_camera::internal::VideoSourceSubscription>
-      source_subscription;
+  std::shared_ptr<internal::VideoSourceSubscription> source_subscription;
 };
 
 AsyncImageFrameSubscription::AsyncImageFrameSubscription(
@@ -93,7 +93,7 @@ bool AsyncImageFrameSubscription::WaitNext(
     return false;
   }
 
-  rtc_dual_camera::internal::VideoFramePtr source_frame;
+  internal::VideoFramePtr source_frame;
   if (!impl_->source_subscription->WaitNext(&source_frame, timeout) ||
       !source_frame) {
     return false;
@@ -114,7 +114,7 @@ struct AsyncDualCameraImageSource::Impl {
   explicit Impl(const AsyncDualCameraImageSourceOptions& options)
       : source(MakeVideoSourceConfig(options)) {}
 
-  rtc_dual_camera::internal::AsyncDualCameraVideoSource source;
+  internal::AsyncDualCameraVideoSource source;
 };
 
 AsyncDualCameraImageSource::AsyncDualCameraImageSource(
@@ -166,4 +166,5 @@ uint64_t AsyncDualCameraImageSource::captured_frames() const {
   return impl_ ? impl_->source.captured_frames() : 0;
 }
 
-}  // namespace rtc_dual_camera
+}  // 命名空间 dual
+}  // 命名空间 rtc_camera

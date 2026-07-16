@@ -1,6 +1,6 @@
 #include "rtc_edge/single_camera_streaming_module.h"
 
-#include "rtc_camera/camera_frame_converter.h"
+#include "rtc_camera/single/frame_converter.h"
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/rtc_session.h"
 
@@ -35,7 +35,7 @@ bool SingleCameraStreamingModule::Start(std::string* error_message) {
 
   try {
     video_source_.reset(
-        new rtc_camera::AsyncCameraImageSource(options_.capture));
+        new rtc_camera::single::AsyncCameraImageSource(options_.capture));
     rtc_frames_ = video_source_->Subscribe(1);
     if (!rtc_frames_) {
       if (error_message != nullptr) {
@@ -45,7 +45,7 @@ bool SingleCameraStreamingModule::Start(std::string* error_message) {
       return false;
     }
 
-    converter_.reset(new rtc_camera::CameraFrameConverter());
+    converter_.reset(new rtc_camera::single::CameraFrameConverter());
     video_source_->Start();
     started_ = true;
     first_frame_logged_ = false;
@@ -90,7 +90,7 @@ bool SingleCameraStreamingModule::Tick(
     return false;
   }
 
-  rtc_camera::CameraFrame frame;
+  rtc_camera::single::CameraFrame frame;
   if (!rtc_frames_->WaitNext(&frame, options_.frame_wait)) {
     if (video_source_->failed()) {
       if (error_message != nullptr) {
@@ -118,7 +118,7 @@ bool SingleCameraStreamingModule::Tick(
     return false;
   }
 
-  rtc_camera::ConvertedCameraFrame converted;
+  rtc_camera::single::ConvertedCameraFrame converted;
   std::string convert_error;
   if (!converter_->ConvertToI420(frame, &converted, &convert_error)) {
     if (error_message != nullptr) {

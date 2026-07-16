@@ -1,14 +1,16 @@
 #pragma once
 
-#include "rtc_camera/async_camera_image_source.h"
+#include "rtc_camera/single/async_image_source.h"
 
 #include <chrono>
 #include <memory>
 #include <string>
 
 namespace rtc_camera {
+namespace single {
 class CameraFrameConverter;
-}
+}  // 命名空间 single
+}  // 命名空间 rtc_camera
 
 namespace rtc_runtime {
 class RtcSession;
@@ -44,9 +46,9 @@ class SingleCameraStreamingModule {
 
  private:
   SingleCameraStreamingModuleOptions options_;
-  std::unique_ptr<rtc_camera::AsyncCameraImageSource> video_source_;
-  std::shared_ptr<rtc_camera::CameraFrameSubscription> rtc_frames_;
-  std::unique_ptr<rtc_camera::CameraFrameConverter> converter_;
+  std::unique_ptr<rtc_camera::single::AsyncCameraImageSource> video_source_;
+  std::shared_ptr<rtc_camera::single::CameraFrameSubscription> rtc_frames_;
+  std::unique_ptr<rtc_camera::single::CameraFrameConverter> converter_;
   bool started_ = false;
   bool first_frame_logged_ = false;
 };

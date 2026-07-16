@@ -1,5 +1,5 @@
-#include "rtc_dual_camera/dual_camera_async_image_source.h"
-#include "rtc_dual_camera/dual_uyvy_frame_converter.h"
+#include "rtc_camera/dual/async_image_source.h"
+#include "rtc_camera/dual/frame_converter.h"
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/process_runtime.h"
 #include "rtc_runtime/rtc_session.h"
@@ -27,7 +27,7 @@ namespace {
 
 struct DualCaptureOptions {
   rtc_runtime::SessionOptions rtc_options;
-  rtc_dual_camera::AsyncDualCameraImageSourceOptions image_options;
+  rtc_camera::dual::AsyncDualCameraImageSourceOptions image_options;
   YoloFrameConsumerOptions yolo_options;
   int frame_limit = 0;
 };
@@ -239,17 +239,17 @@ int main(int argc, char** argv) {
     const DualCaptureOptions dual_options = ParseDualArgs(argc, argv);
     const rtc_runtime::SessionOptions& options = dual_options.rtc_options;
 
-    rtc_dual_camera::AsyncDualCameraImageSource video_source(
+    rtc_camera::dual::AsyncDualCameraImageSource video_source(
         dual_options.image_options);
-    std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription> rtc_frames =
+    std::shared_ptr<rtc_camera::dual::AsyncImageFrameSubscription> rtc_frames =
         video_source.Subscribe(2);
-    std::shared_ptr<rtc_dual_camera::AsyncImageFrameSubscription> yolo_frames =
+    std::shared_ptr<rtc_camera::dual::AsyncImageFrameSubscription> yolo_frames =
         video_source.Subscribe(1);
     video_source.Start();
 
     YoloFrameConsumer yolo_consumer(yolo_frames, dual_options.yolo_options);
     yolo_consumer.Start();
-    DualUyvyFrameConverter rtc_frame_converter;
+    rtc_camera::dual::DualUyvyFrameConverter rtc_frame_converter;
 
     rtc_runtime::RtcSession rtc_session(options, MakeRtcFeatures());
     if (!rtc_session.Init()) {
@@ -261,7 +261,7 @@ int main(int argc, char** argv) {
     while (!rtc_runtime::StopRequested()) {
       rtc_session.Tick();
 
-      rtc_dual_camera::ImageFrame frame;
+      rtc_camera::dual::ImageFrame frame;
       if (!rtc_frames->WaitNext(&frame, std::chrono::milliseconds(50))) {
         if (video_source.failed()) {
           throw std::runtime_error("video source failed: " +
@@ -284,7 +284,7 @@ int main(int argc, char** argv) {
         throw std::runtime_error("video source returned an invalid frame");
       }
 
-      ConvertedI420Frame converted_frame;
+      rtc_camera::dual::ConvertedI420Frame converted_frame;
       std::string convert_error;
       if (!rtc_frame_converter.ConvertToI420(frame, &converted_frame,
                                              &convert_error)) {

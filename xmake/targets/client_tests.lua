@@ -6,22 +6,19 @@ if vtsrtc_on_linux() then
         add_deps(
             "rtc_logging",
             "rtc_runtime",
-            "rtc_dual_camera_image_source",
+            "rtc_camera",
+            "rtc_camera_converter",
             "rtc_vision_detection_protocol"
         )
 
         add_files(
             vtsrtc_path("client", "tests", "rtc_dual_camera_headless", "main.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "dual_uyvy_frame_converter.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "stereo_detection_fuser.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "yolo_frame_consumer.cpp"),
-            vtsrtc_path("client", "modules", "vision", "src", "vision_detection_sender.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu")
+            vtsrtc_path("client", "modules", "vision", "src", "vision_detection_sender.cpp")
         )
 
         add_includedirs(
-            vtsrtc_path("client", "modules", "dual_camera", "include"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal"),
             vtsrtc_path("client", "modules", "vision", "include"),
             vtsrtc_path("client", "protocols", "vision", "include")
         )

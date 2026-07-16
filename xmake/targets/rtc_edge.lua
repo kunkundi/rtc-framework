@@ -7,7 +7,6 @@ if vtsrtc_on_linux() then
             "rtc_camera_converter",
             "rtc_logging",
             "rtc_runtime",
-            "rtc_dual_camera_image_source",
             "rtc_vehicle_control_module",
             "rtc_vehicle_control_protocol",
             "rtc_vision_detection_protocol"
@@ -19,18 +18,14 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "apps", "rtc_edge", "edge_application.cpp"),
             vtsrtc_path("client", "modules", "edge", "src", "dual_camera_streaming_module.cpp"),
             vtsrtc_path("client", "modules", "edge", "src", "single_camera_streaming_module.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "dual_uyvy_frame_converter.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "stereo_detection_fuser.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "yolo_frame_consumer.cpp"),
-            vtsrtc_path("client", "modules", "vision", "src", "vision_detection_sender.cpp"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal", "dual_uyvy_to_i420_stitch_cuda.cu")
+            vtsrtc_path("client", "modules", "vision", "src", "vision_detection_sender.cpp")
         )
 
         add_includedirs(
             vtsrtc_path("client", "modules", "edge", "include"),
             vtsrtc_path("client", "modules", "vehicle", "include"),
-            vtsrtc_path("client", "modules", "dual_camera", "include"),
-            vtsrtc_path("client", "modules", "dual_camera", "src", "internal"),
             vtsrtc_path("client", "modules", "vision", "include"),
             vtsrtc_path("client", "protocols", "vehicle", "include"),
             vtsrtc_path("client", "protocols", "vision", "include")
@@ -91,7 +86,7 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "apps", "rtc_edge"),
             vtsrtc_path("client", "modules", "edge", "include"),
             vtsrtc_path("client", "modules", "vehicle", "include"),
-            vtsrtc_path("client", "modules", "dual_camera", "include"),
+            vtsrtc_path("client", "modules", "camera", "include"),
             vtsrtc_path("client", "protocols", "vehicle", "include"),
             vtsrtc_path("vtsrtc", "src")
         )
