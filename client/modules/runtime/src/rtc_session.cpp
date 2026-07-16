@@ -125,7 +125,8 @@ bool RtcSession::Init() {
 
   if (features_.enable_external_video_source) {
     if (features_.external_video_source_id.empty()) {
-      rtc_logging::LogError("默认外部视频源 ID 不能为空");
+      rtc_logging::LogError(
+          "Default external video source ID must not be empty");
       return false;
     }
     const RtcErrorCode video_code = RtcAddExternalVideoSource(
@@ -142,12 +143,13 @@ bool RtcSession::Init() {
   for (const ExternalVideoSourceConfig& source :
        features_.additional_external_video_sources) {
     if (source.source_id.empty()) {
-      rtc_logging::LogError("外部视频源 ID 不能为空");
+      rtc_logging::LogError("External video source ID must not be empty");
       return false;
     }
     if (external_video_source_ids_.find(source.source_id) !=
         external_video_source_ids_.end()) {
-      rtc_logging::LogError(std::string("外部视频源 ID 重复：") + source.source_id);
+      rtc_logging::LogError(std::string("Duplicate external video source ID: ") +
+                            source.source_id);
       return false;
     }
     const RtcErrorCode video_code = RtcAddExternalVideoSource(
@@ -256,7 +258,8 @@ bool RtcSession::SendI420Frame(const char* video_source_id,
   }
   if (external_video_source_ids_.find(video_source_id) ==
       external_video_source_ids_.end()) {
-    rtc_logging::LogError(std::string("尝试发送未注册的外部视频源：") +
+    rtc_logging::LogError(
+        std::string("Attempted to send unregistered external video source: ") +
                           video_source_id);
     return false;
   }

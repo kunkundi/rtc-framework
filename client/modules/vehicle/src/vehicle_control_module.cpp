@@ -54,14 +54,14 @@ bool VehicleControlModule::Start(std::string* error_message) {
   }
   if (!vehicle_control_) {
     if (error_message) {
-      *error_message = "车辆控制接口为空";
+      *error_message = "vehicle control interface is null";
     }
     return false;
   }
   if (options_.watchdog_ms >
       vts_rtc::vehicle::kDefaultDriveWatchdogMs) {
     if (error_message) {
-      *error_message = "控制看门狗超过协议规定的 300 ms 上限";
+      *error_message = "control watchdog exceeds the protocol limit of 300 ms";
     }
     return false;
   }
@@ -76,7 +76,7 @@ void VehicleControlModule::Shutdown() {
   if (!started_) {
     return;
   }
-  StopForSafety("控制模块关闭");
+  StopForSafety("control module shutdown");
   vehicle_control_->Close();
   started_ = false;
   has_active_session_ = false;
@@ -148,7 +148,7 @@ void VehicleControlModule::Tick(uint64_t now_ms) {
   }
 
   if (overflowed) {
-    StopForSafety("控制事件队列溢出");
+    StopForSafety("control event queue overflow");
   }
   for (const PendingEvent& event : events) {
     ProcessEvent(event, now_ms);
@@ -156,7 +156,7 @@ void VehicleControlModule::Tick(uint64_t now_ms) {
 
   if (has_active_session_ && drive_gate_.started() &&
       drive_gate_.PollWatchdog(now_ms)) {
-    StopForSafety("驾驶指令看门狗超时");
+    StopForSafety("drive command watchdog timeout");
   }
   MaybeSendState(now_ms);
 }
@@ -194,25 +194,26 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
                                           uint64_t now_ms) {
   if (!has_active_session_ || event.remote_sessionid != active_sessionid_) {
     if (log_error_) {
-      log_error_("忽略非当前控制端发送的控制消息");
+      log_error_("Ignoring control message from inactive peer");
     }
     return;
   }
   if (event.payload_invalid) {
-    StopForSafety("控制消息为空、指针无效或超过 4 KiB 上限");
+    StopForSafety("control message is empty, has null data, or exceeds 4 KiB");
     return;
   }
 
   const vts_rtc::vehicle::DecodeResult decoded =
       vts_rtc::vehicle::DecodeEnvelope(event.payload);
   if (!decoded) {
-    StopForSafety(std::string("控制协议解码失败：") + decoded.error_message);
+    StopForSafety(std::string("control protocol decode failed: ") +
+                  decoded.error_message);
     return;
   }
 
   if (event.label == vts_rtc::vehicle::kVehicleControlChannelLabel) {
     if (decoded.envelope.type != vts_rtc::vehicle::MessageType::DriveCommand) {
-      StopForSafety("实时控制通道收到非驾驶消息");
+      StopForSafety("non-drive message received on realtime control channel");
       return;
     }
     ProcessDriveCommand(decoded.envelope, now_ms);
@@ -220,7 +221,8 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
   }
 
   if (decoded.envelope.type != vts_rtc::vehicle::MessageType::SetGear) {
-    StopForSafety("可靠控制通道收到非换档事务消息");
+    StopForSafety(
+        "non-gear transaction received on reliable control channel");
     return;
   }
   ProcessSetGear(event.remote_sessionid, decoded.envelope);
@@ -249,7 +251,7 @@ void VehicleControlModule::ProcessDriveCommand(
   const VehicleCommandResult result = NormalizeResult(
       vehicle_control_->SendDriveCommand(envelope.drive_command));
   if (!result.accepted) {
-    StopForSafety(result.detail.empty() ? "本地车辆控制接口拒绝驾驶指令"
+    StopForSafety(result.detail.empty() ? "local vehicle control interface rejected drive command"
                                         : result.detail);
     return;
   }
@@ -264,7 +266,7 @@ void VehicleControlModule::ProcessSetGear(
     VehicleCommandResult rejected;
     rejected.accepted = false;
     rejected.error_code = vts_rtc::vehicle::VehicleErrorCode::InvalidState;
-    rejected.detail = "车辆处于安全锁停状态";
+    rejected.detail = "vehicle is safety-locked";
     SendEventAck(remote_sessionid, envelope.set_gear, rejected);
     state_dirty_ = true;
     return;
@@ -281,7 +283,8 @@ void VehicleControlModule::ProcessSetGear(
 void VehicleControlModule::HandlePeerConnected(RtcSessionId remote_sessionid) {
   if (has_active_session_) {
     if (active_sessionid_ != remote_sessionid && log_error_) {
-      log_error_("已有控制端连接，忽略额外的 P2P 会话");
+      log_error_(
+          "Ignoring additional P2P session because a control peer is active");
     }
     return;
   }
@@ -293,7 +296,7 @@ void VehicleControlModule::HandlePeerConnected(RtcSessionId remote_sessionid) {
   stop_sent_ = false;
   state_dirty_ = true;
   if (log_info_) {
-    log_info_("车辆控制端已连接");
+    log_info_("Vehicle control peer connected");
   }
 }
 
@@ -302,7 +305,7 @@ void VehicleControlModule::HandlePeerDisconnected(
   if (!has_active_session_ || active_sessionid_ != remote_sessionid) {
     return;
   }
-  StopForSafety("车辆控制端连接断开");
+  StopForSafety("vehicle control peer disconnected");
   has_active_session_ = false;
   active_sessionid_ = 0;
   state_dirty_ = false;
@@ -319,7 +322,7 @@ void VehicleControlModule::StopForSafety(const std::string& reason) {
   }
   state_dirty_ = true;
   if (first_stop && !reason.empty() && log_error_) {
-    log_error_(std::string("触发车辆安全停车：") + reason);
+    log_error_(std::string("Safety stop triggered: ") + reason);
   }
 }
 
@@ -365,13 +368,14 @@ bool VehicleControlModule::SendPayload(
     const vts_rtc::vehicle::EncodeResult& encoded) {
   if (!encoded) {
     if (log_error_) {
-      log_error_(std::string("控制协议编码失败：") + encoded.error_message);
+      log_error_(std::string("Control protocol encode failed: ") +
+                 encoded.error_message);
     }
     return false;
   }
   if (!send_data_ || !send_data_(remote_sessionid, label, encoded.payload)) {
     if (log_error_) {
-      log_error_(std::string("控制协议发送失败：") + label);
+      log_error_(std::string("Control protocol send failed: ") + label);
     }
     return false;
   }

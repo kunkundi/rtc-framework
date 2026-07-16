@@ -39,7 +39,7 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
     rtc_frames_ = video_source_->Subscribe(2);
     if (!rtc_frames_) {
       if (error_message) {
-        *error_message = "创建摄像头帧订阅失败";
+        *error_message = "failed to create RTC camera frame subscription";
       }
       video_source_.reset();
       return false;
@@ -48,7 +48,7 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
       yolo_frames_ = video_source_->Subscribe(1);
       if (!yolo_frames_) {
         if (error_message != nullptr) {
-          *error_message = "创建 YOLO 帧订阅失败";
+          *error_message = "failed to create YOLO camera frame subscription";
         }
         Stop();
         return false;
@@ -101,7 +101,7 @@ bool DualCameraStreamingModule::Tick(
   if (!started_ || !rtc_session || !video_source_ || !rtc_frames_ ||
       !converter_) {
     if (error_message) {
-      *error_message = "摄像头模块尚未启动";
+      *error_message = "dual camera streaming module is not started";
     }
     return false;
   }
@@ -111,7 +111,7 @@ bool DualCameraStreamingModule::Tick(
     if (video_source_->failed()) {
       if (error_message) {
         *error_message =
-            std::string("摄像头采集失败：") + video_source_->error_message();
+            std::string("camera capture failed: ") + video_source_->error_message();
       }
       return false;
     }
@@ -121,14 +121,14 @@ bool DualCameraStreamingModule::Tick(
   rtc_session->NoteCapturedFrame();
   if (!first_frame_logged_) {
     first_frame_logged_ = true;
-    rtc_logging::LogInfo("摄像头模块收到首个双目原始帧");
+    rtc_logging::LogInfo("Camera module received first raw stereo frame");
   }
   if (!rtc_session->IsReadyToSend()) {
     return true;
   }
   if (frame.empty()) {
     if (error_message) {
-      *error_message = "摄像头模块收到无效帧";
+      *error_message = "camera module received an invalid frame";
     }
     return false;
   }
@@ -137,7 +137,8 @@ bool DualCameraStreamingModule::Tick(
   std::string convert_error;
   if (!converter_->ConvertToI420(frame, &converted, &convert_error)) {
     if (error_message) {
-      *error_message = std::string("摄像头格式转换失败：") + convert_error;
+      *error_message = std::string("camera pixel format conversion failed: ") +
+                       convert_error;
     }
     return false;
   }
@@ -147,7 +148,7 @@ bool DualCameraStreamingModule::Tick(
           converted.height, converted.stride_y, converted.stride_u,
           converted.stride_v)) {
     if (error_message) {
-      *error_message = "RTC 视频帧发送失败";
+      *error_message = "failed to send RTC video frame";
     }
     return false;
   }

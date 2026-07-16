@@ -353,7 +353,7 @@ void RunMainLoop(const EdgeOptions& options,
       const uint64_t frame_limit =
           static_cast<uint64_t>(options.frame_limit);
       if (rtc_session.sent_frames() >= frame_limit) {
-        rtc_logging::LogInfo("已达到视频帧发送上限");
+        rtc_logging::LogInfo("Video frame send limit reached");
         rtc_runtime::RequestStop();
       }
     }
@@ -381,16 +381,16 @@ int RunEdgeApplication(const EdgeOptions& options) {
   try {
     std::string control_error;
     if (!control_module.Start(&control_error)) {
-      throw std::runtime_error(std::string("控制模块启动失败：") +
+      throw std::runtime_error(std::string("Vehicle control module failed to start: ") +
                                control_error);
     }
     if (!rtc_session.Init()) {
-      throw std::runtime_error("RTC 会话初始化失败");
+      throw std::runtime_error("RTC session initialization failed");
     }
 
     std::string camera_error;
     if (!camera_modules.Start(&camera_error)) {
-      throw std::runtime_error(std::string("摄像头模块启动失败：") +
+      throw std::runtime_error(std::string("Camera modules failed to start: ") +
                                camera_error);
     }
 

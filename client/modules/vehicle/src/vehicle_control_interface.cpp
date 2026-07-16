@@ -8,7 +8,7 @@ VehicleCommandResult NotConnectedResult() {
   VehicleCommandResult result;
   result.accepted = false;
   result.error_code = vts_rtc::vehicle::VehicleErrorCode::InvalidState;
-  result.detail = "车辆控制接口尚未接入";
+  result.detail = "vehicle control interface is not implemented";
   return result;
 }
 
@@ -25,7 +25,8 @@ bool PlaceholderVehicleControlInterface::Open(std::string* error_message) {
     error_message->clear();
   }
   if (logger_) {
-    logger_("车辆控制接口运行在占位模式，不会下发实际控制指令");
+    logger_("Vehicle control interface is running in placeholder mode; "
+            "commands will not be sent to hardware");
   }
   return true;
 }
@@ -50,13 +51,14 @@ PlaceholderVehicleControlInterface::SendGearCommand(
 
 void PlaceholderVehicleControlInterface::SendStop() {
   if (opened_ && logger_) {
-    logger_("车辆控制占位接口收到停车请求");
+    logger_("Placeholder vehicle control interface received a stop request");
   }
 }
 
 void PlaceholderVehicleControlInterface::LogOnce() {
   if (!unavailable_logged_ && logger_) {
-    logger_("控制指令未下发：车辆控制接口尚未实现");
+    logger_("Control command was not sent because the vehicle control "
+            "interface is not implemented");
     unavailable_logged_ = true;
   }
 }
