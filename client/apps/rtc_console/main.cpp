@@ -2,6 +2,7 @@
 #include "rtc_console_options.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
+#include "vehicle_state_log_limiter.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
@@ -2036,12 +2037,13 @@ class RtcConsoleApp {
 
   void AppendLog(const std::string& message) {
     std::lock_guard<std::mutex> lock(log_mutex_);
+    if (options_.no_render) {
+      std::cout << message << std::endl;
+      return;
+    }
     logs_.push_back(message);
     if (logs_.size() > 2000) {
       logs_.erase(logs_.begin(), logs_.begin() + 500);
-    }
-    if (options_.no_render) {
-      std::cout << message << std::endl;
     }
   }
 
@@ -2450,6 +2452,13 @@ class RtcConsoleApp {
 
     const vts_rtc::vehicle::VehicleState& state =
         decoded.envelope.vehicle_state;
+    if (!vehicle_state_log_limiter_.ShouldLog(
+            static_cast<uint64_t>(remote_sessionid),
+            static_cast<uint32_t>(state.active_gear), state.watchdog_stopped,
+            rtc_console::VehicleStateLogLimiter::Clock::now())) {
+      return;
+    }
+
     std::ostringstream oss;
     oss << "Vehicle state from " << remote_sessionid << " ["
         << vts_rtc::vehicle::kVehicleStateChannelLabel << "] bytes="
@@ -2632,6 +2641,7 @@ class RtcConsoleApp {
 
   std::mutex log_mutex_;
   std::vector<std::string> logs_;
+  rtc_console::VehicleStateLogLimiter vehicle_state_log_limiter_;
   bool auto_scroll_ = true;
   bool show_netstats_ = false;
   bool show_eventlog_ = false;
