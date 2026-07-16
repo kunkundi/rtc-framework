@@ -31,11 +31,18 @@ VTSRTC_YOLO_SOURCE=/path/to/yolo26n.pt xmake yolo_model
 
 如果 Jetson 上安装 PyTorch/Ultralytics 不方便，也可以在开发机上导出 `yolo26n.onnx`，然后放到本仓库的 `models/yolo26n.onnx`。
 
-# 开启 YOLO 编译
+# YOLO 编译开关
+
+YOLO TensorRT 推理默认开启，正常构建即可：
 
 ```bash
-xmake f --enable_yolo=true
 xmake b -vy rtc_dual_camera_headless
+```
+
+如果当前环境没有 TensorRT，可以显式关闭：
+
+```bash
+xmake f --enable_yolo=false
 ```
 
 启用后会链接 Jetson 系统 TensorRT/CUDA 库，并在构建后把 `models/yolo26n.onnx` 复制到运行目录。程序首次启动会从 ONNX 构建 TensorRT engine，默认缓存为 `models/yolo26n.onnx.trt`；旁边的 `.trt.meta` 会记录 ONNX 内容指纹，后续启动只要模型内容没变就会直接加载缓存。

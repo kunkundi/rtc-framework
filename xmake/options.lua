@@ -17,7 +17,7 @@ option("enable_cuda")
 option_end()
 
 option("enable_yolo")
-    set_default(false)
+    set_default(true)
     set_showmenu(true)
     set_description("Enable YOLO26n TensorRT detection in camera clients")
 option_end()
