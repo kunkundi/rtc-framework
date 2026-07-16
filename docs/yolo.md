@@ -23,7 +23,7 @@ models/yolo26n.pt
 models/yolo26n.onnx
 ```
 
-默认输入形状为 `[2,3,512,512]`，左右相机图像通过一次 TensorRT enqueue 执行 batch=2 推理。原始 UYVY/YUYV 帧会直接上传 GPU，由 CUDA 同时完成 RGB 转换、letterbox 缩放和 NCHW 排布，不再为 YOLO 在 CPU 上生成两份 I420 临时帧。`512x512` 用于降低双目推理的 GPU 负载。如果需要优先保留小目标精度，可以显式改回 `640`：
+默认输入形状为 `[2,3,512,512]`，左右相机图像通过一次 TensorRT enqueue 执行 batch=2 推理。原始 UYVY/YUYV 帧会直接上传 GPU，由 CUDA 同时完成 RGB 转换、letterbox 缩放和 NCHW 排布，不再为 YOLO 在 CPU 上生成两份 I420 临时帧。导出模型内置 NMS，TensorRT 只回传最终检测框，C++ 不再复制完整预测张量或重复执行 CPU NMS。`512x512` 用于降低双目推理的 GPU 负载。如果需要优先保留小目标精度，可以显式改回 `640`：
 
 ```bash
 VTSRTC_YOLO_IMGSZ=640 xmake yolo_model

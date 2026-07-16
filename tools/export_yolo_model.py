@@ -47,6 +47,7 @@ def main():
             imgsz=args.imgsz,
             batch=2,
             opset=args.opset,
+            nms=True,
             simplify=not args.no_simplify,
             dynamic=False,
         )

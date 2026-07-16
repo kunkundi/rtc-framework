@@ -737,7 +737,15 @@ bool ParseTensorOutput(const float* data,
   return false;
 }
 
-std::vector<Candidate> ApplyNms(std::vector<Candidate>* candidates) {
+bool HasEndToEndNmsOutput(const nvinfer1::Dims& shape) {
+  if (shape.nbDims == 3) {
+    return shape.d[0] > 0 && shape.d[1] > 0 && shape.d[2] == 6;
+  }
+  return shape.nbDims == 2 && shape.d[0] > 0 && shape.d[1] == 6;
+}
+
+std::vector<Candidate> SelectCandidates(std::vector<Candidate>* candidates,
+                                        bool apply_nms) {
   std::vector<Candidate> selected;
   if (!candidates) {
     return selected;
@@ -750,11 +758,13 @@ std::vector<Candidate> ApplyNms(std::vector<Candidate>* candidates) {
 
   for (const Candidate& candidate : *candidates) {
     bool suppress = false;
-    for (const Candidate& kept : selected) {
-      if (candidate.class_id == kept.class_id &&
-          IoU(candidate, kept) > kNmsThreshold) {
-        suppress = true;
-        break;
+    if (apply_nms) {
+      for (const Candidate& kept : selected) {
+        if (candidate.class_id == kept.class_id &&
+            IoU(candidate, kept) > kNmsThreshold) {
+          suppress = true;
+          break;
+        }
       }
     }
     if (suppress) {
@@ -1366,15 +1376,19 @@ struct YoloOnnxDetector::Impl {
 
     for (size_t batch = 0; batch < preprocess.size(); ++batch) {
       std::vector<Candidate> candidates;
+      bool requires_cpu_nms = false;
       for (size_t i = 0; i < output_names.size(); ++i) {
         std::string parse_error;
+        requires_cpu_nms =
+            requires_cpu_nms || !HasEndToEndNmsOutput(output_shapes[i]);
         ParseTensorOutput(
             static_cast<const float*>(output_host_buffers[i].data()),
             output_shapes[i], batch, preprocess[batch], &candidates,
             &parse_error);
       }
 
-      const std::vector<Candidate> selected = ApplyNms(&candidates);
+      const std::vector<Candidate> selected =
+          SelectCandidates(&candidates, requires_cpu_nms);
       batch_boxes[batch] = ToDetectionBoxes(
           selected, preprocess[batch], frame_sequences[batch]);
     }
