@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="yolo26n.pt")
     parser.add_argument("--out-dir", default="models")
-    parser.add_argument("--imgsz", type=int, default=640)
+    parser.add_argument("--imgsz", type=int, default=512)
     parser.add_argument("--opset", type=int, default=17)
     parser.add_argument("--no-simplify", action="store_true")
     return parser.parse_args()

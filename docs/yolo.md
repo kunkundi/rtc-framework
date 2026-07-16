@@ -23,6 +23,12 @@ models/yolo26n.pt
 models/yolo26n.onnx
 ```
 
+默认输入尺寸为 `512x512`，以降低双目推理的 GPU 负载。如果需要优先保留小目标精度，可以显式改回 `640`：
+
+```bash
+VTSRTC_YOLO_IMGSZ=640 xmake yolo_model
+```
+
 如果要使用本地权重：
 
 ```bash

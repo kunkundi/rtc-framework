@@ -30,7 +30,7 @@ using rtc_runtime::ExecutableDir;
 using rtc_runtime::FileExists;
 using rtc_runtime::JoinPath;
 
-constexpr int kDefaultInputSize = 640;
+constexpr int kDefaultInputSize = 512;
 constexpr float kConfidenceThreshold = 0.25f;
 constexpr float kNmsThreshold = 0.45f;
 constexpr size_t kMaxDetections = 64;

@@ -12,7 +12,7 @@ task("yolo_model")
             script,
             "--model", os.getenv("VTSRTC_YOLO_SOURCE") or "yolo26n.pt",
             "--out-dir", path.join(os.projectdir(), "models"),
-            "--imgsz", os.getenv("VTSRTC_YOLO_IMGSZ") or "640"
+            "--imgsz", os.getenv("VTSRTC_YOLO_IMGSZ") or "512"
         })
     end)
 task_end()
