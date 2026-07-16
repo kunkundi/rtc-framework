@@ -54,6 +54,8 @@ protected:
 	virtual void HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 		size_t width, size_t height, size_t dimension,
 		const std::vector<unsigned char>& buffer) const = 0;
+	virtual bool WantsAudioFrames() const = 0;
+	virtual bool WantsVideoFrames() const = 0;
 
 private:
 	void InitDataChannelObserverCallbacks(
@@ -115,6 +117,8 @@ protected:
 	void HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 		size_t width, size_t height, size_t dimension,
 		const std::vector<unsigned char>& buffer) const override;
+	bool WantsAudioFrames() const override;
+	bool WantsVideoFrames() const override;
 
 private:
 	// local peer sessionid and remote peer sessionid
@@ -165,6 +169,8 @@ protected:
 	void HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 		size_t width, size_t height, size_t dimension,
 		const std::vector<unsigned char>& buffer) const override;
+	bool WantsAudioFrames() const override;
+	bool WantsVideoFrames() const override;
 
 private:
 	vts_rtc::SRSSessionId SRS_sessionid_ = std::string("");

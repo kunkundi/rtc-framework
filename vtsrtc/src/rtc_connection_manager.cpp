@@ -1757,40 +1757,44 @@ void RtcConnectionManager::InteractRemotePeer(
 
   rtc_conn->on_dc_message_received_ = recv_msg_handler_;
 
-  rtc_conn->on_audioframe_received_ =
-      [this, remote_sessionid, weak_self](
-          const vts_rtc::SessionId, const vts_rtc::AudioSourceId& sourceid,
-          enum vts_rtc::MediaSourceType type, size_t bits_per_sample,
-          size_t sample_rate, size_t number_of_channels,
-          size_t number_of_frames, const void* audio_data) {
-        auto self = weak_self.lock();
-        if (!self) {
-          LOG_ERROR(
-              "[WEBRTC] Rtc connection on_audioframe_received, "
-              "but rtc connection manager has been destroyed.");
-          return;
-        }
+  if (recv_audioframe_handler_) {
+    rtc_conn->on_audioframe_received_ =
+        [this, remote_sessionid, weak_self](
+            const vts_rtc::SessionId, const vts_rtc::AudioSourceId& sourceid,
+            enum vts_rtc::MediaSourceType type, size_t bits_per_sample,
+            size_t sample_rate, size_t number_of_channels,
+            size_t number_of_frames, const void* audio_data) {
+          auto self = weak_self.lock();
+          if (!self) {
+            LOG_ERROR(
+                "[WEBRTC] Rtc connection on_audioframe_received, "
+                "but rtc connection manager has been destroyed.");
+            return;
+          }
 
-        recv_audioframe_handler_(
-            remote_sessionid, sourceid, type, bits_per_sample, sample_rate,
-            number_of_channels, number_of_frames, audio_data);
-      };
-  rtc_conn->on_frame_received_ =
-      [this, remote_sessionid, weak_self](
-          const vts_rtc::SessionId, const vts_rtc::VideoSourceId& sourceid,
-          enum vts_rtc::MediaSourceType type, size_t width, size_t height,
-          size_t dimension, const std::vector<unsigned char>& buffer) {
-        auto self = weak_self.lock();
-        if (!self) {
-          LOG_ERROR(
-              "[WEBRTC] Rtc connection on_frame_received, "
-              "but rtc connection manager has been destroyed.");
-          return;
-        }
+          recv_audioframe_handler_(
+              remote_sessionid, sourceid, type, bits_per_sample, sample_rate,
+              number_of_channels, number_of_frames, audio_data);
+        };
+  }
+  if (recv_frame_handler_) {
+    rtc_conn->on_frame_received_ =
+        [this, remote_sessionid, weak_self](
+            const vts_rtc::SessionId, const vts_rtc::VideoSourceId& sourceid,
+            enum vts_rtc::MediaSourceType type, size_t width, size_t height,
+            size_t dimension, const std::vector<unsigned char>& buffer) {
+          auto self = weak_self.lock();
+          if (!self) {
+            LOG_ERROR(
+                "[WEBRTC] Rtc connection on_frame_received, "
+                "but rtc connection manager has been destroyed.");
+            return;
+          }
 
-        recv_frame_handler_(remote_sessionid, sourceid, type, width, height,
-                            dimension, buffer);
-      };
+          recv_frame_handler_(remote_sessionid, sourceid, type, width, height,
+                              dimension, buffer);
+        };
+  }
 
   webrtc::PeerConnectionInterface::RTCConfiguration peer_conn_config;
   for (const auto& ice_server : rtc_config_.ice_servers) {
@@ -1839,6 +1843,32 @@ void RtcConnectionManager::InteractRemotePeer(
   this->AddAudioTrack2PeerConnection(rtc_conn->peer_conn_);
   this->AddVideoTrack2PeerConnection(rtc_conn->peer_conn_);
 
+  const auto configure_media_directions = [this, &rtc_conn]() {
+    for (const auto& transceiver : rtc_conn->peer_conn_->GetTransceivers()) {
+      const bool has_sender =
+          transceiver->sender() && transceiver->sender()->track();
+      bool wants_receiver = false;
+      if (transceiver->media_type() == cricket::MEDIA_TYPE_AUDIO) {
+        wants_receiver = static_cast<bool>(recv_audioframe_handler_);
+      } else if (transceiver->media_type() == cricket::MEDIA_TYPE_VIDEO) {
+        wants_receiver = static_cast<bool>(recv_frame_handler_);
+      }
+
+      if (has_sender && wants_receiver) {
+        transceiver->SetDirection(
+            webrtc::RtpTransceiverDirection::kSendRecv);
+      } else if (has_sender) {
+        transceiver->SetDirection(webrtc::RtpTransceiverDirection::kSendOnly);
+      } else if (wants_receiver) {
+        transceiver->SetDirection(webrtc::RtpTransceiverDirection::kRecvOnly);
+      } else {
+        transceiver->SetDirection(webrtc::RtpTransceiverDirection::kInactive);
+      }
+    }
+  };
+
+  configure_media_directions();
+
   if (offer_peer) {
     // Add data channels (just for offer side for now)
     for (const auto& label_dcinit : label_datachannelinit_map_) {
@@ -1852,13 +1882,20 @@ void RtcConnectionManager::InteractRemotePeer(
     // create offer (declare the directional attribute by using
     // RtpTransceiver API instead of RTCOfferAnswerOptions parameters
     // for Unified Plan)
-    webrtc::RtpTransceiverInit rtp_transceiver_init;
-    rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
+    webrtc::RtpTransceiverInit audio_transceiver_init;
+    audio_transceiver_init.direction =
+        recv_audioframe_handler_
+            ? webrtc::RtpTransceiverDirection::kRecvOnly
+            : webrtc::RtpTransceiverDirection::kInactive;
+    webrtc::RtpTransceiverInit video_transceiver_init;
+    video_transceiver_init.direction = recv_frame_handler_
+                                           ? webrtc::RtpTransceiverDirection::kRecvOnly
+                                           : webrtc::RtpTransceiverDirection::kInactive;
     for (int i = 0; i < 12; ++i) {
       rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_AUDIO,
-                                           rtp_transceiver_init);
+                                           audio_transceiver_init);
       rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO,
-                                           rtp_transceiver_init);
+                                           video_transceiver_init);
     }
 
     webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
@@ -1878,15 +1915,23 @@ void RtcConnectionManager::InteractRemotePeer(
     rtc_conn->peer_conn_->SetRemoteDescription(
         std::move(remote_session_description),
         rtc_conn->set_remote_sdp_observer_);
+    configure_media_directions();
 
     // create answer
-    webrtc::RtpTransceiverInit rtp_transceiver_init;
-    rtp_transceiver_init.direction = webrtc::RtpTransceiverDirection::kSendRecv;
+    webrtc::RtpTransceiverInit audio_transceiver_init;
+    audio_transceiver_init.direction =
+        recv_audioframe_handler_
+            ? webrtc::RtpTransceiverDirection::kRecvOnly
+            : webrtc::RtpTransceiverDirection::kInactive;
+    webrtc::RtpTransceiverInit video_transceiver_init;
+    video_transceiver_init.direction = recv_frame_handler_
+                                           ? webrtc::RtpTransceiverDirection::kRecvOnly
+                                           : webrtc::RtpTransceiverDirection::kInactive;
     for (int i = 0; i < 12; ++i) {
       rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_AUDIO,
-                                           rtp_transceiver_init);
+                                           audio_transceiver_init);
       rtc_conn->peer_conn_->AddTransceiver(cricket::MEDIA_TYPE_VIDEO,
-                                           rtp_transceiver_init);
+                                           video_transceiver_init);
     }
 
     webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;

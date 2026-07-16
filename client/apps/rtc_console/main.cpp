@@ -798,8 +798,10 @@ class RtcConsoleApp {
     params.SRS_state_handler = &RtcConsoleApp::OnSRSState;
     params.SRS_response_handler = &RtcConsoleApp::OnSRSResponse;
     params.recv_msg_handler = &RtcConsoleApp::OnRecvMessage;
-    params.recv_audioframe_handler = &RtcConsoleApp::OnRecvAudioFrame;
-    params.recv_frame_handler = &RtcConsoleApp::OnRecvFrame;
+    if (!options_.no_render) {
+      params.recv_audioframe_handler = &RtcConsoleApp::OnRecvAudioFrame;
+      params.recv_frame_handler = &RtcConsoleApp::OnRecvFrame;
+    }
     params.channel_network_stats_handler = &RtcConsoleApp::OnChannelNetworkStats;
 
     const RtcErrorCode init_code = RtcInitAgentV2(params);

@@ -298,6 +298,9 @@ void RtcConnectionBase::InitObserverCallbacks() {
 				}
 
 				if (media_track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
+					if (!WantsAudioFrames()) {
+						return;
+					}
 					auto audio_trackid =
 						streams.size() > 0 && streams[0] ? streams[0]->id() : std::string("unknown");
 					auto audio_track =
@@ -322,6 +325,9 @@ void RtcConnectionBase::InitObserverCallbacks() {
 					rtc_pc_audiosinks_.emplace_back(std::move(rtc_audiosink));
 				}
 				else if (media_track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+					if (!WantsVideoFrames()) {
+						return;
+					}
 					auto video_trackid =
 						streams.size() > 0 && streams[0] ? streams[0]->id() : std::string("unknown");
 					auto video_track =
@@ -565,6 +571,14 @@ void RtcConnection::HandleFrameReceived(const vts_rtc::VideoSourceId& sourceid,
 			width, height, dimension, buffer);
 	}
 }
+
+bool RtcConnection::WantsAudioFrames() const {
+	return static_cast<bool>(on_audioframe_received_);
+}
+
+bool RtcConnection::WantsVideoFrames() const {
+	return static_cast<bool>(on_frame_received_);
+}
 /////////////////// END RtcConnection ///////////////////
 
 
@@ -639,5 +653,13 @@ void Rtc2SRSConnection::HandleFrameReceived(
 		on_frame_received_(remote_sessionid_, sourceid, vts_rtc::MediaSourceType::SRS,
 			width, height, dimension, buffer);
 	}
+}
+
+bool Rtc2SRSConnection::WantsAudioFrames() const {
+	return static_cast<bool>(on_audioframe_received_);
+}
+
+bool Rtc2SRSConnection::WantsVideoFrames() const {
+	return static_cast<bool>(on_frame_received_);
 }
 /////////////////// END Rtc2SRSConnection ///////////////////
