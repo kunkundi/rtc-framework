@@ -26,7 +26,7 @@ struct DualCameraStreamingModuleOptions {
   rtc_camera::dual::AsyncDualCameraImageSourceOptions capture;
   std::chrono::milliseconds frame_wait{20};
   bool yolo_enabled = true;
-  size_t yolo_processing_downscale = 1;
+  size_t yolo_processing_downscale = 2;
 };
 
 class DualCameraStreamingModule {

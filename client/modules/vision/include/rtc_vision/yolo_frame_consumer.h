@@ -11,7 +11,7 @@
 namespace rtc_camera_headless {
 
 struct YoloFrameConsumerOptions {
-  size_t processing_downscale = 1;
+  size_t processing_downscale = 2;
 };
 
 class YoloFrameConsumer {

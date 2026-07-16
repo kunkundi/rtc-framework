@@ -73,12 +73,14 @@ VTSRTC_YOLO_TRT_ENGINE=/path/to/yolo26n.onnx.trt xmake r rtc_dual_camera_headles
 `config/rtc.cfg` 中可以配置 YOLO/OpenCV 消费端的工作帧缩放倍数，不影响 RTC 实际推流分辨率：
 
 ```json
-"vision_processing": {
-    "downscale": 2
+"edge": {
+    "yolo": {
+        "processing_downscale": 2
+    }
 }
 ```
 
-`downscale` 取值会限制在 `1..8`，`1` 表示不缩放。该缩放只影响显示拼接工作帧和 OpenCV ORB/RANSAC；YOLO 只检测原始左、右相机单目帧，再按显示端横向抽样/拼接比例把框映射回拼接图坐标。没有原始双目帧时不会回退到拼接工作帧检测。
+`processing_downscale` 默认为 `2`，取值范围为 `1..8`，`1` 表示不缩放。该缩放只影响显示拼接工作帧和 OpenCV ORB/RANSAC；YOLO 只检测原始左、右相机单目帧，再按显示端横向抽样/拼接比例把框映射回拼接图坐标。没有原始双目帧时不会回退到拼接工作帧检测。
 
 # 编译并运行
  xmake b -vy rtc_dual_camera_headless && xmake r rtc_dual_camera_headless --room zhejianglab

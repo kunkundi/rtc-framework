@@ -120,7 +120,7 @@ void TestRepositoryConfig() {
   Check(options.surround_camera.right_device.empty(),
         "load disabled repository surround right camera");
   Check(options.camera.yolo_enabled, "load repository YOLO enabled");
-  Check(options.camera.yolo_processing_downscale == 1,
+  Check(options.camera.yolo_processing_downscale == 2,
         "load repository YOLO processing downscale");
   Check(options.control.watchdog_ms == 300,
         "load repository watchdog");
