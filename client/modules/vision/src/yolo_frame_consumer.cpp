@@ -921,8 +921,10 @@ YoloDetectionBox MapMonoDetectionToStereo(const YoloDetectionBox& box,
 }
 
 bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
-                      const ConvertedI420Frame& converted_frame,
-                      std::vector<YoloDetectionBox>* yolo_boxes);
+                      const ConvertedI420Frame& left_frame,
+                      const ConvertedI420Frame& right_frame,
+                      std::vector<YoloDetectionBox>* left_boxes,
+                      std::vector<YoloDetectionBox>* right_boxes);
 
 bool RunYoloInferenceOnOriginalMonoFrames(
     const rtc_camera::dual::ImageFrame& source_frame,
@@ -964,8 +966,8 @@ bool RunYoloInferenceOnOriginalMonoFrames(
 
   std::vector<YoloDetectionBox> left_boxes;
   std::vector<YoloDetectionBox> right_boxes;
-  if (!RunYoloInference(source_frame, left_frame.frame, &left_boxes) ||
-      !RunYoloInference(source_frame, right_frame.frame, &right_boxes)) {
+  if (!RunYoloInference(source_frame, left_frame.frame, right_frame.frame,
+                        &left_boxes, &right_boxes)) {
     if (error_message) {
       *error_message = "original monocular YOLO inference failed";
     }
@@ -986,8 +988,10 @@ bool RunYoloInferenceOnOriginalMonoFrames(
 }
 
 bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
-                      const ConvertedI420Frame& converted_frame,
-                      std::vector<YoloDetectionBox>* yolo_boxes) {
+                      const ConvertedI420Frame& left_frame,
+                      const ConvertedI420Frame& right_frame,
+                      std::vector<YoloDetectionBox>* left_boxes,
+                      std::vector<YoloDetectionBox>* right_boxes) {
 #ifdef VTSRTC_ENABLE_YOLO_TENSORRT
   static bool detector_initialized = false;
   static bool detector_missing_logged = false;
@@ -1015,19 +1019,23 @@ bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
   }
 
   std::string error_message;
-  rtc_camera::dual::ImageFrame i420_frame;
-  i420_frame.format = rtc_camera::dual::ImagePixelFormat::kI420;
-  i420_frame.sequence = source_frame.sequence;
-  i420_frame.timestamp_us = source_frame.timestamp_us;
-  i420_frame.width = converted_frame.width;
-  i420_frame.height = converted_frame.height;
-  i420_frame.stride_y = converted_frame.stride_y;
-  i420_frame.stride_u = converted_frame.stride_u;
-  i420_frame.stride_v = converted_frame.stride_v;
-  i420_frame.data = converted_frame.data;
-  i420_frame.data_size = converted_frame.data_size;
+  rtc_camera::dual::ImageFrame i420_frames[2];
+  const ConvertedI420Frame converted_frames[2] = {left_frame, right_frame};
+  for (size_t i = 0; i < 2; ++i) {
+    i420_frames[i].format = rtc_camera::dual::ImagePixelFormat::kI420;
+    i420_frames[i].sequence = source_frame.sequence;
+    i420_frames[i].timestamp_us = source_frame.timestamp_us;
+    i420_frames[i].width = converted_frames[i].width;
+    i420_frames[i].height = converted_frames[i].height;
+    i420_frames[i].stride_y = converted_frames[i].stride_y;
+    i420_frames[i].stride_u = converted_frames[i].stride_u;
+    i420_frames[i].stride_v = converted_frames[i].stride_v;
+    i420_frames[i].data = converted_frames[i].data;
+    i420_frames[i].data_size = converted_frames[i].data_size;
+  }
 
-  if (!detector->Detect(i420_frame, yolo_boxes, &error_message)) {
+  if (!detector->DetectStereo(i420_frames[0], i420_frames[1], left_boxes,
+                              right_boxes, &error_message)) {
     if (!inference_error_logged) {
       inference_error_logged = true;
       rtc_logging::LogError(std::string("YOLO inference disabled after error: ") +
@@ -1041,9 +1049,13 @@ bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
 #else
   static bool yolo_disabled_logged = false;
   (void)source_frame;
-  (void)converted_frame;
-  if (yolo_boxes) {
-    yolo_boxes->clear();
+  (void)left_frame;
+  (void)right_frame;
+  if (left_boxes) {
+    left_boxes->clear();
+  }
+  if (right_boxes) {
+    right_boxes->clear();
   }
   if (!yolo_disabled_logged) {
     yolo_disabled_logged = true;
@@ -1084,8 +1096,10 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
   }
 
 #ifndef VTSRTC_ENABLE_YOLO_TENSORRT
-  std::vector<YoloDetectionBox> unused_boxes;
-  RunYoloInference(frame, ConvertedI420Frame(), &unused_boxes);
+  std::vector<YoloDetectionBox> unused_left_boxes;
+  std::vector<YoloDetectionBox> unused_right_boxes;
+  RunYoloInference(frame, ConvertedI420Frame(), ConvertedI420Frame(),
+                   &unused_left_boxes, &unused_right_boxes);
   (void)frame_converter;
   (void)options;
   (void)stabilizer;

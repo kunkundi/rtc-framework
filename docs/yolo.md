@@ -23,7 +23,7 @@ models/yolo26n.pt
 models/yolo26n.onnx
 ```
 
-默认输入尺寸为 `512x512`，以降低双目推理的 GPU 负载。如果需要优先保留小目标精度，可以显式改回 `640`：
+默认输入形状为 `[2,3,512,512]`，左右相机图像通过一次 TensorRT enqueue 执行 batch=2 推理。`512x512` 用于降低双目推理的 GPU 负载。如果需要优先保留小目标精度，可以显式改回 `640`：
 
 ```bash
 VTSRTC_YOLO_IMGSZ=640 xmake yolo_model
@@ -51,7 +51,7 @@ xmake b -vy rtc_dual_camera_headless
 xmake f --enable_yolo=false
 ```
 
-启用后会链接 Jetson 系统 TensorRT/CUDA 库，并在构建后把 `models/yolo26n.onnx` 复制到运行目录。程序首次启动会从 ONNX 构建 TensorRT engine，默认缓存为 `models/yolo26n.onnx.trt`；旁边的 `.trt.meta` 会记录 ONNX 内容指纹，后续启动只要模型内容没变就会直接加载缓存。
+启用后会链接 Jetson 系统 TensorRT/CUDA 库，并在构建后把 `models/yolo26n.onnx` 复制到运行目录。程序首次启动会从 ONNX 构建 TensorRT engine，默认缓存为 `models/yolo26n.onnx.trt`；旁边的 `.trt.meta` 会记录 ONNX 内容指纹，后续启动只要模型内容没变就会直接加载缓存。旧的 batch=1 ONNX 模型需要重新执行 `xmake yolo_model` 导出。
 
 # 运行
  xmake r rtc_dual_camera_headless --room zhejianglab

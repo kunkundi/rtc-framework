@@ -45,6 +45,7 @@ def main():
         exported = model.export(
             format="onnx",
             imgsz=args.imgsz,
+            batch=2,
             opset=args.opset,
             simplify=not args.no_simplify,
             dynamic=False,

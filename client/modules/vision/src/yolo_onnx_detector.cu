@@ -31,6 +31,7 @@ using rtc_runtime::FileExists;
 using rtc_runtime::JoinPath;
 
 constexpr int kDefaultInputSize = 512;
+constexpr int kDefaultBatchSize = 2;
 constexpr float kConfidenceThreshold = 0.25f;
 constexpr float kNmsThreshold = 0.45f;
 constexpr size_t kMaxDetections = 64;
@@ -383,11 +384,12 @@ size_t Volume(const nvinfer1::Dims& dims) {
 }
 
 bool FillNchwInputShape(const nvinfer1::Dims& model_shape,
+                        int* batch_size,
                         int* input_width,
                         int* input_height,
                         nvinfer1::Dims* concrete_shape,
                         std::string* error_message) {
-  if (!input_width || !input_height || !concrete_shape) {
+  if (!batch_size || !input_width || !input_height || !concrete_shape) {
     if (error_message) {
       *error_message = "null TensorRT input shape output";
     }
@@ -403,7 +405,9 @@ bool FillNchwInputShape(const nvinfer1::Dims& model_shape,
 
   *concrete_shape = model_shape;
   if (concrete_shape->d[0] < 0) {
-    concrete_shape->d[0] = 1;
+    concrete_shape->d[0] = *batch_size;
+  } else {
+    *batch_size = static_cast<int>(concrete_shape->d[0]);
   }
   if (concrete_shape->d[1] < 0) {
     concrete_shape->d[1] = 3;
@@ -419,7 +423,8 @@ bool FillNchwInputShape(const nvinfer1::Dims& model_shape,
     concrete_shape->d[3] = *input_width;
   }
 
-  if (concrete_shape->d[0] != 1 || concrete_shape->d[1] != 3 ||
+  if ((*batch_size != 1 && *batch_size != 2) ||
+      concrete_shape->d[1] != 3 ||
       *input_width <= 0 || *input_height <= 0) {
     if (error_message) {
       *error_message = "unsupported YOLO input shape " +
@@ -432,6 +437,7 @@ bool FillNchwInputShape(const nvinfer1::Dims& model_shape,
 
 bool ResolveEngineInputShape(nvinfer1::ICudaEngine* engine,
                              const std::string& input_name,
+                             int* batch_size,
                              int* input_width,
                              int* input_height,
                              nvinfer1::Dims* concrete_shape,
@@ -458,8 +464,8 @@ bool ResolveEngineInputShape(nvinfer1::ICudaEngine* engine,
     }
   }
 
-  return FillNchwInputShape(shape, input_width, input_height, concrete_shape,
-                            error_message);
+  return FillNchwInputShape(shape, batch_size, input_width, input_height,
+                            concrete_shape, error_message);
 }
 
 bool BuildPreprocessInfo(const rtc_camera::dual::ImageFrame& frame,
@@ -647,6 +653,7 @@ void ParseBoxScoreRows(size_t rows,
 
 bool ParseTensorOutput(const float* data,
                        const nvinfer1::Dims& shape,
+                       size_t batch_index,
                        const PreprocessInfo& info,
                        std::vector<Candidate>* candidates,
                        std::string* error_message) {
@@ -661,7 +668,8 @@ bool ParseTensorOutput(const float* data,
   size_t dim_b = 0;
   size_t base_offset = 0;
   if (shape.nbDims == 3) {
-    if (shape.d[0] < 1 || shape.d[1] <= 0 || shape.d[2] <= 0) {
+    if (shape.d[0] < 1 || batch_index >= static_cast<size_t>(shape.d[0]) ||
+        shape.d[1] <= 0 || shape.d[2] <= 0) {
       if (error_message) {
         *error_message = "invalid YOLO output shape " + ShapeToString(shape);
       }
@@ -669,7 +677,11 @@ bool ParseTensorOutput(const float* data,
     }
     dim_a = static_cast<size_t>(shape.d[1]);
     dim_b = static_cast<size_t>(shape.d[2]);
+    base_offset = batch_index * dim_a * dim_b;
   } else {
+    if (batch_index != 0) {
+      return false;
+    }
     if (shape.d[0] <= 0 || shape.d[1] <= 0) {
       if (error_message) {
         *error_message = "invalid YOLO output shape " + ShapeToString(shape);
@@ -949,7 +961,7 @@ __global__ void I420ToRgbNchwLetterboxKernel(const uint8_t* src_y,
 
 bool LaunchPreprocessKernel(const rtc_camera::dual::ImageFrame& frame,
                             const PreprocessInfo& info,
-                            DeviceBuffer* input_device,
+                            float* input_device,
                             DeviceBuffer* frame_device,
                             cudaStream_t stream,
                             std::string* error_message) {
@@ -965,12 +977,7 @@ bool LaunchPreprocessKernel(const rtc_camera::dual::ImageFrame& frame,
   const size_t u_bytes = frame.stride_u * chroma_height;
   const size_t v_bytes = frame.stride_v * chroma_height;
   const size_t frame_bytes = y_bytes + u_bytes + v_bytes;
-  const size_t input_bytes =
-      static_cast<size_t>(info.input_width) * info.input_height * 3 *
-      sizeof(float);
-
-  if (!frame_device->Resize(frame_bytes, error_message) ||
-      !input_device->Resize(input_bytes, error_message)) {
+  if (!frame_device->Resize(frame_bytes, error_message)) {
     return false;
   }
 
@@ -993,7 +1000,7 @@ bool LaunchPreprocessKernel(const rtc_camera::dual::ImageFrame& frame,
   I420ToRgbNchwLetterboxKernel<<<blocks, threads, 0, stream>>>(
       device_y, frame.stride_y, device_u, frame.stride_u, device_v,
       frame.stride_v, static_cast<int>(frame.width),
-      static_cast<int>(frame.height), static_cast<float*>(input_device->data()),
+      static_cast<int>(frame.height), input_device,
       info.input_width, info.input_height, info.resized_width,
       info.resized_height, info.pad_x, info.pad_y);
 
@@ -1071,8 +1078,10 @@ bool BuildSerializedEngine(const std::string& model_path,
   }
 
   nvinfer1::Dims concrete_input_shape;
-  if (!FillNchwInputShape(input->getDimensions(), input_width, input_height,
-                          &concrete_input_shape, error_message)) {
+  int batch_size = kDefaultBatchSize;
+  if (!FillNchwInputShape(input->getDimensions(), &batch_size, input_width,
+                          input_height, &concrete_input_shape,
+                          error_message)) {
     return false;
   }
 
@@ -1194,8 +1203,9 @@ struct YoloOnnxDetector::Impl {
   std::vector<DeviceBuffer> output_device_buffers;
   std::vector<HostPinnedBuffer> output_host_buffers;
   DeviceBuffer input_device_buffer;
-  DeviceBuffer frame_device_buffer;
+  std::array<DeviceBuffer, 2> frame_device_buffers;
   cudaStream_t stream = nullptr;
+  int batch_size = kDefaultBatchSize;
   int input_width = kDefaultInputSize;
   int input_height = kDefaultInputSize;
 };
@@ -1314,8 +1324,9 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
 
     nvinfer1::Dims concrete_input_shape;
     if (!ResolveEngineInputShape(impl->engine.get(), impl->input_name,
-                                 &impl->input_width, &impl->input_height,
-                                 &concrete_input_shape, error_message)) {
+                                 &impl->batch_size, &impl->input_width,
+                                 &impl->input_height, &concrete_input_shape,
+                                 error_message)) {
       return std::unique_ptr<YoloOnnxDetector>();
     }
     const nvinfer1::Dims input_shape =
@@ -1339,8 +1350,8 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
     }
 
     const size_t input_bytes =
-        static_cast<size_t>(impl->input_width) * impl->input_height * 3 *
-        sizeof(float);
+        static_cast<size_t>(impl->batch_size) * impl->input_width *
+        impl->input_height * 3 * sizeof(float);
     if (!impl->input_device_buffer.Resize(input_bytes, error_message)) {
       return std::unique_ptr<YoloOnnxDetector>();
     }
@@ -1404,7 +1415,8 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
 
     std::ostringstream oss;
     oss << "YOLO TensorRT engine loaded: " << impl->engine_path
-        << " input=" << impl->input_width << "x" << impl->input_height
+        << " input=" << impl->batch_size << "x3x" << impl->input_height
+        << "x" << impl->input_width
         << " outputs=" << impl->output_names.size();
     rtc_logging::LogInfo(oss.str());
 
@@ -1428,18 +1440,78 @@ bool YoloOnnxDetector::Detect(const rtc_camera::dual::ImageFrame& frame,
     }
     return false;
   }
-  boxes->clear();
+  if (impl_->batch_size == 1) {
+    return DetectBatch(&frame, 1, boxes, error_message);
+  }
 
-  PreprocessInfo preprocess;
-  if (!BuildPreprocessInfo(frame, impl_->input_width, impl_->input_height,
-                           &preprocess, error_message)) {
+  const rtc_camera::dual::ImageFrame frames[2] = {frame, frame};
+  std::vector<YoloDetectionBox> batch_boxes[2];
+  if (!DetectBatch(frames, 2, batch_boxes, error_message)) {
+    return false;
+  }
+  *boxes = std::move(batch_boxes[0]);
+  return true;
+}
+
+bool YoloOnnxDetector::DetectStereo(
+    const rtc_camera::dual::ImageFrame& left_frame,
+    const rtc_camera::dual::ImageFrame& right_frame,
+    std::vector<YoloDetectionBox>* left_boxes,
+    std::vector<YoloDetectionBox>* right_boxes,
+    std::string* error_message) {
+  if (!left_boxes || !right_boxes) {
+    if (error_message) {
+      *error_message = "null stereo detection output";
+    }
+    return false;
+  }
+  if (impl_->batch_size != 2) {
+    if (error_message) {
+      *error_message = "YOLO TensorRT engine batch size is not 2";
+    }
     return false;
   }
 
-  if (!LaunchPreprocessKernel(frame, preprocess, &impl_->input_device_buffer,
-                              &impl_->frame_device_buffer, impl_->stream,
-                              error_message)) {
+  const rtc_camera::dual::ImageFrame frames[2] = {left_frame, right_frame};
+  std::vector<YoloDetectionBox> batch_boxes[2];
+  if (!DetectBatch(frames, 2, batch_boxes, error_message)) {
     return false;
+  }
+  *left_boxes = std::move(batch_boxes[0]);
+  *right_boxes = std::move(batch_boxes[1]);
+  return true;
+}
+
+bool YoloOnnxDetector::DetectBatch(
+    const rtc_camera::dual::ImageFrame* frames,
+    size_t frame_count,
+    std::vector<YoloDetectionBox>* batch_boxes,
+    std::string* error_message) {
+  if (!frames || !batch_boxes ||
+      frame_count != static_cast<size_t>(impl_->batch_size)) {
+    if (error_message) {
+      *error_message = "invalid YOLO batch input";
+    }
+    return false;
+  }
+
+  std::vector<PreprocessInfo> preprocess(frame_count);
+  const size_t input_elements =
+      static_cast<size_t>(impl_->input_width) * impl_->input_height * 3;
+  float* input_device =
+      static_cast<float*>(impl_->input_device_buffer.data());
+  for (size_t batch = 0; batch < frame_count; ++batch) {
+    batch_boxes[batch].clear();
+    if (!BuildPreprocessInfo(frames[batch], impl_->input_width,
+                             impl_->input_height, &preprocess[batch],
+                             error_message) ||
+        !LaunchPreprocessKernel(
+            frames[batch], preprocess[batch],
+            input_device + batch * input_elements,
+            &impl_->frame_device_buffers[batch], impl_->stream,
+            error_message)) {
+      return false;
+    }
   }
 
   if (!impl_->context->enqueueV3(impl_->stream)) {
@@ -1466,16 +1538,20 @@ bool YoloOnnxDetector::Detect(const rtc_camera::dual::ImageFrame& frame,
     return false;
   }
 
-  std::vector<Candidate> candidates;
-  for (size_t i = 0; i < impl_->output_names.size(); ++i) {
-    std::string parse_error;
-    ParseTensorOutput(
-        static_cast<const float*>(impl_->output_host_buffers[i].data()),
-        impl_->output_shapes[i], preprocess, &candidates, &parse_error);
-  }
+  for (size_t batch = 0; batch < frame_count; ++batch) {
+    std::vector<Candidate> candidates;
+    for (size_t i = 0; i < impl_->output_names.size(); ++i) {
+      std::string parse_error;
+      ParseTensorOutput(
+          static_cast<const float*>(impl_->output_host_buffers[i].data()),
+          impl_->output_shapes[i], batch, preprocess[batch], &candidates,
+          &parse_error);
+    }
 
-  const std::vector<Candidate> selected = ApplyNms(&candidates);
-  *boxes = ToDetectionBoxes(selected, preprocess, frame.sequence);
+    const std::vector<Candidate> selected = ApplyNms(&candidates);
+    batch_boxes[batch] =
+        ToDetectionBoxes(selected, preprocess[batch], frames[batch].sequence);
+  }
   return true;
 }
 
