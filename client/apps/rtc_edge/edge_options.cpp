@@ -291,6 +291,31 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       std::numeric_limits<int>::max());
   options.control.max_pending_events =
       static_cast<size_t>(max_pending_events);
+
+  // dog_control 为可选配置段，不存在时保持默认禁用。
+  if (edge.contains("dog_control")) {
+    const nlohmann::json& dog =
+        ReadObject(edge, "dog_control", "edge");
+    options.dog_control.enabled =
+        ReadBoolean(dog, "enabled", "edge.dog_control");
+    if (options.dog_control.enabled) {
+      options.dog_control.rosbridge_url =
+          ReadString(dog, "rosbridge_url", "edge.dog_control");
+      options.dog_control.reconnect_interval_ms = ReadInteger(
+          dog, "reconnect_interval_ms", "edge.dog_control", 100, 60000);
+      if (dog.contains("max_forward_speed") &&
+          dog.at("max_forward_speed").is_number()) {
+        options.dog_control.max_forward_speed =
+            static_cast<float>(dog.at("max_forward_speed").get<double>());
+      }
+      if (dog.contains("max_angular_speed") &&
+          dog.at("max_angular_speed").is_number()) {
+        options.dog_control.max_angular_speed =
+            static_cast<float>(dog.at("max_angular_speed").get<double>());
+      }
+    }
+  }
+
   return options;
 }
 

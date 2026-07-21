@@ -18,6 +18,9 @@ struct VehicleControlModuleOptions {
   uint32_t watchdog_ms = vts_rtc::vehicle::kDefaultDriveWatchdogMs;
   uint32_t state_interval_ms = 50;
   size_t max_pending_events = 128;
+  // 为 true 时看门狗超时仅触发停车，不锁死，允许后续指令恢复。
+  // 适用于机器狗等自身具有安全防护的设备。
+  bool allow_watchdog_recovery = false;
 };
 
 class VehicleControlModule {

@@ -23,6 +23,14 @@ struct SurroundCameraOptions {
   std::chrono::milliseconds frame_wait{20};
 };
 
+struct DogControlOptions {
+  bool enabled = false;
+  std::string rosbridge_url = "ws://10.10.10.10:9090";
+  int reconnect_interval_ms = 3000;
+  float max_forward_speed = 1.0f;
+  float max_angular_speed = 1.0f;
+};
+
 struct EdgeOptions {
   std::string log_path;
   rtc_runtime::SessionOptions rtc;
@@ -30,6 +38,7 @@ struct EdgeOptions {
   rtc_edge::DualCameraStreamingModuleOptions camera;
   SurroundCameraOptions surround_camera;
   rtc_vehicle::VehicleControlModuleOptions control;
+  DogControlOptions dog_control;
 };
 
 EdgeOptions ParseEdgeArgs(int argc, char** argv);

@@ -156,7 +156,21 @@ void VehicleControlModule::Tick(uint64_t now_ms) {
 
   if (has_active_session_ && drive_gate_.started() &&
       drive_gate_.PollWatchdog(now_ms)) {
-    StopForSafety("drive command watchdog timeout");
+    if (options_.allow_watchdog_recovery) {
+      if (!stop_sent_ && vehicle_control_) {
+        vehicle_control_->SendStop();
+        stop_sent_ = true;
+      }
+      drive_gate_.Stop();
+      awaiting_first_drive_ = true;
+      safety_latched_ = false;
+      state_dirty_ = true;
+      if (log_info_) {
+        log_info_("Watchdog recovery stop: drive command watchdog timeout");
+      }
+    } else {
+      StopForSafety("drive command watchdog timeout");
+    }
   }
   MaybeSendState(now_ms);
 }
@@ -242,7 +256,23 @@ void VehicleControlModule::ProcessDriveCommand(
   }
   if (gate_result.status != vts_rtc::vehicle::DriveReceiveStatus::Accepted) {
     if (gate_result.should_stop) {
-      StopForSafety(gate_result.error_message);
+      if (options_.allow_watchdog_recovery) {
+        // 狗模式：仅发送停车指令，不锁死，等待下一条合法指令恢复。
+        if (!stop_sent_ && vehicle_control_) {
+          vehicle_control_->SendStop();
+          stop_sent_ = true;
+        }
+        drive_gate_.Stop();
+        awaiting_first_drive_ = true;
+        safety_latched_ = false;
+        state_dirty_ = true;
+        if (log_info_) {
+          log_info_(std::string("Watchdog recovery stop: ") +
+                    gate_result.error_message);
+        }
+      } else {
+        StopForSafety(gate_result.error_message);
+      }
     }
     return;
   }

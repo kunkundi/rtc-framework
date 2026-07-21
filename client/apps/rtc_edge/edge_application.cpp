@@ -8,6 +8,7 @@
 #include "rtc_vehicle/vehicle_control_interface.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
+#include "rtc_dog/dog_command_forwarder.h"
 
 #include <stdint.h>
 
@@ -363,11 +364,37 @@ void RunMainLoop(const EdgeOptions& options,
 }  // 匿名命名空间
 
 int RunEdgeApplication(const EdgeOptions& options) {
-  rtc_vehicle::PlaceholderVehicleControlInterface vehicle_control(
-      &WriteInfoLog);
+  // 根据配置选择 VehicleControlInterface 实现：
+  //   - 启用狗控制 → DogCommandForwarder（DriveCommand → rosbridge → 狗）
+  //   - 否则       → PlaceholderVehicleControlInterface（仅日志）
+  std::unique_ptr<rtc_dog::DogCommandForwarder> dog_forwarder;
+  std::unique_ptr<rtc_vehicle::PlaceholderVehicleControlInterface>
+      placeholder_control;
+  rtc_vehicle::VehicleControlInterface* vehicle_interface = nullptr;
+
+  rtc_vehicle::VehicleControlModuleOptions control_options = options.control;
+  if (options.dog_control.enabled) {
+    rtc_dog::DogCommandForwarder::Config dog_config;
+    dog_config.rosbridge_url = options.dog_control.rosbridge_url;
+    dog_config.reconnect_interval_ms =
+        options.dog_control.reconnect_interval_ms;
+    dog_config.max_forward_speed = options.dog_control.max_forward_speed;
+    dog_config.max_angular_speed = options.dog_control.max_angular_speed;
+    dog_forwarder =
+        std::make_unique<rtc_dog::DogCommandForwarder>(dog_config);
+    vehicle_interface = dog_forwarder.get();
+    // 狗模式：看门狗超时仅停车不锁死，允许后续指令直接恢复。
+    control_options.allow_watchdog_recovery = true;
+  } else {
+    placeholder_control =
+        std::make_unique<rtc_vehicle::PlaceholderVehicleControlInterface>(
+            &WriteInfoLog);
+    vehicle_interface = placeholder_control.get();
+  }
+
   rtc_vehicle::VehicleControlModule control_module(
-      &vehicle_control, &SendControlData, &WriteInfoLog, &WriteErrorLog,
-      options.control);
+      vehicle_interface, &SendControlData, &WriteInfoLog, &WriteErrorLog,
+      control_options);
 
   const RtcSession::Callbacks callbacks =
       MakeVehicleRtcCallbacks(&control_module);

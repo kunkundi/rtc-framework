@@ -20,6 +20,7 @@ end
 includes("xmake/targets/signaling_server.lua")
 includes("xmake/targets/vehicle_control_protocol.lua")
 includes("xmake/targets/vehicle_control_module.lua")
+includes("xmake/targets/dog_command_forwarder.lua")
 includes("xmake/targets/vision_detection_protocol.lua")
 includes("xmake/targets/rtc_console.lua")
 includes("xmake/targets/logging.lua")
