@@ -41,6 +41,13 @@ class FakeVehicleControl final
       const DriveCommand& command) override {
     ++drive_count;
     last_drive = command;
+    if (reject_drive_as_unavailable) {
+      rtc_vehicle::VehicleCommandResult result;
+      result.accepted = false;
+      result.error_code = VehicleErrorCode::InvalidState;
+      result.detail = "test interface unavailable";
+      return result;
+    }
     return Accepted();
   }
 
@@ -64,6 +71,7 @@ class FakeVehicleControl final
   int drive_count = 0;
   int gear_count = 0;
   int stop_count = 0;
+  bool reject_drive_as_unavailable = false;
   DriveCommand last_drive;
   VehicleGear last_gear = VehicleGear::Neutral;
 };
@@ -229,6 +237,117 @@ void TestWatchdogUpperBound() {
   Check(!vehicle.opened, "非法看门狗配置不得打开车辆控制接口");
 }
 
+void TestWatchdogRecoveryPreservesSequenceAndState() {
+  FakeVehicleControl vehicle;
+  std::vector<SentPacket> sent_packets;
+  rtc_vehicle::VehicleControlModuleOptions options;
+  options.allow_watchdog_recovery = true;
+  rtc_vehicle::VehicleControlModule module(
+      &vehicle,
+      [&sent_packets](RtcSessionId remote_sessionid, const char* label,
+                      const std::vector<uint8_t>& payload) {
+        sent_packets.push_back({remote_sessionid, label, payload});
+        return true;
+      },
+      [](const std::string&) {}, [](const std::string&) {}, options);
+
+  std::string error;
+  Check(module.Start(&error), "启动看门狗恢复测试模块");
+  module.EnqueueP2PState(12, P2PConnected);
+  module.Tick(6000);
+
+  DriveCommand drive;
+  drive.drive_direction = DriveDirection::Forward;
+  drive.throttle = 0.5f;
+  EnqueueEncoded(&module, 12,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
+                 EncodeDriveCommand(20, drive));
+  module.Tick(6010);
+  Check(vehicle.drive_count == 1, "恢复测试先接受初始驾驶帧");
+
+  module.Tick(6310);
+  Check(vehicle.stop_count == 1, "恢复模式看门狗超时仍然停车");
+  Check(!sent_packets.empty(), "看门狗停车后上报状态");
+  const auto stopped_state = DecodeEnvelope(sent_packets.back().payload);
+  Check(stopped_state &&
+            stopped_state.envelope.type == MessageType::VehicleState &&
+            stopped_state.envelope.vehicle_state.watchdog_stopped,
+        "恢复等待期间上报看门狗已停车");
+
+  EnqueueEncoded(&module, 12,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
+                 EncodeDriveCommand(19, drive));
+  module.Tick(6320);
+  Check(vehicle.drive_count == 1, "恢复时拒绝延迟到达的旧序号");
+
+  EnqueueEncoded(&module, 12,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
+                 EncodeDriveCommand(21, drive));
+  module.Tick(6330);
+  Check(vehicle.drive_count == 2, "恢复时接受单调递增的新序号");
+  Check(!sent_packets.empty(), "恢复后上报状态");
+  const auto recovered_state = DecodeEnvelope(sent_packets.back().payload);
+  Check(recovered_state &&
+            recovered_state.envelope.type == MessageType::VehicleState &&
+            !recovered_state.envelope.vehicle_state.watchdog_stopped &&
+            recovered_state.envelope.vehicle_state.last_received_drive_seq ==
+                21,
+        "合法新帧接受后清除看门狗停车状态");
+}
+
+void TestInterfaceRecoveryRequiresNewSequence() {
+  FakeVehicleControl vehicle;
+  std::vector<SentPacket> sent_packets;
+  rtc_vehicle::VehicleControlModuleOptions options;
+  options.allow_interface_recovery = true;
+  rtc_vehicle::VehicleControlModule module(
+      &vehicle,
+      [&sent_packets](RtcSessionId remote_sessionid, const char* label,
+                      const std::vector<uint8_t>& payload) {
+        sent_packets.push_back({remote_sessionid, label, payload});
+        return true;
+      },
+      [](const std::string&) {}, [](const std::string&) {}, options);
+
+  std::string error;
+  Check(module.Start(&error), "启动接口恢复测试模块");
+  module.EnqueueP2PState(13, P2PConnected);
+  module.Tick(7000);
+
+  DriveCommand drive;
+  drive.drive_direction = DriveDirection::Forward;
+  drive.throttle = 0.5f;
+  vehicle.reject_drive_as_unavailable = true;
+  EnqueueEncoded(&module, 13,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
+                 EncodeDriveCommand(30, drive));
+  module.Tick(7010);
+  Check(vehicle.stop_count == 1, "接口不可用时触发停车");
+  const auto unavailable_state = DecodeEnvelope(sent_packets.back().payload);
+  Check(unavailable_state &&
+            unavailable_state.envelope.type == MessageType::VehicleState &&
+            unavailable_state.envelope.vehicle_state.watchdog_stopped,
+        "接口不可用期间上报停车状态");
+
+  vehicle.reject_drive_as_unavailable = false;
+  EnqueueEncoded(&module, 13,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
+                 EncodeDriveCommand(30, drive));
+  module.Tick(7020);
+  Check(vehicle.drive_count == 1, "接口恢复时仍拒绝重复序号");
+
+  EnqueueEncoded(&module, 13,
+                 vts_rtc::vehicle::kVehicleControlChannelLabel,
+                 EncodeDriveCommand(31, drive));
+  module.Tick(7030);
+  Check(vehicle.drive_count == 2, "接口恢复后接受新序号");
+  const auto recovered_state = DecodeEnvelope(sent_packets.back().payload);
+  Check(recovered_state &&
+            recovered_state.envelope.type == MessageType::VehicleState &&
+            !recovered_state.envelope.vehicle_state.watchdog_stopped,
+        "接口恢复后清除停车状态");
+}
+
 void TestMalformedMessageStopsVehicle() {
   FakeVehicleControl vehicle;
   rtc_vehicle::VehicleControlModule module(
@@ -296,6 +415,8 @@ int main() {
   TestInvalidPayloadBoundaryStopsVehicle();
   TestTransportDisconnectStopsVehicle();
   TestWatchdogUpperBound();
+  TestWatchdogRecoveryPreservesSequenceAndState();
+  TestInterfaceRecoveryRequiresNewSequence();
   std::cout << "rtc_vehicle_control_module_tests passed" << std::endl;
   return 0;
 }

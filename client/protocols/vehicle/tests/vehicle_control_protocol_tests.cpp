@@ -194,6 +194,17 @@ void TestDriveGate() {
   Check(!gate.PollWatchdog(1309), "watchdog remains active before deadline");
   Check(gate.PollWatchdog(1310), "watchdog stops at deadline");
 
+  Check(gate.Recover(10, command, 1320).status ==
+            DriveReceiveStatus::DuplicateOrOutOfOrder,
+        "watchdog recovery rejects stale sequence");
+  Check(gate.watchdog_stopped(),
+        "stale recovery command keeps watchdog stopped");
+  Check(gate.Recover(11, command, 1330).status ==
+            DriveReceiveStatus::Accepted,
+        "watchdog recovery accepts a newer sequence");
+  Check(gate.started() && !gate.watchdog_stopped(),
+        "newer recovery command rearms watchdog");
+
   gate.Start(2000);
   command.brake = std::numeric_limits<float>::infinity();
   const auto invalid = gate.Accept(11, command, 2010);

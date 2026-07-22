@@ -238,6 +238,53 @@ void TestInvalidYoloMaxFps() {
   std::remove(path.c_str());
 }
 
+void TestDogControlConfig() {
+  const std::string path = "/tmp/rtc_edge_options_dog.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["dog_control"]["enabled"] = true;
+  config["edge"]["dog_control"]["rosbridge_url"] =
+      "ws://127.0.0.1:9090/bridge";
+  config["edge"]["dog_control"]["reconnect_interval_ms"] = 500;
+  config["edge"]["dog_control"]["max_forward_speed"] = 1.5;
+  config["edge"]["dog_control"]["max_angular_speed"] = 2.0;
+  WriteConfig(path, config);
+
+  const rtc_edge_app::EdgeOptions options =
+      rtc_edge_app::LoadEdgeOptions(path);
+  Check(options.dog_control.enabled, "enable dog control");
+  Check(options.dog_control.rosbridge_url ==
+            "ws://127.0.0.1:9090/bridge",
+        "load rosbridge URL");
+  Check(options.dog_control.max_forward_speed == 1.5f,
+        "load dog forward speed");
+  Check(options.dog_control.max_angular_speed == 2.0f,
+        "load dog angular speed");
+  std::remove(path.c_str());
+}
+
+void TestInvalidDogSpeed() {
+  const std::string path = "/tmp/rtc_edge_options_dog_speed.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["dog_control"]["enabled"] = true;
+  config["edge"]["dog_control"]["rosbridge_url"] =
+      "ws://127.0.0.1:9090";
+  config["edge"]["dog_control"]["reconnect_interval_ms"] = 500;
+  config["edge"]["dog_control"]["max_forward_speed"] = -1.0;
+  config["edge"]["dog_control"]["max_angular_speed"] = 1.0;
+  WriteConfig(path, config);
+
+  bool rejected = false;
+  try {
+    rtc_edge_app::LoadEdgeOptions(path);
+  } catch (const std::runtime_error& ex) {
+    rejected = std::string(ex.what()).find(
+                   "edge.dog_control.max_forward_speed") !=
+               std::string::npos;
+  }
+  Check(rejected, "reject negative dog speed");
+  std::remove(path.c_str());
+}
+
 }  // 匿名命名空间
 
 int main() {
@@ -249,6 +296,8 @@ int main() {
   TestEmptySurroundCameraDevice();
   TestInvalidYoloDownscale();
   TestInvalidYoloMaxFps();
+  TestDogControlConfig();
+  TestInvalidDogSpeed();
   std::cout << "rtc_edge_options_tests passed" << std::endl;
   return 0;
 }

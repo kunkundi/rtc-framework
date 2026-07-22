@@ -9,6 +9,7 @@ if vtsrtc_on_linux() then
             "rtc_runtime",
             "rtc_vehicle_control_module",
             "rtc_vehicle_control_protocol",
+            "rtc_dog_command_forwarder",
             "rtc_vision_detection_protocol"
         )
 
@@ -26,6 +27,7 @@ if vtsrtc_on_linux() then
         add_includedirs(
             vtsrtc_path("client", "modules", "edge", "include"),
             vtsrtc_path("client", "modules", "vehicle", "include"),
+            vtsrtc_path("client", "modules", "dog", "include"),
             vtsrtc_path("client", "modules", "vision", "include"),
             vtsrtc_path("client", "protocols", "vehicle", "include"),
             vtsrtc_path("client", "protocols", "vision", "include")

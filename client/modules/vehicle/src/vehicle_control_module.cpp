@@ -156,7 +156,11 @@ void VehicleControlModule::Tick(uint64_t now_ms) {
 
   if (has_active_session_ && drive_gate_.started() &&
       drive_gate_.PollWatchdog(now_ms)) {
-    StopForSafety("drive command watchdog timeout");
+    if (options_.allow_watchdog_recovery) {
+      StopForRecoverableCondition("drive command watchdog timeout");
+    } else {
+      StopForSafety("drive command watchdog timeout");
+    }
   }
   MaybeSendState(now_ms);
 }
@@ -231,28 +235,51 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
 void VehicleControlModule::ProcessDriveCommand(
     const vts_rtc::vehicle::Envelope& envelope,
     uint64_t now_ms) {
-  if (awaiting_first_drive_) {
-    drive_gate_.Start(now_ms);
+  vts_rtc::vehicle::DriveReceiveResult gate_result;
+  if (recoverable_stop_pending_) {
+    gate_result = drive_gate_.Recover(envelope.seq, envelope.drive_command,
+                                      now_ms);
+  } else {
+    if (awaiting_first_drive_) {
+      drive_gate_.Start(now_ms);
+    }
+    gate_result =
+        drive_gate_.Accept(envelope.seq, envelope.drive_command, now_ms);
   }
-  const vts_rtc::vehicle::DriveReceiveResult gate_result =
-      drive_gate_.Accept(envelope.seq, envelope.drive_command, now_ms);
   if (gate_result.status ==
       vts_rtc::vehicle::DriveReceiveStatus::DuplicateOrOutOfOrder) {
     return;
   }
   if (gate_result.status != vts_rtc::vehicle::DriveReceiveStatus::Accepted) {
     if (gate_result.should_stop) {
-      StopForSafety(gate_result.error_message);
+      if (options_.allow_watchdog_recovery &&
+          gate_result.status ==
+              vts_rtc::vehicle::DriveReceiveStatus::WatchdogExpired) {
+        StopForRecoverableCondition(gate_result.error_message);
+      } else {
+        StopForSafety(gate_result.error_message);
+      }
     }
     return;
   }
   awaiting_first_drive_ = false;
+  recoverable_stop_pending_ = false;
+  safety_latched_ = false;
 
   const VehicleCommandResult result = NormalizeResult(
       vehicle_control_->SendDriveCommand(envelope.drive_command));
   if (!result.accepted) {
-    StopForSafety(result.detail.empty() ? "local vehicle control interface rejected drive command"
-                                        : result.detail);
+    const std::string reason =
+        result.detail.empty()
+            ? "local vehicle control interface rejected drive command"
+            : result.detail;
+    if (options_.allow_interface_recovery &&
+        result.error_code ==
+            vts_rtc::vehicle::VehicleErrorCode::InvalidState) {
+      StopForRecoverableCondition(reason);
+    } else {
+      StopForSafety(reason);
+    }
     return;
   }
   stop_sent_ = false;
@@ -292,6 +319,7 @@ void VehicleControlModule::HandlePeerConnected(RtcSessionId remote_sessionid) {
   active_sessionid_ = remote_sessionid;
   drive_gate_.Stop();
   awaiting_first_drive_ = true;
+  recoverable_stop_pending_ = false;
   safety_latched_ = false;
   stop_sent_ = false;
   state_dirty_ = true;
@@ -311,10 +339,27 @@ void VehicleControlModule::HandlePeerDisconnected(
   state_dirty_ = false;
 }
 
+void VehicleControlModule::StopForRecoverableCondition(
+    const std::string& reason) {
+  if (!stop_sent_ && vehicle_control_) {
+    vehicle_control_->SendStop();
+    stop_sent_ = true;
+  }
+  drive_gate_.Stop();
+  awaiting_first_drive_ = true;
+  recoverable_stop_pending_ = true;
+  safety_latched_ = true;
+  state_dirty_ = true;
+  if (log_info_) {
+    log_info_(std::string("Recoverable control stop: ") + reason);
+  }
+}
+
 void VehicleControlModule::StopForSafety(const std::string& reason) {
   const bool first_stop = drive_gate_.started() || !stop_sent_;
   drive_gate_.Stop();
   awaiting_first_drive_ = false;
+  recoverable_stop_pending_ = false;
   safety_latched_ = true;
   if (!stop_sent_ && vehicle_control_) {
     vehicle_control_->SendStop();

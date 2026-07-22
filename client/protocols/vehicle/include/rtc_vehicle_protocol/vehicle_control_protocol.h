@@ -153,6 +153,10 @@ class DriveCommandGate {
   DriveReceiveResult Accept(uint64_t seq,
                             const DriveCommand& command,
                             uint64_t now_ms);
+  // 看门狗停车后仅用更大的合法序号恢复，不重置历史序号。
+  DriveReceiveResult Recover(uint64_t seq,
+                             const DriveCommand& command,
+                             uint64_t now_ms);
   bool PollWatchdog(uint64_t now_ms);
 
   bool started() const { return started_; }

@@ -60,6 +60,8 @@ v1 的所有二进制载荷均不超过 50 字节。
 
 `DriveCommandGate` 是接收端使用的序号和 300 ms 看门狗辅助类。在本地控制器准备完成后调用 `Start(now_ms)`；每次解码出驾驶帧后调用 `Accept(seq, command, now_ms)`；在设备控制循环中持续调用 `PollWatchdog(now_ms)`。
 
+需要在看门狗停车后允许设备恢复时，使用 `Recover(seq, command, now_ms)` 接受恢复帧。该接口保留停车前的最近序号，只允许严格递增且合法的新帧重新启动门控；重复、乱序或非法帧必须保持停车状态。
+
 ## 生成、构建与测试
 
 修改 schema 后重新生成 nanopb 源文件：

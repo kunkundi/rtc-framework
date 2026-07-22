@@ -7,6 +7,7 @@ target("rtc_console")
     add_files(
         vtsrtc_path("client", "apps", "rtc_console", "main.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "rtc_console_options.cpp"),
+        vtsrtc_path("client", "apps", "rtc_console", "vehicle_control_sender.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "vehicle_state_log_limiter.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
@@ -50,5 +51,15 @@ target("rtc_console_vehicle_state_log_tests")
     add_files(
         vtsrtc_path("client", "apps", "rtc_console", "vehicle_state_log_limiter.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "vehicle_state_log_limiter_tests.cpp")
+    )
+    add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
+
+target("rtc_console_vehicle_control_sender_tests")
+    set_kind("binary")
+    set_default(false)
+    add_deps("rtc_vehicle_control_protocol")
+    add_files(
+        vtsrtc_path("client", "apps", "rtc_console", "vehicle_control_sender.cpp"),
+        vtsrtc_path("client", "apps", "rtc_console", "vehicle_control_sender_tests.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))

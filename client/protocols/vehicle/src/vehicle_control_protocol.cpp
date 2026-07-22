@@ -575,6 +575,32 @@ DriveReceiveResult DriveCommandGate::Accept(uint64_t seq,
   return {DriveReceiveStatus::Accepted, false, ""};
 }
 
+DriveReceiveResult DriveCommandGate::Recover(
+    uint64_t seq,
+    const DriveCommand& command,
+    uint64_t now_ms) {
+  if (started_ || !watchdog_stopped_) {
+    return {DriveReceiveStatus::NotStarted, true,
+            "drive gate is not waiting for watchdog recovery"};
+  }
+  if (has_received_drive_ && seq <= last_received_seq_) {
+    return {DriveReceiveStatus::DuplicateOrOutOfOrder, false,
+            "drive sequence is duplicate or out of order"};
+  }
+  const ValidationResult validation = ValidateDriveCommand(command);
+  if (!validation) {
+    return {DriveReceiveStatus::InvalidCommand, true,
+            validation.error_message};
+  }
+
+  started_ = true;
+  watchdog_stopped_ = false;
+  has_received_drive_ = true;
+  last_received_seq_ = seq;
+  last_valid_command_ms_ = now_ms;
+  return {DriveReceiveStatus::Accepted, false, ""};
+}
+
 bool DriveCommandGate::PollWatchdog(uint64_t now_ms) {
   if (!started_) {
     return watchdog_stopped_;

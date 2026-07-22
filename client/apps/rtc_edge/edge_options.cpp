@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -117,6 +118,29 @@ int ReadInteger(const nlohmann::json& object,
                              path);
   }
   return static_cast<int>(parsed);
+}
+
+float ReadPositiveFloat(const nlohmann::json& object,
+                        const char* key,
+                        const std::string& object_path) {
+  const std::string path = MakeConfigPath(object_path, key);
+  if (!object.contains(key)) {
+    throw std::runtime_error(std::string("Missing config field: ") + path);
+  }
+
+  const nlohmann::json& value = object.at(key);
+  if (!value.is_number()) {
+    throw std::runtime_error(std::string("Config field must be a number: ") +
+                             path);
+  }
+
+  const double parsed = value.get<double>();
+  if (!std::isfinite(parsed) || parsed <= 0.0 ||
+      parsed > std::numeric_limits<float>::max()) {
+    throw std::runtime_error(std::string("Config field is out of range: ") +
+                             path);
+  }
+  return static_cast<float>(parsed);
 }
 
 nlohmann::json ReadConfigFile(const std::string& config_path) {
@@ -291,6 +315,25 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       std::numeric_limits<int>::max());
   options.control.max_pending_events =
       static_cast<size_t>(max_pending_events);
+
+  // dog_control 为可选配置段，不存在时保持默认禁用。
+  if (edge.contains("dog_control")) {
+    const nlohmann::json& dog =
+        ReadObject(edge, "dog_control", "edge");
+    options.dog_control.enabled =
+        ReadBoolean(dog, "enabled", "edge.dog_control");
+    if (options.dog_control.enabled) {
+      options.dog_control.rosbridge_url =
+          ReadString(dog, "rosbridge_url", "edge.dog_control");
+      options.dog_control.reconnect_interval_ms = ReadInteger(
+          dog, "reconnect_interval_ms", "edge.dog_control", 100, 60000);
+      options.dog_control.max_forward_speed = ReadPositiveFloat(
+          dog, "max_forward_speed", "edge.dog_control");
+      options.dog_control.max_angular_speed = ReadPositiveFloat(
+          dog, "max_angular_speed", "edge.dog_control");
+    }
+  }
+
   return options;
 }
 

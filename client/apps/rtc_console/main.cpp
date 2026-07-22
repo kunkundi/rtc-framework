@@ -2,6 +2,7 @@
 #include "rtc_console_options.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
+#include "vehicle_control_sender.h"
 #include "vehicle_state_log_limiter.h"
 
 #include <imgui.h>
@@ -51,6 +52,8 @@ constexpr const char* kExternalAudioSource = "external_audio";
 constexpr const char* kExternalVideoSource = "merged_image";
 constexpr int kAutoOpenRetryMs = 3000;
 constexpr int kNoRenderStatusIntervalMs = 5000;
+constexpr uint64_t kVehicleDriveIntervalMs = 20;
+constexpr float kVehicleThrottleStep = 0.05f;
 constexpr int kMainWindowWidth = 1060;
 constexpr int kMainWindowHeight = 910;
 constexpr float kPanelLeft = 16.0f;
@@ -288,6 +291,40 @@ const char* VehicleGearText(vts_rtc::vehicle::VehicleGear gear) {
     default:
       return "Unknown";
   }
+}
+
+const char* DriveDirectionText(vts_rtc::vehicle::DriveDirection direction) {
+  switch (direction) {
+    case vts_rtc::vehicle::DriveDirection::Stop:
+      return "Stop";
+    case vts_rtc::vehicle::DriveDirection::Forward:
+      return "Forward";
+    case vts_rtc::vehicle::DriveDirection::Reverse:
+      return "Reverse";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* SteeringDirectionText(
+    vts_rtc::vehicle::SteeringDirection direction) {
+  switch (direction) {
+    case vts_rtc::vehicle::SteeringDirection::Center:
+      return "Center";
+    case vts_rtc::vehicle::SteeringDirection::Left:
+      return "Left";
+    case vts_rtc::vehicle::SteeringDirection::Right:
+      return "Right";
+    default:
+      return "Unknown";
+  }
+}
+
+uint64_t SteadyTimeMs() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
 }
 
 class RtcAudioPlayer {
@@ -733,6 +770,7 @@ class RtcConsoleApp {
       ImGui::NewFrame();
 
       DrawUi();
+      TickVehicleControl(SteadyTimeMs());
 
       ImGui::Render();
       glViewport(0, 0, window.width(), window.height());
@@ -846,6 +884,36 @@ class RtcConsoleApp {
     }
     AppendLog("RtcAddDataChannel(vision.detect.v1) success");
 
+    const RtcErrorCode vehicle_control_dc_code = RtcAddDataChannel(
+        vts_rtc::vehicle::kVehicleControlChannelLabel, RtcPriorityType::High,
+        false, 0);
+    if (vehicle_control_dc_code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcAddDataChannel(vehicle.control.v1)",
+                        vehicle_control_dc_code);
+      return false;
+    }
+    AppendLog("RtcAddDataChannel(vehicle.control.v1) success");
+
+    const RtcErrorCode vehicle_event_dc_code = RtcAddDataChannel(
+        vts_rtc::vehicle::kVehicleEventChannelLabel, RtcPriorityType::High,
+        true, -1);
+    if (vehicle_event_dc_code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcAddDataChannel(vehicle.event.v1)",
+                        vehicle_event_dc_code);
+      return false;
+    }
+    AppendLog("RtcAddDataChannel(vehicle.event.v1) success");
+
+    const RtcErrorCode vehicle_state_dc_code = RtcAddDataChannel(
+        vts_rtc::vehicle::kVehicleStateChannelLabel, RtcPriorityType::Medium,
+        false, 0);
+    if (vehicle_state_dc_code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcAddDataChannel(vehicle.state.v1)",
+                        vehicle_state_dc_code);
+      return false;
+    }
+    AppendLog("RtcAddDataChannel(vehicle.state.v1) success");
+
     rtc_inited_ = true;
     if (!options_.no_render) {
       LoadVideoSourceList();
@@ -930,6 +998,7 @@ class RtcConsoleApp {
 
   void DrawUi() {
     ApplyPendingUiActions();
+    UpdateVehicleInputFromKeyboard();
     DrawControlPanel();
     DrawVideoPanel();
     if (show_netstats_) {
@@ -964,6 +1033,8 @@ class RtcConsoleApp {
       ImGui::Text("Remote Frames   video=%llu   audio=%llu",
                   static_cast<unsigned long long>(remote_video_frames_.load()),
                   static_cast<unsigned long long>(remote_audio_frames_.load()));
+      ImGui::SameLine();
+      DrawVehicleControlTargetSelector();
 
       ImGui::TableSetColumnIndex(1);
       const float toggle_w = 124.0f;
@@ -1076,6 +1147,7 @@ class RtcConsoleApp {
           AppendLogWithCode("RtcLeaveRoom", code);
           if (code == RtcErrorCode::OK) {
             ResetSessionStateOnUi();
+            ResetVehicleControlOnUi(true);
           }
         }
       }
@@ -1140,6 +1212,208 @@ class RtcConsoleApp {
     }
 
     ImGui::End();
+  }
+
+  void DrawVehicleControlTargetSelector() {
+    const std::vector<uint32_t> targets =
+        vehicle_control_targets_.AvailableTargets();
+    const uint32_t selected =
+        vehicle_control_targets_.selected_target();
+    const std::string preview =
+        selected == 0 ? "Select vehicle target"
+                      : std::string("session ") + std::to_string(selected);
+
+    ImGui::TextDisabled("Vehicle target");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220.0f);
+    if (vehicle_control_enabled_) {
+      ImGui::BeginDisabled();
+    }
+    if (ImGui::BeginCombo("##vehicle_target_combo", preview.c_str())) {
+      const bool none_selected = selected == 0;
+      if (ImGui::Selectable("(none)", none_selected)) {
+        vehicle_control_targets_.SelectTarget(0);
+        AppendLog("Vehicle control target cleared");
+      }
+      if (none_selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+
+      for (uint32_t target : targets) {
+        const std::string label =
+            std::string("session ") + std::to_string(target);
+        const bool target_selected = selected == target;
+        if (ImGui::Selectable(label.c_str(), target_selected) &&
+            vehicle_control_targets_.SelectTarget(target)) {
+          AppendLog(std::string("Vehicle control target selected: ") +
+                    std::to_string(target));
+        }
+        if (target_selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+    if (vehicle_control_enabled_) {
+      ImGui::EndDisabled();
+    }
+  }
+
+  void ClearVehicleInput() {
+    vehicle_input_ = rtc_console::VehicleControlInput();
+    vehicle_keyboard_active_ = false;
+  }
+
+  void SetVehicleEmergencyStop() {
+    vehicle_input_ = rtc_console::VehicleControlInput();
+    vehicle_input_.emergency_stop = true;
+  }
+
+  void AdjustVehicleThrottle(float delta) {
+    const float previous = vehicle_throttle_;
+    vehicle_throttle_ =
+        rtc_console::ClampVehicleThrottle(vehicle_throttle_ + delta);
+    if (vehicle_throttle_ != previous) {
+      std::ostringstream oss;
+      oss << "Vehicle speed set to " << vehicle_throttle_;
+      AppendLog(oss.str());
+    }
+  }
+
+  void UpdateVehicleInputFromKeyboard() {
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput) {
+      if (vehicle_keyboard_active_) {
+        SetVehicleEmergencyStop();
+        SendVehicleDriveCommand(true);
+        ClearVehicleInput();
+        vehicle_control_enabled_ = false;
+      }
+      return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Equal, true)) {
+      AdjustVehicleThrottle(kVehicleThrottleStep);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Minus, true)) {
+      AdjustVehicleThrottle(-kVehicleThrottleStep);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_X, false)) {
+      SetVehicleEmergencyStop();
+      SendVehicleDriveCommand(true);
+      ClearVehicleInput();
+      vehicle_control_enabled_ = false;
+      return;
+    }
+
+    const bool forward = ImGui::IsKeyDown(ImGuiKey_W);
+    const bool reverse = ImGui::IsKeyDown(ImGuiKey_S);
+    const bool left = ImGui::IsKeyDown(ImGuiKey_A);
+    const bool right = ImGui::IsKeyDown(ImGuiKey_D);
+    const bool emergency_stop = ImGui::IsKeyDown(ImGuiKey_Space);
+    const bool any_key =
+        forward || reverse || left || right || emergency_stop;
+    if (!any_key) {
+      if (vehicle_keyboard_active_) {
+        ClearVehicleInput();
+        SendVehicleDriveCommand(true);
+        vehicle_control_enabled_ = false;
+      }
+      return;
+    }
+
+    vehicle_input_.forward = forward;
+    vehicle_input_.reverse = reverse;
+    vehicle_input_.left = left;
+    vehicle_input_.right = right;
+    vehicle_input_.emergency_stop = emergency_stop;
+    vehicle_keyboard_active_ = true;
+    vehicle_control_enabled_ = true;
+  }
+
+  vts_rtc::vehicle::DriveCommand CurrentVehicleDriveCommand() const {
+    rtc_console::VehicleControlInput input = vehicle_input_;
+    input.throttle = vehicle_throttle_;
+    return rtc_console::MakeVehicleDriveCommand(input);
+  }
+
+  bool IsSameVehicleCommand(
+      const vts_rtc::vehicle::DriveCommand& lhs,
+      const vts_rtc::vehicle::DriveCommand& rhs) const {
+    return lhs.drive_direction == rhs.drive_direction &&
+           lhs.steering_direction == rhs.steering_direction &&
+           lhs.throttle == rhs.throttle && lhs.brake == rhs.brake;
+  }
+
+  void TickVehicleControl(uint64_t now_ms) {
+    if (!vehicle_control_enabled_) {
+      return;
+    }
+    if (!vehicle_control_targets_.selected_target_ready()) {
+      return;
+    }
+    if (now_ms - last_vehicle_control_sent_ms_ < kVehicleDriveIntervalMs) {
+      return;
+    }
+    last_vehicle_control_sent_ms_ = now_ms;
+    SendVehicleDriveCommand(false);
+  }
+
+  bool SendVehicleDriveCommand(bool force_log) {
+    const RtcSessionId target =
+        vehicle_control_targets_.selected_target();
+    if (target == 0) {
+      if (force_log) {
+        AppendLog("Vehicle control skipped: select a vehicle target");
+      }
+      return false;
+    }
+    if (!vehicle_control_targets_.selected_target_ready()) {
+      if (force_log) {
+        AppendLog("Vehicle control skipped: selected target is not ready");
+      }
+      return false;
+    }
+
+    const vts_rtc::vehicle::DriveCommand command =
+        CurrentVehicleDriveCommand();
+    const vts_rtc::vehicle::EncodeResult encoded =
+        vts_rtc::vehicle::EncodeDriveCommand(vehicle_control_seq_++, command);
+    if (!encoded) {
+      AppendLog(std::string("Vehicle control encode failed: ") +
+                encoded.error_message);
+      return false;
+    }
+
+    const RtcErrorCode code = RtcSendData(
+        target, vts_rtc::vehicle::kVehicleControlChannelLabel,
+        reinterpret_cast<const char*>(encoded.payload.data()),
+        encoded.payload.size());
+    const bool ok = code == RtcErrorCode::OK;
+    const bool command_changed =
+        !has_last_vehicle_command_ ||
+        !IsSameVehicleCommand(command, last_vehicle_command_);
+    if (!ok) {
+      const uint64_t now_ms = SteadyTimeMs();
+      if (force_log || now_ms - last_vehicle_send_error_log_ms_ >= 1000) {
+        AppendLogWithCode("RtcSendData(vehicle.control.v1)", code);
+        last_vehicle_send_error_log_ms_ = now_ms;
+      }
+      return false;
+    }
+
+    if (force_log || command_changed) {
+      std::ostringstream oss;
+      oss << "Vehicle control sent to " << target
+          << " drive=" << DriveDirectionText(command.drive_direction)
+          << " steering=" << SteeringDirectionText(command.steering_direction)
+          << " throttle=" << command.throttle
+          << " brake=" << command.brake;
+      AppendLog(oss.str());
+    }
+    last_vehicle_command_ = command;
+    has_last_vehicle_command_ = true;
+    return true;
   }
 
   void DrawVideoPanel() {
@@ -2078,9 +2352,16 @@ class RtcConsoleApp {
     if (pending_reset_session_state_.exchange(false)) {
       ResetSessionStateOnUi();
     }
+    if (pending_reset_vehicle_control_.exchange(false)) {
+      ResetVehicleControlOnUi(false);
+    }
   }
 
   void RequestSessionStateReset() { pending_reset_session_state_.store(true); }
+
+  void RequestVehicleControlReset() {
+    pending_reset_vehicle_control_.store(true);
+  }
 
   void ResetSessionStateOnUi() {
     StopMediaFeed();
@@ -2106,6 +2387,15 @@ class RtcConsoleApp {
     remote_audio_frames_.store(0);
     remote_video_frame_seq_.store(0);
     ReleaseVideoTextures();
+  }
+
+  void ResetVehicleControlOnUi(bool clear_targets) {
+    if (clear_targets) {
+      vehicle_control_targets_.Clear();
+    }
+    vehicle_control_enabled_ = false;
+    ClearVehicleInput();
+    has_last_vehicle_command_ = false;
   }
 
   void QueryRooms() {
@@ -2363,8 +2653,17 @@ class RtcConsoleApp {
     oss << "P2P: session=" << sessionid << " state=" << P2PStateText(state);
     instance_->AppendLog(oss.str());
 
+    if (state == RtcP2PState::P2PConnected) {
+      instance_->vehicle_control_targets_.SetP2PConnected(sessionid, true);
+      instance_->AppendLog(
+          "Vehicle peer connected; select it before keyboard control");
+    }
     if (state == RtcP2PState::P2PDisconnected || state == RtcP2PState::P2PClosed ||
         state == RtcP2PState::P2PFailed) {
+      if (instance_->vehicle_control_targets_.SetP2PConnected(sessionid,
+                                                               false)) {
+        instance_->RequestVehicleControlReset();
+      }
       instance_->RequestSessionStateReset();
     }
   }
@@ -2378,6 +2677,13 @@ class RtcConsoleApp {
     oss << "DataChannel: session=" << sessionid << " label="
         << (label ? label : "") << " state=" << static_cast<int>(state);
     instance_->AppendLog(oss.str());
+
+    if (label &&
+        std::strcmp(label, vts_rtc::vehicle::kVehicleControlChannelLabel) == 0) {
+      const bool open = state == RtcDataChannelState::DataChannelOpen;
+      instance_->vehicle_control_targets_.SetControlChannelOpen(sessionid,
+                                                                 open);
+    }
   }
 
   static void OnServerConnectionState(RtcServerConnectionState state) {
@@ -2656,6 +2962,8 @@ class RtcConsoleApp {
   std::atomic<uint64_t> remote_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frame_seq_{0};
   std::atomic<bool> pending_reset_session_state_{false};
+  std::atomic<bool> pending_reset_vehicle_control_{false};
+  rtc_console::VehicleControlTargetRegistry vehicle_control_targets_;
   RtcAudioPlayer remote_audio_player_;
   SDLOpenGLWindow* ui_window_ = nullptr;
 
@@ -2667,6 +2975,15 @@ class RtcConsoleApp {
   bool show_eventlog_ = false;
   bool focus_netstats_hint_ = false;
   bool focus_eventlog_hint_ = false;
+  bool vehicle_control_enabled_ = false;
+  bool vehicle_keyboard_active_ = false;
+  float vehicle_throttle_ = 0.5f;
+  rtc_console::VehicleControlInput vehicle_input_;
+  uint64_t vehicle_control_seq_ = 1;
+  uint64_t last_vehicle_control_sent_ms_ = 0;
+  uint64_t last_vehicle_send_error_log_ms_ = 0;
+  bool has_last_vehicle_command_ = false;
+  vts_rtc::vehicle::DriveCommand last_vehicle_command_;
 
   std::mutex stats_mutex_;
   std::map<std::string, NetStatsView> net_stats_;
