@@ -383,8 +383,9 @@ int RunEdgeApplication(const EdgeOptions& options) {
     dog_forwarder =
         std::make_unique<rtc_dog::DogCommandForwarder>(dog_config);
     vehicle_interface = dog_forwarder.get();
-    // 狗模式：看门狗超时仅停车不锁死，允许后续指令直接恢复。
+    // 狗模式：可恢复故障保持停车，连接恢复后仅接受更大的新序号。
     control_options.allow_watchdog_recovery = true;
+    control_options.allow_interface_recovery = true;
   } else {
     placeholder_control =
         std::make_unique<rtc_vehicle::PlaceholderVehicleControlInterface>(

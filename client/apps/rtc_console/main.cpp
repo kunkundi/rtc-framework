@@ -1033,6 +1033,8 @@ class RtcConsoleApp {
       ImGui::Text("Remote Frames   video=%llu   audio=%llu",
                   static_cast<unsigned long long>(remote_video_frames_.load()),
                   static_cast<unsigned long long>(remote_audio_frames_.load()));
+      ImGui::SameLine();
+      DrawVehicleControlTargetSelector();
 
       ImGui::TableSetColumnIndex(1);
       const float toggle_w = 124.0f;
@@ -1211,6 +1213,51 @@ class RtcConsoleApp {
     ImGui::End();
   }
 
+  void DrawVehicleControlTargetSelector() {
+    const std::vector<uint32_t> targets =
+        vehicle_control_targets_.AvailableTargets();
+    const uint32_t selected =
+        vehicle_control_targets_.selected_target();
+    const std::string preview =
+        selected == 0 ? "Select vehicle target"
+                      : std::string("session ") + std::to_string(selected);
+
+    ImGui::TextDisabled("Vehicle target");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220.0f);
+    if (vehicle_control_enabled_) {
+      ImGui::BeginDisabled();
+    }
+    if (ImGui::BeginCombo("##vehicle_target_combo", preview.c_str())) {
+      const bool none_selected = selected == 0;
+      if (ImGui::Selectable("(none)", none_selected)) {
+        vehicle_control_targets_.SelectTarget(0);
+        AppendLog("Vehicle control target cleared");
+      }
+      if (none_selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+
+      for (uint32_t target : targets) {
+        const std::string label =
+            std::string("session ") + std::to_string(target);
+        const bool target_selected = selected == target;
+        if (ImGui::Selectable(label.c_str(), target_selected) &&
+            vehicle_control_targets_.SelectTarget(target)) {
+          AppendLog(std::string("Vehicle control target selected: ") +
+                    std::to_string(target));
+        }
+        if (target_selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+    if (vehicle_control_enabled_) {
+      ImGui::EndDisabled();
+    }
+  }
+
   void ClearVehicleInput() {
     vehicle_input_ = rtc_console::VehicleControlInput();
     vehicle_keyboard_active_ = false;
@@ -1236,7 +1283,10 @@ class RtcConsoleApp {
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) {
       if (vehicle_keyboard_active_) {
+        SetVehicleEmergencyStop();
+        SendVehicleDriveCommand(true);
         ClearVehicleInput();
+        vehicle_control_enabled_ = false;
       }
       return;
     }
@@ -1248,8 +1298,9 @@ class RtcConsoleApp {
       AdjustVehicleThrottle(-kVehicleThrottleStep);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_X, false)) {
-      ClearVehicleInput();
+      SetVehicleEmergencyStop();
       SendVehicleDriveCommand(true);
+      ClearVehicleInput();
       vehicle_control_enabled_ = false;
       return;
     }
@@ -1297,7 +1348,7 @@ class RtcConsoleApp {
     if (!vehicle_control_enabled_) {
       return;
     }
-    if (!vehicle_control_channel_open_.load()) {
+    if (!vehicle_control_targets_.selected_target_ready()) {
       return;
     }
     if (now_ms - last_vehicle_control_sent_ms_ < kVehicleDriveIntervalMs) {
@@ -1308,16 +1359,17 @@ class RtcConsoleApp {
   }
 
   bool SendVehicleDriveCommand(bool force_log) {
-    const RtcSessionId target = active_vehicle_sessionid_.load();
+    const RtcSessionId target =
+        vehicle_control_targets_.selected_target();
     if (target == 0) {
       if (force_log) {
-        AppendLog("Vehicle control skipped: no active P2P target");
+        AppendLog("Vehicle control skipped: select a vehicle target");
       }
       return false;
     }
-    if (!vehicle_control_channel_open_.load()) {
+    if (!vehicle_control_targets_.selected_target_ready()) {
       if (force_log) {
-        AppendLog("Vehicle control skipped: vehicle.control.v1 is not open");
+        AppendLog("Vehicle control skipped: selected target is not ready");
       }
       return false;
     }
@@ -2307,8 +2359,7 @@ class RtcConsoleApp {
     StopMediaFeed();
     remote_audio_player_.Clear();
     CloseFullscreenVideo();
-    active_vehicle_sessionid_.store(0);
-    vehicle_control_channel_open_.store(false);
+    vehicle_control_targets_.Clear();
     vehicle_control_enabled_ = false;
     ClearVehicleInput();
     has_last_vehicle_command_ = false;
@@ -2590,14 +2641,13 @@ class RtcConsoleApp {
     instance_->AppendLog(oss.str());
 
     if (state == RtcP2PState::P2PConnected) {
-      instance_->active_vehicle_sessionid_.store(sessionid);
-      instance_->AppendLog("Vehicle control target selected");
+      instance_->vehicle_control_targets_.SetP2PConnected(sessionid, true);
+      instance_->AppendLog(
+          "Vehicle peer connected; select it before keyboard control");
     }
     if (state == RtcP2PState::P2PDisconnected || state == RtcP2PState::P2PClosed ||
         state == RtcP2PState::P2PFailed) {
-      if (instance_->active_vehicle_sessionid_.load() == sessionid) {
-        instance_->active_vehicle_sessionid_.store(0);
-      }
+      instance_->vehicle_control_targets_.SetP2PConnected(sessionid, false);
       instance_->RequestSessionStateReset();
     }
   }
@@ -2615,10 +2665,8 @@ class RtcConsoleApp {
     if (label &&
         std::strcmp(label, vts_rtc::vehicle::kVehicleControlChannelLabel) == 0) {
       const bool open = state == RtcDataChannelState::DataChannelOpen;
-      if (instance_->active_vehicle_sessionid_.load() == sessionid || open) {
-        instance_->active_vehicle_sessionid_.store(open ? sessionid : 0);
-        instance_->vehicle_control_channel_open_.store(open);
-      }
+      instance_->vehicle_control_targets_.SetControlChannelOpen(sessionid,
+                                                                 open);
     }
   }
 
@@ -2898,8 +2946,7 @@ class RtcConsoleApp {
   std::atomic<uint64_t> remote_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frame_seq_{0};
   std::atomic<bool> pending_reset_session_state_{false};
-  std::atomic<RtcSessionId> active_vehicle_sessionid_{0};
-  std::atomic<bool> vehicle_control_channel_open_{false};
+  rtc_console::VehicleControlTargetRegistry vehicle_control_targets_;
   RtcAudioPlayer remote_audio_player_;
   SDLOpenGLWindow* ui_window_ = nullptr;
 

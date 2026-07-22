@@ -36,7 +36,7 @@ namespace rtc_dog {
 class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
  public:
   struct Config {
-    // rosbridge WebSocket 地址，默认连接本地狗子。
+    // rosbridge WebSocket 地址，主机必须使用数值 IP，可包含路径。
     std::string rosbridge_url = "ws://10.10.10.10:9090";
     // 断开后自动重连的间隔，单位毫秒。
     int reconnect_interval_ms = 3000;
@@ -44,6 +44,10 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
     float max_forward_speed = 1.0f;
     // 方向盘最大转角对应的狗旋转速度，单位 rad/s。
     float max_angular_speed = 1.0f;
+    // 首次连接和单次网络操作的超时时间，单位毫秒。
+    int connect_timeout_ms = 3000;
+    // 关闭时等待停车帧写出的最长时间，单位毫秒。
+    int shutdown_timeout_ms = 250;
   };
 
   explicit DogCommandForwarder(const Config& config);
@@ -78,21 +82,14 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
 
  private:
   // 启动 io_context 线程并发起首次 WebSocket 连接。
-  bool Start();
+  bool Start(std::string* error_message);
 
   // 安全释放：释放 work_guard → 停 io_context → join 线程 → 清理 socket。
   void StopImpl();
 
   // 将解码后的车辆指令编码为 rosbridge JSON 并通过 WebSocket 发送。
   // 内置节流：相同速度指令 50ms 内不重复发送，stop 始终立即转发。
-  void ForwardVelocity(float vx, float vy, float wz);
-
-  // 创建 TCP socket、连接 rosbridge、完成 WebSocket 升级握手。
-  // 始终运行在 io_context 线程上。
-  void DoConnect();
-
-  // 在 io_context 线程上调度重连定时器。
-  void ScheduleReconnect();
+  bool ForwardVelocity(float vx, float vy, float wz);
 
   // PIMPL：隐藏所有 asio/WebSocket 实现细节，避免头文件污染。
   struct Impl;

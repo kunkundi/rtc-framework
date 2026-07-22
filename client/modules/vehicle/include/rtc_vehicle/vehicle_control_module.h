@@ -21,6 +21,8 @@ struct VehicleControlModuleOptions {
   // 为 true 时看门狗超时仅触发停车，不锁死，允许后续指令恢复。
   // 适用于机器狗等自身具有安全防护的设备。
   bool allow_watchdog_recovery = false;
+  // 为 true 时本地接口暂时不可用仅触发停车，连接恢复后允许新序号恢复。
+  bool allow_interface_recovery = false;
 };
 
 class VehicleControlModule {
@@ -80,6 +82,7 @@ class VehicleControlModule {
                       const vts_rtc::vehicle::Envelope& envelope);
   void HandlePeerConnected(RtcSessionId remote_sessionid);
   void HandlePeerDisconnected(RtcSessionId remote_sessionid);
+  void StopForRecoverableCondition(const std::string& reason);
   void StopForSafety(const std::string& reason);
   void SendEventAck(RtcSessionId remote_sessionid,
                     const vts_rtc::vehicle::SetGear& request,
@@ -99,6 +102,7 @@ class VehicleControlModule {
   bool has_active_session_ = false;
   bool stop_sent_ = true;
   bool awaiting_first_drive_ = false;
+  bool recoverable_stop_pending_ = false;
   bool safety_latched_ = true;
   bool state_dirty_ = false;
   RtcSessionId active_sessionid_ = 0;

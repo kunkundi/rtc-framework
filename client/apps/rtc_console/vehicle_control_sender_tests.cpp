@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
 
 namespace {
@@ -58,6 +59,10 @@ void TestThrottleClamp() {
   input.throttle = -1.0f;
   Check(rtc_console::MakeVehicleDriveCommand(input).throttle == 0.0f,
         "low throttle clamp");
+
+  input.throttle = std::numeric_limits<float>::quiet_NaN();
+  Check(rtc_console::MakeVehicleDriveCommand(input).throttle == 0.0f,
+        "non-finite throttle becomes zero");
 }
 
 void TestEmergencyStop() {
@@ -78,6 +83,30 @@ void TestEmergencyStop() {
   Check(command.brake == 1.0f, "emergency brake");
 }
 
+void TestVehicleControlTargetSelection() {
+  rtc_console::VehicleControlTargetRegistry targets;
+  targets.SetP2PConnected(7, true);
+  targets.SetControlChannelOpen(7, true);
+  targets.SetP2PConnected(8, true);
+  targets.SetControlChannelOpen(8, true);
+
+  const std::vector<uint32_t> available = targets.AvailableTargets();
+  Check(available.size() == 2 && available[0] == 7 && available[1] == 8,
+        "list all ready vehicle targets");
+  Check(targets.selected_target() == 0,
+        "callbacks do not select a vehicle implicitly");
+  Check(targets.SelectTarget(7), "select an explicitly chosen target");
+  Check(targets.selected_target_ready(), "selected target is ready");
+
+  targets.SetControlChannelOpen(8, false);
+  Check(targets.selected_target() == 7,
+        "unrelated channel state does not replace selection");
+  targets.SetP2PConnected(7, false);
+  Check(targets.selected_target() == 0,
+        "disconnect clears the selected target");
+  Check(!targets.SelectTarget(8), "closed channel cannot be selected");
+}
+
 }  // namespace
 
 int main() {
@@ -85,6 +114,7 @@ int main() {
   TestConflictingInputsStop();
   TestThrottleClamp();
   TestEmergencyStop();
+  TestVehicleControlTargetSelection();
   std::cout << "rtc_console_vehicle_control_sender_tests passed"
             << std::endl;
   return 0;
