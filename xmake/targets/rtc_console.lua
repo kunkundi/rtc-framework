@@ -14,6 +14,7 @@ target("rtc_console")
     add_packages("nanopb")
     vtsrtc_add_linux_runtime_rpath()
     if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
         add_syslinks("opengl32")
     elseif vtsrtc_on_linux() then
         add_syslinks("pthread", "GL", "dl", "asound")
@@ -44,6 +45,9 @@ target("rtc_console_options_tests")
         vtsrtc_path("client", "apps", "rtc_console", "rtc_console_options_tests.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    end
 
 target("rtc_console_vehicle_state_log_tests")
     set_kind("binary")
@@ -53,6 +57,9 @@ target("rtc_console_vehicle_state_log_tests")
         vtsrtc_path("client", "apps", "rtc_console", "vehicle_state_log_limiter_tests.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    end
 
 target("rtc_console_vehicle_control_sender_tests")
     set_kind("binary")
@@ -63,3 +70,6 @@ target("rtc_console_vehicle_control_sender_tests")
         vtsrtc_path("client", "apps", "rtc_console", "vehicle_control_sender_tests.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    end
