@@ -126,6 +126,12 @@ struct VisionOverlaySnapshot {
   std::map<uint32_t, std::string> class_labels_by_id;
 };
 
+struct EdgeFeedbackView {
+  uint64_t envelope_seq = 0;
+  vts_rtc::vehicle::VehicleState state;
+  std::chrono::steady_clock::time_point updated_at;
+};
+
 struct NormalizedRect {
   float left = 0.0f;
   float top = 0.0f;
@@ -688,14 +694,9 @@ class RtcConsoleApp {
       : options_(options) {
     instance_ = this;
     std::memset(open_room_id_, 0, sizeof(open_room_id_));
-    std::memset(srs_url_, 0, sizeof(srs_url_));
-    std::memset(send_msg_, 0, sizeof(send_msg_));
 
     std::snprintf(open_room_id_, sizeof(open_room_id_), "%s",
                   options_.room_id.c_str());
-    std::snprintf(srs_url_, sizeof(srs_url_), "%s",
-                  "webrtc://47.96.251.52/AR/livestream");
-    std::snprintf(send_msg_, sizeof(send_msg_), "%s", "hello world");
   }
 
   ~RtcConsoleApp() {
@@ -865,8 +866,6 @@ class RtcConsoleApp {
     params.P2P_state_handler = &RtcConsoleApp::OnP2PState;
     params.datachannel_state_handler = &RtcConsoleApp::OnDataChannelState;
     params.serverconnection_state_handler = &RtcConsoleApp::OnServerConnectionState;
-    params.SRS_state_handler = &RtcConsoleApp::OnSRSState;
-    params.SRS_response_handler = &RtcConsoleApp::OnSRSResponse;
     params.recv_msg_handler = &RtcConsoleApp::OnRecvMessage;
     params.recv_audioframe_handler = &RtcConsoleApp::OnRecvAudioFrame;
     params.recv_frame_handler = &RtcConsoleApp::OnRecvFrame;
@@ -954,13 +953,10 @@ class RtcConsoleApp {
     rtc_cfg_path_ = FindAsset("rtc.cfg", "config", base_candidates);
     pcm_path_ = FindAsset("8k16bit.pcm", "test_data", base_candidates);
     yuv_path_ = FindAsset("zjlabs.yuv", "test_data", base_candidates);
-    message_file_path_ =
-        FindAsset("messagefile.txt", "test_data", base_candidates);
 
     AppendLog(std::string("rtc.cfg: ") + rtc_cfg_path_);
     AppendLog(std::string("8k16bit.pcm: ") + pcm_path_);
     AppendLog(std::string("zjlabs.yuv: ") + yuv_path_);
-    AppendLog(std::string("messagefile.txt: ") + message_file_path_);
   }
 
   std::string FindAsset(const std::string& name,
@@ -1074,8 +1070,10 @@ class RtcConsoleApp {
                           ImGuiTableFlags_SizingStretchSame |
                               ImGuiTableFlags_NoSavedSettings,
                           ImVec2(-FLT_MIN, body_height))) {
-      ImGui::TableSetupColumn("Left", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-      ImGui::TableSetupColumn("Right", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+      ImGui::TableSetupColumn("Controls", ImGuiTableColumnFlags_WidthStretch,
+                              1.0f);
+      ImGui::TableSetupColumn("Feedback", ImGuiTableColumnFlags_WidthStretch,
+                              1.0f);
       ImGui::TableNextRow();
 
       ImGui::TableSetColumnIndex(0);
@@ -1169,53 +1167,10 @@ class RtcConsoleApp {
       ImGui::TableSetColumnIndex(1);
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 8));
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
-      if (ImGui::BeginChild("ControlRightCard", ImVec2(0, 0), true,
+      if (ImGui::BeginChild("EdgeFeedbackCard", ImVec2(0, 0), true,
                             ImGuiWindowFlags_NoScrollbar |
                                 ImGuiWindowFlags_NoScrollWithMouse)) {
-        ImGui::TextDisabled("SRS");
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputText("##srs_url", srs_url_, sizeof(srs_url_));
-        const float half_btn_w =
-            (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) *
-            0.5f;
-        if (ImGui::Button("Publish SRS", ImVec2(half_btn_w, 0))) {
-          EnsureMediaSources();
-          const RtcErrorCode code = RtcPublishToSRS(srs_url_);
-          AppendLogWithCode("RtcPublishToSRS", code);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Unpublish SRS", ImVec2(half_btn_w, 0))) {
-          const RtcErrorCode code = RtcUnpublishToSRS(srs_url_);
-          AppendLogWithCode("RtcUnpublishToSRS", code);
-        }
-        if (ImGui::Button("Play SRS", ImVec2(half_btn_w, 0))) {
-          const RtcErrorCode code = RtcPlayFromSRS(srs_url_);
-          AppendLogWithCode("RtcPlayFromSRS", code);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Unplay SRS", ImVec2(half_btn_w, 0))) {
-          const RtcErrorCode code = RtcUnplayFromSRS(srs_url_);
-          AppendLogWithCode("RtcUnplayFromSRS", code);
-        }
-
-        ImGui::Spacing();
-        ImGui::TextDisabled("MESSAGE");
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputText("##message_input", send_msg_, sizeof(send_msg_));
-        if (ImGui::Button("Broadcast", ImVec2(half_btn_w, 0))) {
-          const size_t size = std::strlen(send_msg_);
-          if (size == 0) {
-            AppendLog("Broadcast skipped: empty message");
-          } else {
-            const RtcErrorCode code =
-                RtcBroadcastData(kDataChannelLabel, send_msg_, size);
-            AppendLogWithCode("RtcBroadcastData", code);
-          }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Broadcast File", ImVec2(half_btn_w, 0))) {
-          SendMessageFromFile();
-        }
+        DrawEdgeFeedbackPanel();
       }
       ImGui::EndChild();
       ImGui::PopStyleVar(2);
@@ -1268,6 +1223,113 @@ class RtcConsoleApp {
     }
     if (vehicle_control_enabled_) {
       ImGui::EndDisabled();
+    }
+  }
+
+  void DrawEdgeFeedbackPanel() {
+    ImGui::TextDisabled("EDGE FEEDBACK");
+
+    const uint32_t selected_target =
+        vehicle_control_targets_.selected_target();
+    const bool target_ready =
+        vehicle_control_targets_.selected_target_ready();
+    EdgeFeedbackView feedback;
+    bool has_feedback = false;
+    if (selected_target != 0) {
+      std::lock_guard<std::mutex> lock(edge_feedback_mutex_);
+      const auto it = edge_feedback_by_session_.find(selected_target);
+      if (it != edge_feedback_by_session_.end()) {
+        feedback = it->second;
+        has_feedback = true;
+      }
+    }
+
+    if (ImGui::BeginTable("EdgeFeedbackTable", 2,
+                          ImGuiTableFlags_SizingStretchProp |
+                              ImGuiTableFlags_NoSavedSettings)) {
+      ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed,
+                              118.0f);
+      ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch,
+                              1.0f);
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextDisabled("Session");
+      ImGui::TableSetColumnIndex(1);
+      if (selected_target == 0) {
+        ImGui::TextDisabled("Not selected");
+      } else {
+        ImGui::Text("%u", selected_target);
+      }
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextDisabled("Link");
+      ImGui::TableSetColumnIndex(1);
+      if (target_ready) {
+        ImGui::TextColored(ImVec4(0.35f, 0.80f, 0.50f, 1.0f), "Ready");
+      } else {
+        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Not ready");
+      }
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextDisabled("Feedback seq");
+      ImGui::TableSetColumnIndex(1);
+      if (has_feedback) {
+        ImGui::Text("%llu",
+                    static_cast<unsigned long long>(feedback.envelope_seq));
+      } else {
+        ImGui::TextDisabled("Waiting");
+      }
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextDisabled("Gear");
+      ImGui::TableSetColumnIndex(1);
+      ImGui::TextUnformatted(
+          has_feedback ? VehicleGearText(feedback.state.active_gear) : "-");
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextDisabled("Last drive seq");
+      ImGui::TableSetColumnIndex(1);
+      if (has_feedback) {
+        ImGui::Text("%llu", static_cast<unsigned long long>(
+                                feedback.state.last_received_drive_seq));
+      } else {
+        ImGui::TextUnformatted("-");
+      }
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextDisabled("Watchdog");
+      ImGui::TableSetColumnIndex(1);
+      if (!has_feedback) {
+        ImGui::TextUnformatted("-");
+      } else if (feedback.state.watchdog_stopped) {
+        ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "Stopped");
+      } else {
+        ImGui::TextColored(ImVec4(0.35f, 0.80f, 0.50f, 1.0f), "Active");
+      }
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextDisabled("Updated");
+      ImGui::TableSetColumnIndex(1);
+      if (has_feedback) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto age = now >= feedback.updated_at
+                             ? now - feedback.updated_at
+                             : std::chrono::steady_clock::duration::zero();
+        const auto age_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(age).count();
+        ImGui::Text("%lld ms ago", static_cast<long long>(age_ms));
+      } else {
+        ImGui::TextUnformatted("-");
+      }
+
+      ImGui::EndTable();
     }
   }
 
@@ -2394,6 +2456,10 @@ class RtcConsoleApp {
       std::lock_guard<std::mutex> lock(vision_detection_mutex_);
       vision_detections_by_source_.clear();
     }
+    {
+      std::lock_guard<std::mutex> lock(edge_feedback_mutex_);
+      edge_feedback_by_session_.clear();
+    }
 
     remote_video_frames_.store(0);
     remote_audio_frames_.store(0);
@@ -2624,29 +2690,6 @@ class RtcConsoleApp {
     yuv_frames_.clear();
   }
 
-  void SendMessageFromFile() {
-    std::ifstream file(message_file_path_, std::ios::binary);
-    if (!file.good()) {
-      AppendLog(std::string("Cannot open message file: ") + message_file_path_);
-      return;
-    }
-
-    file.seekg(0, std::ios::end);
-    const std::streamoff size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    if (size <= 0) {
-      AppendLog("Message file is empty");
-      return;
-    }
-
-    std::vector<char> content(static_cast<size_t>(size));
-    file.read(content.data(), static_cast<std::streamsize>(size));
-
-    const RtcErrorCode code =
-        RtcBroadcastData(kDataChannelLabel, content.data(), content.size());
-    AppendLogWithCode("RtcBroadcastData(file)", code);
-  }
-
   static void OnRoom(RtcRoomOperation op, RtcRoomId roomid) {
     if (!instance_) {
       return;
@@ -2711,26 +2754,6 @@ class RtcConsoleApp {
     instance_->AppendLog(oss.str());
   }
 
-  static void OnSRSState(RtcSRSStreamurl streamurl, RtcP2PState state) {
-    if (!instance_) {
-      return;
-    }
-    std::ostringstream oss;
-    oss << "SRS state: " << (streamurl ? streamurl : "")
-        << " => " << P2PStateText(state);
-    instance_->AppendLog(oss.str());
-  }
-
-  static void OnSRSResponse(RtcSRSStreamurl streamurl, RtcSRSResponse response) {
-    if (!instance_) {
-      return;
-    }
-    std::ostringstream oss;
-    oss << "SRS response: " << (streamurl ? streamurl : "")
-        << " => " << static_cast<int>(response);
-    instance_->AppendLog(oss.str());
-  }
-
   static void OnRecvMessage(RtcSessionId remote_sessionid, RtcDataChannelLabel label,
                             const char* msg, size_t msg_size) {
     if (!instance_) {
@@ -2790,10 +2813,19 @@ class RtcConsoleApp {
 
     const vts_rtc::vehicle::VehicleState& state =
         decoded.envelope.vehicle_state;
+    const auto now = std::chrono::steady_clock::now();
+    {
+      std::lock_guard<std::mutex> lock(edge_feedback_mutex_);
+      EdgeFeedbackView& feedback =
+          edge_feedback_by_session_[remote_sessionid];
+      feedback.envelope_seq = decoded.envelope.seq;
+      feedback.state = state;
+      feedback.updated_at = now;
+    }
     if (!vehicle_state_log_limiter_.ShouldLog(
             static_cast<uint64_t>(remote_sessionid),
             static_cast<uint32_t>(state.active_gear), state.watchdog_stopped,
-            rtc_console::VehicleStateLogLimiter::Clock::now())) {
+            now)) {
       return;
     }
 
@@ -3007,6 +3039,8 @@ class RtcConsoleApp {
   std::mutex vision_detection_mutex_;
   std::map<std::string, VisionDetectionOverlayView> vision_detections_by_source_;
   std::map<uint32_t, std::string> vision_class_labels_by_id_;
+  std::mutex edge_feedback_mutex_;
+  std::map<uint32_t, EdgeFeedbackView> edge_feedback_by_session_;
   bool render_lr_pixel_interleave_ = false;
   std::string fullscreen_video_stream_key_;
   bool focus_fullscreen_video_ = false;
@@ -3024,13 +3058,10 @@ class RtcConsoleApp {
   int selected_room_ = -1;
 
   char open_room_id_[128];
-  char srs_url_[256];
-  char send_msg_[1024];
 
   std::string rtc_cfg_path_;
   std::string pcm_path_;
   std::string yuv_path_;
-  std::string message_file_path_;
 
   std::atomic<bool> stop_media_feed_{false};
   std::thread audio_thread_;

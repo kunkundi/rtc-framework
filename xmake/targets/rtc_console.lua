@@ -29,7 +29,7 @@ target("rtc_console")
             end
 
             local test_data = path.join(os.projectdir(), "test_data")
-            for _, f in ipairs({"8k16bit.pcm", "zjlabs.yuv", "messagefile.txt"}) do
+            for _, f in ipairs({"8k16bit.pcm", "zjlabs.yuv"}) do
                 local src = path.join(test_data, f)
                 if os.exists(src) then
                     batchcmds:cp(src, target:targetdir())
