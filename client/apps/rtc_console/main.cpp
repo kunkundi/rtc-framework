@@ -707,6 +707,17 @@ class RtcConsoleApp {
 
   bool Init() {
     ResolveAssetPaths();
+    const rtc_console::AppConfig config =
+        rtc_console::LoadConfig(rtc_cfg_path_);
+    if (!options_.room_id_from_command_line) {
+      options_.room_id = config.room_id;
+      std::snprintf(open_room_id_, sizeof(open_room_id_), "%s",
+                    options_.room_id.c_str());
+    }
+    auto_open_room_ = config.auto_open_room;
+    AppendLog(std::string("Target room: ") + options_.room_id);
+    AppendLog(std::string("Room auto-open: ") +
+              (auto_open_room_ ? "enabled" : "disabled"));
     if (!InitRtc()) {
       return false;
     }
@@ -825,7 +836,8 @@ class RtcConsoleApp {
   }
 
   void MaybeOpenConfiguredRoom(std::chrono::steady_clock::time_point now) {
-    if (server_state_.load() != ServerLogined || auto_room_opened_.load()) {
+    if (!auto_open_room_ || server_state_.load() != ServerLogined ||
+        auto_room_opened_.load()) {
       return;
     }
     if (last_auto_open_attempt_.time_since_epoch().count() != 0 &&
@@ -2954,7 +2966,8 @@ class RtcConsoleApp {
  private:
   static RtcConsoleApp* instance_;
 
-  const rtc_console::AppOptions options_;
+  rtc_console::AppOptions options_;
+  bool auto_open_room_ = false;
   std::atomic<RtcServerConnectionState> server_state_{ServerDisconnected};
   std::atomic<bool> auto_room_opened_{false};
   std::chrono::steady_clock::time_point last_auto_open_attempt_{};

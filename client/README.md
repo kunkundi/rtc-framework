@@ -22,13 +22,28 @@ xmake b rtc_console
 xmake r rtc_console
 ```
 
-`rtc_console` 登录 RTC 服务后默认自动打开 `zhejianglab` 房间，使用 `--room` 可指定其他房间：
+`rtc_console` 房间输入框默认预填 `zhejianglab`，使用 `--room` 可指定其他房间：
 
 ```sh
 xmake r rtc_console --room my-room
 ```
 
+是否在登录 RTC 服务后自动打开房间由 `rtc.cfg` 控制，默认关闭：
+
+```json
+{
+  "console": {
+    "room": "zhejianglab",
+    "auto_open_room": false
+  }
+}
+```
+
+命令行 `--room` 会覆盖配置文件中的 `console.room`。
+
 服务器无屏幕环境使用 `--no-render`，此模式不会创建 SDL 窗口或 OpenGL 上下文；`--headless` 是等价别名：
+
+无渲染模式没有手动开房界面，需要将 `console.auto_open_room` 设置为 `true` 才会在登录后自动打开房间。
 
 ```sh
 xmake r rtc_console --no-render --room my-room

@@ -12,6 +12,7 @@ target("rtc_console")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
     add_packages("nanopb")
+    vtsrtc_add_json_config()
     vtsrtc_add_linux_runtime_rpath()
     if vtsrtc_on_windows() then
         add_cxflags("/utf-8", {force = true})
@@ -45,6 +46,7 @@ target("rtc_console_options_tests")
         vtsrtc_path("client", "apps", "rtc_console", "rtc_console_options_tests.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
+    vtsrtc_add_json_config()
     if vtsrtc_on_windows() then
         add_cxflags("/utf-8", {force = true})
     end
