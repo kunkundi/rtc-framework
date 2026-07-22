@@ -579,14 +579,39 @@ struct DogCommandForwarder::Impl {
                   return;
                 }
 
-                CancelOperationTimeout();
-                connected.store(true, std::memory_order_release);
-                NotifyInitialConnection(true);
-                rtc_logging::LogInfo(
-                    "dog command forwarder: connected to rosbridge at " +
-                    endpoint.host_header + endpoint.path);
-                BeginReadFrame(generation);
+                SendConnectionStop(generation, current_socket);
               });
+        });
+  }
+
+  void SendConnectionStop(uint64_t generation,
+                          const std::shared_ptr<Socket>& current_socket) {
+    // 每次建立连接都先写入零速度，避免沿用断线前的运动状态。
+    const std::shared_ptr<std::string> stop_frame =
+        std::make_shared<std::string>(BuildWsFrame(
+            BuildRosbridgeVelocityMessage(0.0f, 0.0f, 0.0f)));
+    SimpleWeb::asio::async_write(
+        *current_socket, SimpleWeb::asio::buffer(*stop_frame),
+        [this, generation, current_socket, stop_frame](
+            const SimpleWeb::error_code& error, size_t) {
+          if (generation != connection_generation) {
+            return;
+          }
+          if (error) {
+            HandleConnectionFailure(
+                generation,
+                std::string("connection stop write failed: ") +
+                    error.message());
+            return;
+          }
+
+          CancelOperationTimeout();
+          connected.store(true, std::memory_order_release);
+          NotifyInitialConnection(true);
+          rtc_logging::LogInfo(
+              "dog command forwarder: connected to rosbridge at " +
+              endpoint.host_header + endpoint.path);
+          BeginReadFrame(generation);
         });
   }
 

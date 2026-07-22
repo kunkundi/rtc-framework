@@ -209,7 +209,7 @@ class ReconnectingWebSocketServer {
       }
       cv_.notify_all();
 
-      const size_t frames_to_read = connection_index == 0 ? 1 : 2;
+      const size_t frames_to_read = connection_index == 0 ? 2 : 3;
       for (size_t frame_index = 0; frame_index < frames_to_read;
            ++frame_index) {
         std::string payload;
@@ -328,15 +328,22 @@ void TestSendAndReconnect() {
         "server observes initial connection");
   Check(server.request(0) == "GET /bridge HTTP/1.1",
         "use configured WebSocket path");
+  Check(server.WaitForPayloads(1, std::chrono::seconds(1)),
+        "initial connection sends a stop frame");
+  const nlohmann::json initial_stop =
+      nlohmann::json::parse(server.payload(0));
+  Check(initial_stop.at("msg").at("vx").get<float>() == 0.0f &&
+            initial_stop.at("msg").at("wz").get<float>() == 0.0f,
+        "initial connection establishes a zero-velocity baseline");
 
   vts_rtc::vehicle::DriveCommand drive;
   drive.drive_direction = vts_rtc::vehicle::DriveDirection::Forward;
   drive.throttle = 0.5f;
   Check(forwarder.SendDriveCommand(drive).accepted,
         "accept command while rosbridge is connected");
-  Check(server.WaitForPayloads(1, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
         "server receives first velocity frame");
-  const nlohmann::json first = nlohmann::json::parse(server.payload(0));
+  const nlohmann::json first = nlohmann::json::parse(server.payload(1));
   Check(first.at("topic") == "/alphadog_node/set_velocity",
         "publish to dog velocity topic");
   Check(first.at("msg").at("vx").get<float>() == 0.75f,
@@ -357,16 +364,23 @@ void TestSendAndReconnect() {
   Check(WaitForConnectionState(&forwarder, true,
                                std::chrono::seconds(1)),
         "report reconnected state");
+  Check(server.WaitForPayloads(3, std::chrono::seconds(1)),
+        "reconnect sends a stop frame before a fresh command");
+  const nlohmann::json reconnect_stop =
+      nlohmann::json::parse(server.payload(2));
+  Check(reconnect_stop.at("msg").at("vx").get<float>() == 0.0f &&
+            reconnect_stop.at("msg").at("wz").get<float>() == 0.0f,
+        "reconnect restores a zero-velocity baseline");
   drive.steering_direction =
       vts_rtc::vehicle::SteeringDirection::Left;
   Check(forwarder.SendDriveCommand(drive).accepted,
         "accept a fresh command after reconnect");
-  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(4, std::chrono::seconds(1)),
         "server receives command after reconnect");
   forwarder.Close();
-  Check(server.WaitForPayloads(3, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(5, std::chrono::seconds(1)),
         "server receives shutdown stop frame");
-  const nlohmann::json stopped = nlohmann::json::parse(server.payload(2));
+  const nlohmann::json stopped = nlohmann::json::parse(server.payload(4));
   Check(stopped.at("msg").at("vx").get<float>() == 0.0f &&
             stopped.at("msg").at("wz").get<float>() == 0.0f,
         "shutdown sends zero velocity");
