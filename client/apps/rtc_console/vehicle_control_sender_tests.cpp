@@ -101,7 +101,13 @@ void TestVehicleControlTargetSelection() {
   targets.SetControlChannelOpen(8, false);
   Check(targets.selected_target() == 7,
         "unrelated channel state does not replace selection");
-  targets.SetP2PConnected(7, false);
+  Check(!targets.SetP2PConnected(8, false),
+        "unrelated disconnect does not remove selection");
+  Check(targets.selected_target() == 7 &&
+            targets.selected_target_ready(),
+        "selected target remains ready after unrelated disconnect");
+  Check(targets.SetP2PConnected(7, false),
+        "selected disconnect reports vehicle control reset");
   Check(targets.selected_target() == 0,
         "disconnect clears the selected target");
   Check(!targets.SelectTarget(8), "closed channel cannot be selected");

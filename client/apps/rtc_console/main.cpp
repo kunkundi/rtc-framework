@@ -1147,6 +1147,7 @@ class RtcConsoleApp {
           AppendLogWithCode("RtcLeaveRoom", code);
           if (code == RtcErrorCode::OK) {
             ResetSessionStateOnUi();
+            ResetVehicleControlOnUi(true);
           }
         }
       }
@@ -2351,18 +2352,21 @@ class RtcConsoleApp {
     if (pending_reset_session_state_.exchange(false)) {
       ResetSessionStateOnUi();
     }
+    if (pending_reset_vehicle_control_.exchange(false)) {
+      ResetVehicleControlOnUi(false);
+    }
   }
 
   void RequestSessionStateReset() { pending_reset_session_state_.store(true); }
+
+  void RequestVehicleControlReset() {
+    pending_reset_vehicle_control_.store(true);
+  }
 
   void ResetSessionStateOnUi() {
     StopMediaFeed();
     remote_audio_player_.Clear();
     CloseFullscreenVideo();
-    vehicle_control_targets_.Clear();
-    vehicle_control_enabled_ = false;
-    ClearVehicleInput();
-    has_last_vehicle_command_ = false;
     video_source_added_ = false;
     audio_source_added_ = false;
 
@@ -2383,6 +2387,15 @@ class RtcConsoleApp {
     remote_audio_frames_.store(0);
     remote_video_frame_seq_.store(0);
     ReleaseVideoTextures();
+  }
+
+  void ResetVehicleControlOnUi(bool clear_targets) {
+    if (clear_targets) {
+      vehicle_control_targets_.Clear();
+    }
+    vehicle_control_enabled_ = false;
+    ClearVehicleInput();
+    has_last_vehicle_command_ = false;
   }
 
   void QueryRooms() {
@@ -2647,7 +2660,10 @@ class RtcConsoleApp {
     }
     if (state == RtcP2PState::P2PDisconnected || state == RtcP2PState::P2PClosed ||
         state == RtcP2PState::P2PFailed) {
-      instance_->vehicle_control_targets_.SetP2PConnected(sessionid, false);
+      if (instance_->vehicle_control_targets_.SetP2PConnected(sessionid,
+                                                               false)) {
+        instance_->RequestVehicleControlReset();
+      }
       instance_->RequestSessionStateReset();
     }
   }
@@ -2946,6 +2962,7 @@ class RtcConsoleApp {
   std::atomic<uint64_t> remote_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frame_seq_{0};
   std::atomic<bool> pending_reset_session_state_{false};
+  std::atomic<bool> pending_reset_vehicle_control_{false};
   rtc_console::VehicleControlTargetRegistry vehicle_control_targets_;
   RtcAudioPlayer remote_audio_player_;
   SDLOpenGLWindow* ui_window_ = nullptr;

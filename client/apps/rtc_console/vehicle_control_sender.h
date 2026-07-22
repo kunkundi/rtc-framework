@@ -25,7 +25,8 @@ vts_rtc::vehicle::DriveCommand MakeVehicleDriveCommand(
 class VehicleControlTargetRegistry {
  public:
   void Clear();
-  void SetP2PConnected(uint32_t sessionid, bool connected);
+  // 断开的会话为当前选择目标时返回 true。
+  bool SetP2PConnected(uint32_t sessionid, bool connected);
   void SetControlChannelOpen(uint32_t sessionid, bool open);
   std::vector<uint32_t> AvailableTargets() const;
   bool SelectTarget(uint32_t sessionid);

@@ -50,22 +50,25 @@ void VehicleControlTargetRegistry::Clear() {
   selected_target_ = 0;
 }
 
-void VehicleControlTargetRegistry::SetP2PConnected(
+bool VehicleControlTargetRegistry::SetP2PConnected(
     uint32_t sessionid,
     bool connected) {
   if (sessionid == 0) {
-    return;
+    return false;
   }
   std::lock_guard<std::mutex> lock(mutex_);
   PeerState& peer = peers_[sessionid];
   peer.connected = connected;
   if (!connected) {
     peer.control_channel_open = false;
+    const bool selected_disconnected = selected_target_ == sessionid;
     if (selected_target_ == sessionid) {
       selected_target_ = 0;
     }
     peers_.erase(sessionid);
+    return selected_disconnected;
   }
+  return false;
 }
 
 void VehicleControlTargetRegistry::SetControlChannelOpen(
