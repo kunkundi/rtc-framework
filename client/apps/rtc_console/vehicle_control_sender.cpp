@@ -61,6 +61,10 @@ bool VehicleControlTargetRegistry::SetP2PConnected(
   peer.connected = connected;
   if (!connected) {
     peer.control_channel_open = false;
+<<<<<<< HEAD
+=======
+    peer.view_control_channel_open = false;
+>>>>>>> 5c8f59e (新加双目和环路切换)
     const bool selected_disconnected = selected_target_ == sessionid;
     if (selected_target_ == sessionid) {
       selected_target_ = 0;
@@ -82,6 +86,20 @@ void VehicleControlTargetRegistry::SetControlChannelOpen(
   peer.control_channel_open = open;
 }
 
+<<<<<<< HEAD
+=======
+void VehicleControlTargetRegistry::SetViewControlChannelOpen(
+    uint32_t sessionid,
+    bool open) {
+  if (sessionid == 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  PeerState& peer = peers_[sessionid];
+  peer.view_control_channel_open = open;
+}
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
 std::vector<uint32_t>
 VehicleControlTargetRegistry::AvailableTargets() const {
   std::vector<uint32_t> targets;
@@ -121,4 +139,24 @@ bool VehicleControlTargetRegistry::selected_target_ready() const {
          it->second.connected && it->second.control_channel_open;
 }
 
+<<<<<<< HEAD
+=======
+uint32_t VehicleControlTargetRegistry::view_control_target() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto selected_it = peers_.find(selected_target_);
+  if (selected_target_ != 0 && selected_it != peers_.end() &&
+      selected_it->second.connected &&
+      selected_it->second.view_control_channel_open) {
+    return selected_target_;
+  }
+
+  for (const auto& entry : peers_) {
+    if (entry.second.connected && entry.second.view_control_channel_open) {
+      return entry.first;
+    }
+  }
+  return 0;
+}
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
 }  // namespace rtc_console

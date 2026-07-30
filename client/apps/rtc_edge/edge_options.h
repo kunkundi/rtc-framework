@@ -10,6 +10,12 @@
 namespace rtc_edge_app {
 
 struct SurroundCameraOptions {
+<<<<<<< HEAD
+=======
+  bool simulate = false;
+  std::string simulation_yuv_path;
+  int simulation_fps = 30;
+>>>>>>> 5c8f59e (新加双目和环路切换)
   std::string front_device;
   std::string rear_device;
   std::string left_device;

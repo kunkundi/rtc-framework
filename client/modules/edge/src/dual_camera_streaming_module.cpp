@@ -44,6 +44,7 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
       video_source_.reset();
       return false;
     }
+<<<<<<< HEAD
     if (options_.yolo_enabled) {
       yolo_frames_ = video_source_->Subscribe(1);
       if (!yolo_frames_) {
@@ -64,6 +65,13 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
       yolo_consumer_.reset(new rtc_camera_headless::YoloFrameConsumer(
           yolo_frames_, yolo_options));
       yolo_consumer_->Start();
+=======
+    converter_.reset(new rtc_camera::dual::DualUyvyFrameConverter());
+    video_source_->Start();
+    if (!StartYoloConsumer(error_message)) {
+      Stop();
+      return false;
+>>>>>>> 5c8f59e (新加双目和环路切换)
     }
     started_ = true;
     first_frame_logged_ = false;
@@ -78,9 +86,13 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
 }
 
 void DualCameraStreamingModule::Stop() {
+<<<<<<< HEAD
   if (yolo_consumer_) {
     yolo_consumer_->Stop();
   }
+=======
+  StopYoloConsumer();
+>>>>>>> 5c8f59e (新加双目和环路切换)
   if (rtc_frames_) {
     rtc_frames_->Close();
   }
@@ -88,8 +100,11 @@ void DualCameraStreamingModule::Stop() {
     video_source_->Stop();
   }
   converter_.reset();
+<<<<<<< HEAD
   yolo_consumer_.reset();
   yolo_frames_.reset();
+=======
+>>>>>>> 5c8f59e (新加双目和环路切换)
   rtc_frames_.reset();
   video_source_.reset();
   started_ = false;
@@ -97,7 +112,13 @@ void DualCameraStreamingModule::Stop() {
 
 bool DualCameraStreamingModule::Tick(
     rtc_runtime::RtcSession* rtc_session,
+<<<<<<< HEAD
     std::string* error_message) {
+=======
+    std::string* error_message,
+    bool send_frame,
+    bool run_yolo) {
+>>>>>>> 5c8f59e (新加双目和环路切换)
   if (!started_ || !rtc_session || !video_source_ || !rtc_frames_ ||
       !converter_) {
     if (error_message) {
@@ -106,8 +127,21 @@ bool DualCameraStreamingModule::Tick(
     return false;
   }
 
+<<<<<<< HEAD
   rtc_camera::dual::ImageFrame frame;
   if (!rtc_frames_->WaitNext(&frame, options_.frame_wait)) {
+=======
+  if (run_yolo) {
+    if (!StartYoloConsumer(error_message)) {
+      return false;
+    }
+  } else {
+    StopYoloConsumer();
+  }
+
+  rtc_camera::dual::ImageFrame frame;
+  if (!DrainLatestFrame(&frame, options_.frame_wait)) {
+>>>>>>> 5c8f59e (新加双目和环路切换)
     if (video_source_->failed()) {
       if (error_message) {
         *error_message =
@@ -132,6 +166,12 @@ bool DualCameraStreamingModule::Tick(
     }
     return false;
   }
+<<<<<<< HEAD
+=======
+  if (!send_frame) {
+    return true;
+  }
+>>>>>>> 5c8f59e (新加双目和环路切换)
 
   rtc_camera::dual::ConvertedI420Frame converted;
   std::string convert_error;
@@ -155,6 +195,64 @@ bool DualCameraStreamingModule::Tick(
   return true;
 }
 
+<<<<<<< HEAD
+=======
+bool DualCameraStreamingModule::StartYoloConsumer(
+    std::string* error_message) {
+  if (!options_.yolo_enabled || yolo_active_) {
+    return true;
+  }
+  if (!video_source_) {
+    if (error_message != nullptr) {
+      *error_message = "failed to start YOLO: camera source is not ready";
+    }
+    return false;
+  }
+
+  yolo_frames_ = video_source_->Subscribe(1);
+  if (!yolo_frames_) {
+    if (error_message != nullptr) {
+      *error_message = "failed to create YOLO camera frame subscription";
+    }
+    return false;
+  }
+
+  rtc_camera_headless::YoloFrameConsumerOptions yolo_options;
+  yolo_options.max_fps = options_.yolo_max_fps;
+  yolo_options.processing_downscale = options_.yolo_processing_downscale;
+  yolo_consumer_.reset(new rtc_camera_headless::YoloFrameConsumer(
+      yolo_frames_, yolo_options));
+  yolo_consumer_->Start();
+  yolo_active_ = true;
+  return true;
+}
+
+void DualCameraStreamingModule::StopYoloConsumer() {
+  if (yolo_consumer_) {
+    yolo_consumer_->Stop();
+  } else if (yolo_frames_) {
+    yolo_frames_->Close();
+  }
+  yolo_consumer_.reset();
+  yolo_frames_.reset();
+  yolo_active_ = false;
+}
+
+bool DualCameraStreamingModule::DrainLatestFrame(
+    rtc_camera::dual::ImageFrame* frame,
+    std::chrono::milliseconds first_wait) const {
+  if (!frame || !rtc_frames_->WaitNext(frame, first_wait)) {
+    return false;
+  }
+
+  rtc_camera::dual::ImageFrame latest;
+  while (rtc_frames_->WaitNext(&latest, std::chrono::milliseconds(0))) {
+    *frame = latest;
+  }
+  return true;
+}
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
 uint64_t DualCameraStreamingModule::captured_frames() const {
   return video_source_ ? video_source_->captured_frames() : 0;
 }

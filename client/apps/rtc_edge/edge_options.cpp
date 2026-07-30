@@ -96,6 +96,19 @@ bool ReadBoolean(const nlohmann::json& object,
   return value.get<bool>();
 }
 
+<<<<<<< HEAD
+=======
+bool ReadOptionalBoolean(const nlohmann::json& object,
+                         const char* key,
+                         const std::string& object_path,
+                         bool default_value) {
+  if (!object.contains(key)) {
+    return default_value;
+  }
+  return ReadBoolean(object, key, object_path);
+}
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
 int ReadInteger(const nlohmann::json& object,
                 const char* key,
                 const std::string& object_path,
@@ -120,6 +133,21 @@ int ReadInteger(const nlohmann::json& object,
   return static_cast<int>(parsed);
 }
 
+<<<<<<< HEAD
+=======
+int ReadOptionalInteger(const nlohmann::json& object,
+                        const char* key,
+                        const std::string& object_path,
+                        int default_value,
+                        int minimum,
+                        int maximum) {
+  if (!object.contains(key)) {
+    return default_value;
+  }
+  return ReadInteger(object, key, object_path, minimum, maximum);
+}
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
 float ReadPositiveFloat(const nlohmann::json& object,
                         const char* key,
                         const std::string& object_path) {
@@ -271,6 +299,20 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       surround_camera, "left_device", "edge.surround_camera");
   options.surround_camera.right_device = ReadStringAllowEmpty(
       surround_camera, "right_device", "edge.surround_camera");
+<<<<<<< HEAD
+=======
+  options.surround_camera.simulate = ReadOptionalBoolean(
+      surround_camera, "simulate", "edge.surround_camera", false);
+  options.surround_camera.simulation_fps = ReadOptionalInteger(
+      surround_camera, "simulation_fps", "edge.surround_camera", 30, 1,
+      240);
+  if (options.surround_camera.simulate) {
+    options.surround_camera.simulation_yuv_path =
+        rtc_runtime::ResolveConfigPath(ReadString(
+            surround_camera, "simulation_yuv_path",
+            "edge.surround_camera"));
+  }
+>>>>>>> 5c8f59e (新加双目和环路切换)
   options.surround_camera.width = ReadInteger(
       surround_camera, "width", "edge.surround_camera", 0,
       std::numeric_limits<int>::max());

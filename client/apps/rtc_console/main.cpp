@@ -48,8 +48,18 @@
 namespace {
 
 constexpr const char* kDataChannelLabel = "datachannel";
+<<<<<<< HEAD
 constexpr const char* kExternalAudioSource = "external_audio";
 constexpr const char* kExternalVideoSource = "merged_image";
+=======
+constexpr const char* kVideoViewControlChannelLabel = "video.view_control.v1";
+constexpr const char* kExternalAudioSource = "external_audio";
+constexpr const char* kExternalVideoSource = "merged_image";
+constexpr const char* kSurroundFrontVideoSource = "surround_front";
+constexpr const char* kSurroundRearVideoSource = "surround_rear";
+constexpr const char* kSurroundLeftVideoSource = "surround_left";
+constexpr const char* kSurroundRightVideoSource = "surround_right";
+>>>>>>> 5c8f59e (新加双目和环路切换)
 constexpr int kAutoOpenRetryMs = 3000;
 constexpr int kNoRenderStatusIntervalMs = 5000;
 constexpr uint64_t kVehicleDriveIntervalMs = 20;
@@ -886,6 +896,18 @@ class RtcConsoleApp {
     }
     AppendLog("RtcAddDataChannel(datachannel) success");
 
+<<<<<<< HEAD
+=======
+    const RtcErrorCode view_control_dc_code = RtcAddDataChannel(
+        kVideoViewControlChannelLabel, RtcPriorityType::High, true, -1);
+    if (view_control_dc_code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcAddDataChannel(video.view_control.v1)",
+                        view_control_dc_code);
+      return false;
+    }
+    AppendLog("RtcAddDataChannel(video.view_control.v1) success");
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
     const RtcErrorCode vision_dc_code = RtcAddDataChannel(
         vts_rtc::vision::kVisionDetectionChannelLabel, RtcPriorityType::Medium,
         false, 0);
@@ -1228,6 +1250,10 @@ class RtcConsoleApp {
 
   void DrawEdgeFeedbackPanel() {
     ImGui::TextDisabled("EDGE FEEDBACK");
+<<<<<<< HEAD
+=======
+    DrawVehicleKeyDisplayPanel();
+>>>>>>> 5c8f59e (新加双目和环路切换)
 
     const uint32_t selected_target =
         vehicle_control_targets_.selected_target();
@@ -1333,6 +1359,73 @@ class RtcConsoleApp {
     }
   }
 
+<<<<<<< HEAD
+=======
+  void DrawVehicleKeyCap(ImDrawList* draw_list,
+                         const ImVec2& pos,
+                         const ImVec2& size,
+                         const char* label,
+                         bool pressed) const {
+    const ImVec2 max(pos.x + size.x, pos.y + size.y);
+    const ImU32 bg =
+        pressed ? IM_COL32(58, 103, 153, 255) : IM_COL32(34, 58, 90, 255);
+    const ImU32 border =
+        pressed ? IM_COL32(125, 175, 230, 255) : IM_COL32(70, 104, 145, 255);
+    const ImU32 text = IM_COL32(235, 240, 248, 255);
+    draw_list->AddRectFilled(pos, max, bg);
+    draw_list->AddRect(pos, max, border);
+
+    const ImVec2 text_size = ImGui::CalcTextSize(label);
+    draw_list->AddText(
+        ImVec2(pos.x + (size.x - text_size.x) * 0.5f,
+               pos.y + (size.y - text_size.y) * 0.5f),
+        text, label);
+  }
+
+  void DrawVehicleKeyDisplayPanel() const {
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const ImVec2 cursor = ImGui::GetCursorScreenPos();
+    const float panel_width = ImGui::GetContentRegionAvail().x;
+    const float key_w = 42.0f;
+    const float key_h = 36.0f;
+    const float gap = 8.0f;
+    const float start_x = cursor.x + std::max(0.0f, panel_width - 204.0f);
+    const float start_y = cursor.y - ImGui::GetTextLineHeightWithSpacing();
+    const float row1_y = start_y + 22.0f;
+    const float row2_y = row1_y + key_h + gap;
+    const float row3_y = row2_y + key_h + gap;
+
+    draw_list->AddText(ImVec2(start_x, start_y),
+                       ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                       "KEY DISPLAY");
+    const bool w_down = ImGui::IsKeyDown(ImGuiKey_W);
+    const bool a_down = ImGui::IsKeyDown(ImGuiKey_A);
+    const bool s_down = ImGui::IsKeyDown(ImGuiKey_S);
+    const bool d_down = ImGui::IsKeyDown(ImGuiKey_D);
+    const bool space_down = ImGui::IsKeyDown(ImGuiKey_Space);
+    const bool minus_down = ImGui::IsKeyDown(ImGuiKey_Minus);
+    const bool equal_down = ImGui::IsKeyDown(ImGuiKey_Equal);
+
+    DrawVehicleKeyCap(draw_list, ImVec2(start_x + key_w + gap, row1_y),
+                      ImVec2(key_w, key_h), w_down ? "Fwd" : "W", w_down);
+    DrawVehicleKeyCap(draw_list, ImVec2(start_x, row2_y), ImVec2(key_w, key_h),
+                      a_down ? "Left" : "A", a_down);
+    DrawVehicleKeyCap(draw_list, ImVec2(start_x + key_w + gap, row2_y),
+                      ImVec2(key_w, key_h), s_down ? "Rev" : "S", s_down);
+    DrawVehicleKeyCap(draw_list, ImVec2(start_x + (key_w + gap) * 2.0f, row2_y),
+                      ImVec2(key_w, key_h), d_down ? "Right" : "D", d_down);
+    DrawVehicleKeyCap(draw_list, ImVec2(start_x, row3_y),
+                      ImVec2(key_w * 3.0f + gap * 2.0f, key_h),
+                      space_down ? "E-Stop" : "Space", space_down);
+    DrawVehicleKeyCap(draw_list, ImVec2(start_x + (key_w + gap) * 3.2f, row3_y),
+                      ImVec2(key_w, key_h), minus_down ? "Decel" : "-",
+                      minus_down);
+    DrawVehicleKeyCap(draw_list, ImVec2(start_x + (key_w + gap) * 3.2f, row1_y),
+                      ImVec2(key_w, key_h), equal_down ? "Accel" : "+",
+                      equal_down);
+  }
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
   void ClearVehicleInput() {
     vehicle_input_ = rtc_console::VehicleControlInput();
     vehicle_keyboard_active_ = false;
@@ -1490,6 +1583,77 @@ class RtcConsoleApp {
     return true;
   }
 
+<<<<<<< HEAD
+=======
+  bool SendVideoViewControl(bool surround_view) {
+    const RtcSessionId target =
+        vehicle_control_targets_.view_control_target();
+    if (target == 0) {
+      AppendLog("Video view control skipped: view-control channel is not ready");
+      return false;
+    }
+
+    const std::string payload =
+        surround_view ? "mode=surround" : "mode=stereo";
+    const RtcErrorCode code = RtcSendData(
+        target, kVideoViewControlChannelLabel, payload.data(), payload.size());
+    if (code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcSendData(video.view_control.v1)", code);
+      return false;
+    }
+
+    std::ostringstream oss;
+    oss << "Video view control sent to " << target << " " << payload;
+    AppendLog(oss.str());
+    ClearVisionDetectionsForSource(kExternalVideoSource);
+    return true;
+  }
+
+  void DrawVideoViewControl() {
+    const bool next_surround = !request_surround_view_;
+    if (ImGui::Button(request_surround_view_ ? "View Mode: Surround"
+                                             : "View Mode: Stereo")) {
+      if (SendVideoViewControl(next_surround)) {
+        request_surround_view_ = next_surround;
+      }
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Stereo input -> dual output");
+    ImGui::SameLine();
+    ImGui::TextDisabled("| Surround input -> 2x2 output");
+  }
+
+  bool IsSurroundVideoSource(const std::string& source_id) const {
+    return source_id == kSurroundFrontVideoSource ||
+           source_id == kSurroundRearVideoSource ||
+           source_id == kSurroundLeftVideoSource ||
+           source_id == kSurroundRightVideoSource;
+  }
+
+  bool ShouldShowVideoFrame(const VideoFrameView& frame) const {
+    if (request_surround_view_) {
+      return IsSurroundVideoSource(frame.source_id);
+    }
+    return frame.source_id == kExternalVideoSource;
+  }
+
+  int VideoFrameDisplayOrder(const VideoFrameView& frame) const {
+    if (frame.source_id == kSurroundFrontVideoSource) {
+      return 0;
+    }
+    if (frame.source_id == kSurroundRearVideoSource) {
+      return 1;
+    }
+    if (frame.source_id == kSurroundLeftVideoSource) {
+      return 2;
+    }
+    if (frame.source_id == kSurroundRightVideoSource) {
+      return 3;
+    }
+    return 100;
+  }
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
   void DrawVideoPanel() {
     const ImGuiWindowFlags window_flags =
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
@@ -1509,13 +1673,21 @@ class RtcConsoleApp {
     ImGui::TextDisabled("Side-by-side input -> alternating output columns");
     ImGui::SameLine();
     ImGui::TextDisabled("| Double-click a frame for full screen");
+<<<<<<< HEAD
+=======
+    DrawVideoViewControl();
+>>>>>>> 5c8f59e (新加双目和环路切换)
     ImGui::Separator();
 
     std::vector<std::shared_ptr<VideoFrameView>> frame_snapshot;
     {
       std::lock_guard<std::mutex> lock(video_mutex_);
       for (const auto& item : remote_video_frames_by_source_) {
+<<<<<<< HEAD
         if (item.second) {
+=======
+        if (item.second && ShouldShowVideoFrame(*item.second)) {
+>>>>>>> 5c8f59e (新加双目和环路切换)
           frame_snapshot.push_back(item.second);
         }
       }
@@ -1528,8 +1700,18 @@ class RtcConsoleApp {
     }
 
     std::sort(frame_snapshot.begin(), frame_snapshot.end(),
+<<<<<<< HEAD
               [](const std::shared_ptr<VideoFrameView>& a,
                  const std::shared_ptr<VideoFrameView>& b) {
+=======
+              [this](const std::shared_ptr<VideoFrameView>& a,
+                     const std::shared_ptr<VideoFrameView>& b) {
+                const int a_order = VideoFrameDisplayOrder(*a);
+                const int b_order = VideoFrameDisplayOrder(*b);
+                if (a_order != b_order) {
+                  return a_order < b_order;
+                }
+>>>>>>> 5c8f59e (新加双目和环路切换)
                 return a->stream_key < b->stream_key;
               });
 
@@ -2033,6 +2215,12 @@ class RtcConsoleApp {
     if (!draw_list) {
       return;
     }
+<<<<<<< HEAD
+=======
+    if (request_surround_view_ && frame.source_id == kExternalVideoSource) {
+      return;
+    }
+>>>>>>> 5c8f59e (新加双目和环路切换)
 
     VisionOverlaySnapshot snapshot;
     {
@@ -2112,6 +2300,21 @@ class RtcConsoleApp {
     }
   }
 
+<<<<<<< HEAD
+=======
+  void ClearVisionDetectionsForSource(const std::string& source_id) {
+    std::lock_guard<std::mutex> lock(vision_detection_mutex_);
+    for (auto it = vision_detections_by_source_.begin();
+         it != vision_detections_by_source_.end();) {
+      if (it->second.frame_detections.source_id == source_id) {
+        it = vision_detections_by_source_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
   void DrawFullscreenVideoOverlay() {
     if (fullscreen_video_stream_key_.empty()) {
       return;
@@ -2739,6 +2942,14 @@ class RtcConsoleApp {
       instance_->vehicle_control_targets_.SetControlChannelOpen(sessionid,
                                                                  open);
     }
+<<<<<<< HEAD
+=======
+    if (label && std::strcmp(label, kVideoViewControlChannelLabel) == 0) {
+      const bool open = state == RtcDataChannelState::DataChannelOpen;
+      instance_->vehicle_control_targets_.SetViewControlChannelOpen(sessionid,
+                                                                     open);
+    }
+>>>>>>> 5c8f59e (新加双目和环路切换)
   }
 
   static void OnServerConnectionState(RtcServerConnectionState state) {
@@ -3042,6 +3253,10 @@ class RtcConsoleApp {
   std::mutex edge_feedback_mutex_;
   std::map<uint32_t, EdgeFeedbackView> edge_feedback_by_session_;
   bool render_lr_pixel_interleave_ = false;
+<<<<<<< HEAD
+=======
+  bool request_surround_view_ = false;
+>>>>>>> 5c8f59e (新加双目和环路切换)
   std::string fullscreen_video_stream_key_;
   bool focus_fullscreen_video_ = false;
   bool fullscreen_video_window_forced_ = false;

@@ -12,8 +12,13 @@ rem ==============================
 set HTTP_PROXY=
 set HTTPS_PROXY=
 set ALL_PROXY=
+<<<<<<< HEAD
 set http_proxy=
 set https_proxy=
+=======
+set http_proxy=http://127.0.0.1:7897
+set https_proxy=http://127.0.0.1:7897
+>>>>>>> 5c8f59e (新加双目和环路切换)
 set all_proxy=
 
 rem ==============================
@@ -201,7 +206,11 @@ curl -L ^
   --retry-delay 2 ^
   --connect-timeout 10 ^
   --progress-bar ^
+<<<<<<< HEAD
   --noproxy "*" ^
+=======
+  --noproxy "https://127.0.0.1:7897" ^
+>>>>>>> 5c8f59e (新加双目和环路切换)
   -o "%OUT%" "%URL%"
 
 if errorlevel 1 (

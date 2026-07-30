@@ -18,6 +18,10 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "apps", "rtc_edge", "edge_options.cpp"),
             vtsrtc_path("client", "apps", "rtc_edge", "edge_application.cpp"),
             vtsrtc_path("client", "modules", "edge", "src", "dual_camera_streaming_module.cpp"),
+<<<<<<< HEAD
+=======
+            vtsrtc_path("client", "modules", "edge", "src", "simulated_surround_streaming_module.cpp"),
+>>>>>>> 5c8f59e (新加双目和环路切换)
             vtsrtc_path("client", "modules", "edge", "src", "single_camera_streaming_module.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "stereo_detection_fuser.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "yolo_frame_consumer.cpp"),

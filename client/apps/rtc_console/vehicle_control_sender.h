@@ -28,15 +28,27 @@ class VehicleControlTargetRegistry {
   // 断开的会话为当前选择目标时返回 true。
   bool SetP2PConnected(uint32_t sessionid, bool connected);
   void SetControlChannelOpen(uint32_t sessionid, bool open);
+<<<<<<< HEAD
+=======
+  void SetViewControlChannelOpen(uint32_t sessionid, bool open);
+>>>>>>> 5c8f59e (新加双目和环路切换)
   std::vector<uint32_t> AvailableTargets() const;
   bool SelectTarget(uint32_t sessionid);
   uint32_t selected_target() const;
   bool selected_target_ready() const;
+<<<<<<< HEAD
+=======
+  uint32_t view_control_target() const;
+>>>>>>> 5c8f59e (新加双目和环路切换)
 
  private:
   struct PeerState {
     bool connected = false;
     bool control_channel_open = false;
+<<<<<<< HEAD
+=======
+    bool view_control_channel_open = false;
+>>>>>>> 5c8f59e (新加双目和环路切换)
   };
 
   mutable std::mutex mutex_;

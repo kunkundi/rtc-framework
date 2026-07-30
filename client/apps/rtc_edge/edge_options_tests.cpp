@@ -51,6 +51,13 @@ nlohmann::json MakeValidConfig() {
   root["edge"]["surround_camera"]["rear_device"] = "/dev/video7";
   root["edge"]["surround_camera"]["left_device"] = "/dev/video8";
   root["edge"]["surround_camera"]["right_device"] = "/dev/video9";
+<<<<<<< HEAD
+=======
+  root["edge"]["surround_camera"]["simulate"] = true;
+  root["edge"]["surround_camera"]["simulation_yuv_path"] =
+      "test_data/zjlabs.yuv";
+  root["edge"]["surround_camera"]["simulation_fps"] = 24;
+>>>>>>> 5c8f59e (新加双目和环路切换)
   root["edge"]["surround_camera"]["width"] = 1920;
   root["edge"]["surround_camera"]["height"] = 1080;
   root["edge"]["surround_camera"]["buffer_count"] = 8;
@@ -98,6 +105,16 @@ void TestValidConfig() {
         "load surround camera width");
   Check(options.surround_camera.frame_wait.count() == 10,
         "load surround frame wait");
+<<<<<<< HEAD
+=======
+  Check(options.surround_camera.simulate,
+        "enable simulated surround camera");
+  Check(options.surround_camera.simulation_yuv_path ==
+            "test_data/zjlabs.yuv",
+        "load simulated surround path");
+  Check(options.surround_camera.simulation_fps == 24,
+        "load simulated surround FPS");
+>>>>>>> 5c8f59e (新加双目和环路切换)
   Check(options.camera.yolo_enabled, "load YOLO enabled");
   Check(options.camera.yolo_max_fps == 12, "load YOLO max FPS");
   Check(options.camera.yolo_processing_downscale == 4,
@@ -121,6 +138,13 @@ void TestRepositoryConfig() {
         "load disabled repository surround front camera");
   Check(options.surround_camera.right_device.empty(),
         "load disabled repository surround right camera");
+<<<<<<< HEAD
+=======
+  Check(options.surround_camera.simulate,
+        "enable repository simulated surround camera");
+  Check(options.surround_camera.simulation_fps == 30,
+        "load repository simulated surround FPS");
+>>>>>>> 5c8f59e (新加双目和环路切换)
   Check(options.camera.yolo_enabled, "load repository YOLO enabled");
   Check(options.camera.yolo_max_fps == 15,
         "load repository YOLO max FPS");
@@ -130,6 +154,28 @@ void TestRepositoryConfig() {
         "load repository watchdog");
 }
 
+<<<<<<< HEAD
+=======
+void TestOptionalSimulationDefaults() {
+  const std::string path = "/tmp/rtc_edge_options_simulation_defaults.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["surround_camera"].erase("simulate");
+  config["edge"]["surround_camera"].erase("simulation_yuv_path");
+  config["edge"]["surround_camera"].erase("simulation_fps");
+  WriteConfig(path, config);
+
+  const rtc_edge_app::EdgeOptions options =
+      rtc_edge_app::LoadEdgeOptions(path);
+  Check(!options.surround_camera.simulate,
+        "disable simulated surround by default");
+  Check(options.surround_camera.simulation_yuv_path.empty(),
+        "leave simulated surround path empty by default");
+  Check(options.surround_camera.simulation_fps == 30,
+        "default simulated surround FPS");
+  std::remove(path.c_str());
+}
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
 void TestInvalidWatchdog() {
   const std::string path = "/tmp/rtc_edge_options_watchdog.json";
   nlohmann::json config = MakeValidConfig();
@@ -294,6 +340,10 @@ int main() {
   TestMissingCameraDevice();
   TestMissingSurroundCameraDevice();
   TestEmptySurroundCameraDevice();
+<<<<<<< HEAD
+=======
+  TestOptionalSimulationDefaults();
+>>>>>>> 5c8f59e (新加双目和环路切换)
   TestInvalidYoloDownscale();
   TestInvalidYoloMaxFps();
   TestDogControlConfig();

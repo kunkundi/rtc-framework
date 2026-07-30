@@ -113,6 +113,31 @@ void TestVehicleControlTargetSelection() {
   Check(!targets.SelectTarget(8), "closed channel cannot be selected");
 }
 
+<<<<<<< HEAD
+=======
+void TestVideoViewControlTargetSelection() {
+  rtc_console::VehicleControlTargetRegistry targets;
+  targets.SetP2PConnected(7, true);
+  targets.SetViewControlChannelOpen(7, true);
+
+  Check(targets.selected_target() == 0,
+        "view control does not select a vehicle target implicitly");
+  Check(targets.view_control_target() == 7,
+        "view control can use a connected peer without vehicle selection");
+
+  targets.SetP2PConnected(8, true);
+  targets.SetControlChannelOpen(8, true);
+  targets.SetViewControlChannelOpen(8, true);
+  Check(targets.SelectTarget(8), "select vehicle target with view channel");
+  Check(targets.view_control_target() == 8,
+        "selected vehicle target is preferred for view control");
+
+  targets.SetViewControlChannelOpen(8, false);
+  Check(targets.view_control_target() == 7,
+        "view control falls back to another open view channel");
+}
+
+>>>>>>> 5c8f59e (新加双目和环路切换)
 }  // namespace
 
 int main() {
@@ -121,6 +146,10 @@ int main() {
   TestThrottleClamp();
   TestEmergencyStop();
   TestVehicleControlTargetSelection();
+<<<<<<< HEAD
+=======
+  TestVideoViewControlTargetSelection();
+>>>>>>> 5c8f59e (新加双目和环路切换)
   std::cout << "rtc_console_vehicle_control_sender_tests passed"
             << std::endl;
   return 0;
