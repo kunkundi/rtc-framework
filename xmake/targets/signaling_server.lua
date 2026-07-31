@@ -9,6 +9,10 @@ target("signaling-server")
         vtsrtc_path("signaling-server", "src", "main.cpp")
     )
 
+    if vtsrtc_on_windows() then
+        add_files(vtsrtc_path("signaling-server", "src", "openssl_sha1_compat.cpp"))
+    end
+
     add_includedirs(vtsrtc_path("signaling-server", "src"))
     vtsrtc_add_simple_web_config()
     vtsrtc_add_json_config()

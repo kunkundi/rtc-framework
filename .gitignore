@@ -2,6 +2,7 @@ build/
 install/
 .vscode/
 .xmake/
+third_party/
 /yolo*.onnx
 /yolo*.pt
 models/*.engine
@@ -11,8 +12,8 @@ models/*.pt
 models/*.trt*
 
 # third_party large binaries — download via script instead
-third_party/webrtc/
-third_party/Video_Codec_SDK_11.0.10/
+
+
 
 # test data (large binary files)
 test_data/zjlabs.yuv
