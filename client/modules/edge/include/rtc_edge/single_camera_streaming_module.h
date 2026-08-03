@@ -3,8 +3,10 @@
 #include "rtc_camera/single/async_image_source.h"
 
 #include <chrono>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace rtc_camera {
 namespace single {
@@ -46,10 +48,25 @@ class SingleCameraStreamingModule {
   uint64_t captured_frames() const;
 
  private:
+  bool StartLocalYuvFile(std::string* error_message);
+  bool TickLocalYuvFile(rtc_runtime::RtcSession* rtc_session,
+                        bool send_frame,
+                        std::string* error_message);
+
   SingleCameraStreamingModuleOptions options_;
   std::unique_ptr<rtc_camera::single::AsyncCameraImageSource> video_source_;
   std::shared_ptr<rtc_camera::single::CameraFrameSubscription> rtc_frames_;
   std::unique_ptr<rtc_camera::single::CameraFrameConverter> converter_;
+  bool use_local_yuv_file_ = false;
+  std::ifstream local_yuv_file_;
+  std::vector<uint8_t> local_i420_frame_;
+  size_t local_frame_size_ = 0;
+  size_t local_width_ = 0;
+  size_t local_height_ = 0;
+  size_t local_stride_y_ = 0;
+  size_t local_stride_u_ = 0;
+  size_t local_stride_v_ = 0;
+  uint64_t local_captured_frames_ = 0;
   bool started_ = false;
   bool first_frame_logged_ = false;
 };

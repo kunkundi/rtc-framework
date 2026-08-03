@@ -80,6 +80,48 @@ std::string ReadStringAllowEmpty(const nlohmann::json& object,
   return value.get<std::string>();
 }
 
+bool IsAbsolutePath(const std::string& path) {
+  return !path.empty() &&
+         (path[0] == '/' || (path.size() > 2 && path[1] == ':'));
+}
+
+bool IsV4l2DevicePath(const std::string& path) {
+  return path.find("/dev/") == 0;
+}
+
+std::string DirName(const std::string& path) {
+  const size_t slash = path.find_last_of("/\\");
+  if (slash == std::string::npos) {
+    return ".";
+  }
+  if (slash == 0) {
+    return path.substr(0, 1);
+  }
+  return path.substr(0, slash);
+}
+
+std::string ResolveLocalMediaPath(const std::string& config_path,
+                                  const std::string& path) {
+  if (path.empty() || IsV4l2DevicePath(path) || IsAbsolutePath(path)) {
+    return path;
+  }
+  const std::string config_dir = DirName(config_path);
+  const std::string beside_config = rtc_runtime::JoinPath(config_dir, path);
+  if (rtc_runtime::FileExists(beside_config)) {
+    return beside_config;
+  }
+
+  const std::string project_root =
+      DirName(config_dir) == "." ? config_dir : DirName(config_dir);
+  const std::string under_project_root =
+      rtc_runtime::JoinPath(project_root, path);
+  if (rtc_runtime::FileExists(under_project_root)) {
+    return under_project_root;
+  }
+
+  return beside_config;
+}
+
 bool ReadBoolean(const nlohmann::json& object,
                  const char* key,
                  const std::string& object_path) {
@@ -271,6 +313,14 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       surround_camera, "left_device", "edge.surround_camera");
   options.surround_camera.right_device = ReadStringAllowEmpty(
       surround_camera, "right_device", "edge.surround_camera");
+  options.surround_camera.front_device = ResolveLocalMediaPath(
+      resolved_path, options.surround_camera.front_device);
+  options.surround_camera.rear_device = ResolveLocalMediaPath(
+      resolved_path, options.surround_camera.rear_device);
+  options.surround_camera.left_device = ResolveLocalMediaPath(
+      resolved_path, options.surround_camera.left_device);
+  options.surround_camera.right_device = ResolveLocalMediaPath(
+      resolved_path, options.surround_camera.right_device);
   options.surround_camera.width = ReadInteger(
       surround_camera, "width", "edge.surround_camera", 0,
       std::numeric_limits<int>::max());

@@ -51,6 +51,10 @@ namespace {
 constexpr const char* kDataChannelLabel = "datachannel";
 constexpr const char* kExternalAudioSource = "external_audio";
 constexpr const char* kExternalVideoSource = "merged_image";
+constexpr const char* kSurroundFrontVideoSource = "surround_front";
+constexpr const char* kSurroundRearVideoSource = "surround_rear";
+constexpr const char* kSurroundLeftVideoSource = "surround_left";
+constexpr const char* kSurroundRightVideoSource = "surround_right";
 constexpr int kAutoOpenRetryMs = 3000;
 constexpr int kNoRenderStatusIntervalMs = 5000;
 constexpr uint64_t kVehicleDriveIntervalMs = 20;
@@ -1547,6 +1551,23 @@ class RtcConsoleApp {
     SendVideoViewControl(next_view);
   }
 
+  bool IsSurroundVideoSource(const std::string& source_id) const {
+    return source_id == kSurroundFrontVideoSource ||
+           source_id == kSurroundRearVideoSource ||
+           source_id == kSurroundLeftVideoSource ||
+           source_id == kSurroundRightVideoSource;
+  }
+
+  bool IsFrameVisibleForEnabledView(const VideoFrameView& frame) const {
+    if (enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Binocular) {
+      return frame.source_id == kExternalVideoSource;
+    }
+    if (enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Surround) {
+      return IsSurroundVideoSource(frame.source_id);
+    }
+    return true;
+  }
+
   void DrawVideoPanel() {
     const ImGuiWindowFlags window_flags =
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
@@ -1584,14 +1605,14 @@ class RtcConsoleApp {
     {
       std::lock_guard<std::mutex> lock(video_mutex_);
       for (const auto& item : remote_video_frames_by_source_) {
-        if (item.second) {
+        if (item.second && IsFrameVisibleForEnabledView(*item.second)) {
           frame_snapshot.push_back(item.second);
         }
       }
     }
 
     if (frame_snapshot.empty()) {
-      ImGui::TextUnformatted("Waiting for remote video frame...");
+      ImGui::TextUnformatted("Waiting for enabled video view frame...");
       ImGui::End();
       return;
     }
