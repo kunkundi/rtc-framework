@@ -86,6 +86,9 @@ class JetsonH264EncoderImpl : public VideoEncoder {
 
   unsigned int width_ = 0;
   unsigned int height_ = 0;
+  // NVENC V4L2 frame rate is configured before STREAMON and kept fixed while
+  // the encoder is running. WebRTC's fps_ may change with rate control.
+  unsigned int hardware_framerate_ = 30;
   unsigned int fps_ = 30;
   unsigned int bitrate_ = 25000000;
   unsigned int bitrate_floor_bps_ = 0;

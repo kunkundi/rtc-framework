@@ -6,6 +6,7 @@ target("signaling-server")
         vtsrtc_path("signaling-server", "src", "log_manager.cpp"),
         vtsrtc_path("signaling-server", "src", "http_controller.cpp"),
         vtsrtc_path("signaling-server", "src", "ws_controller.cpp"),
+        vtsrtc_path("signaling-server", "src", "openssl_sha1_compat.cpp"),
         vtsrtc_path("signaling-server", "src", "main.cpp")
     )
 

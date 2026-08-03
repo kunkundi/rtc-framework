@@ -269,6 +269,17 @@ void V4l2CameraDevice::ConfigureFormat(const CameraCaptureOptions& options) {
               PixelFormatToString(fmt) + " " +
               std::to_string(format_.fmt.pix.width) + "x" +
               std::to_string(format_.fmt.pix.height));
+      if ((options.width > 0 &&
+           format_.fmt.pix.width != static_cast<uint32_t>(options.width)) ||
+          (options.height > 0 &&
+           format_.fmt.pix.height != static_cast<uint32_t>(options.height))) {
+        rtc_logging::LogInfo(
+            std::string("camera ") + options.device +
+            " adjusted requested size " + std::to_string(options.width) + "x" +
+            std::to_string(options.height) + " to " +
+            std::to_string(format_.fmt.pix.width) + "x" +
+            std::to_string(format_.fmt.pix.height));
+      }
       break;
     }
   }
