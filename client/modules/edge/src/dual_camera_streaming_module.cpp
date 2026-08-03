@@ -97,6 +97,7 @@ void DualCameraStreamingModule::Stop() {
 
 bool DualCameraStreamingModule::Tick(
     rtc_runtime::RtcSession* rtc_session,
+    bool send_frame,
     std::string* error_message) {
   if (!started_ || !rtc_session || !video_source_ || !rtc_frames_ ||
       !converter_) {
@@ -131,6 +132,9 @@ bool DualCameraStreamingModule::Tick(
       *error_message = "camera module received an invalid frame";
     }
     return false;
+  }
+  if (!send_frame) {
+    return true;
   }
 
   rtc_camera::dual::ConvertedI420Frame converted;

@@ -81,6 +81,7 @@ void SingleCameraStreamingModule::RequestStop() {
 
 bool SingleCameraStreamingModule::Tick(
     rtc_runtime::RtcSession* rtc_session,
+    bool send_frame,
     std::string* error_message) {
   if (!started_ || rtc_session == nullptr || !video_source_ || !rtc_frames_ ||
       !converter_) {
@@ -116,6 +117,9 @@ bool SingleCameraStreamingModule::Tick(
       *error_message = options_.camera_name + " received an invalid frame";
     }
     return false;
+  }
+  if (!send_frame) {
+    return true;
   }
 
   rtc_camera::single::ConvertedCameraFrame converted;

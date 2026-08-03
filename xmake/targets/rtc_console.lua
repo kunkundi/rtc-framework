@@ -1,7 +1,10 @@
 target("rtc_console")
     set_kind("binary")
     vtsrtc_add_client_dependency()
-    add_deps("rtc_vehicle_control_protocol", "rtc_vision_detection_protocol")
+    add_deps(
+        "rtc_vehicle_control_protocol",
+        "rtc_vision_detection_protocol"
+    )
     add_packages("imgui")
 
     add_files(

@@ -2,6 +2,7 @@
 #include "rtc_console_options.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
+#include "rtc_vision/view_control_protocol.h"
 #include "vehicle_control_sender.h"
 #include "vehicle_state_log_limiter.h"
 
@@ -925,6 +926,16 @@ class RtcConsoleApp {
     }
     AppendLog("RtcAddDataChannel(vehicle.state.v1) success");
 
+    const RtcErrorCode video_view_control_dc_code = RtcAddDataChannel(
+        vts_rtc::vision::kVideoViewControlChannelLabel, RtcPriorityType::High,
+        true, -1);
+    if (video_view_control_dc_code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcAddDataChannel(video.view_control.v1)",
+                        video_view_control_dc_code);
+      return false;
+    }
+    AppendLog("RtcAddDataChannel(video.view_control.v1) success");
+
     rtc_inited_ = true;
     if (!options_.no_render) {
       LoadVideoSourceList();
@@ -1490,6 +1501,52 @@ class RtcConsoleApp {
     return true;
   }
 
+  bool SendVideoViewControl(vts_rtc::vision::ViewMode enable_view) {
+    const RtcSessionId target =
+        vehicle_control_targets_.selected_target();
+    if (target == 0) {
+      AppendLog("Video view control skipped: select a vehicle target");
+      return false;
+    }
+    if (!vehicle_control_targets_.selected_target_ready()) {
+      AppendLog("Video view control skipped: selected target is not ready");
+      return false;
+    }
+
+    const vts_rtc::vision::ViewControlEncodeResult encoded =
+        vts_rtc::vision::EncodeViewControl(video_view_control_seq_++,
+                                           enable_view);
+    if (!encoded) {
+      AppendLog(std::string("Video view control encode failed: ") +
+                encoded.error_message);
+      return false;
+    }
+
+    const RtcErrorCode code = RtcSendData(
+        target, vts_rtc::vision::kVideoViewControlChannelLabel,
+        reinterpret_cast<const char*>(encoded.payload.data()),
+        encoded.payload.size());
+    if (code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcSendData(video.view_control.v1)", code);
+      return false;
+    }
+
+    enabled_video_view_mode_ = enable_view;
+    std::ostringstream oss;
+    oss << "Video view control sent to " << target
+        << " enable_view=" << vts_rtc::vision::ViewModeText(enable_view);
+    AppendLog(oss.str());
+    return true;
+  }
+
+  void ToggleVideoViewControl() {
+    const vts_rtc::vision::ViewMode next_view =
+        enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Binocular
+            ? vts_rtc::vision::ViewMode::Surround
+            : vts_rtc::vision::ViewMode::Binocular;
+    SendVideoViewControl(next_view);
+  }
+
   void DrawVideoPanel() {
     const ImGuiWindowFlags window_flags =
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
@@ -1509,6 +1566,18 @@ class RtcConsoleApp {
     ImGui::TextDisabled("Side-by-side input -> alternating output columns");
     ImGui::SameLine();
     ImGui::TextDisabled("| Double-click a frame for full screen");
+
+    const std::string video_view_button =
+        std::string("Enable View: ") +
+        (enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Binocular
+             ? "Binocular"
+             : "Surround");
+    if (ImGui::Button(video_view_button.c_str())) {
+      ToggleVideoViewControl();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled(
+        "Binocular -> merged_image | Surround -> front/rear/left/right");
     ImGui::Separator();
 
     std::vector<std::shared_ptr<VideoFrameView>> frame_snapshot;
@@ -3025,6 +3094,7 @@ class RtcConsoleApp {
   float vehicle_throttle_ = 0.5f;
   rtc_console::VehicleControlInput vehicle_input_;
   uint64_t vehicle_control_seq_ = 1;
+  uint64_t video_view_control_seq_ = 1;
   uint64_t last_vehicle_control_sent_ms_ = 0;
   uint64_t last_vehicle_send_error_log_ms_ = 0;
   bool has_last_vehicle_command_ = false;
@@ -3042,6 +3112,8 @@ class RtcConsoleApp {
   std::mutex edge_feedback_mutex_;
   std::map<uint32_t, EdgeFeedbackView> edge_feedback_by_session_;
   bool render_lr_pixel_interleave_ = false;
+  vts_rtc::vision::ViewMode enabled_video_view_mode_ =
+      vts_rtc::vision::ViewMode::Binocular;
   std::string fullscreen_video_stream_key_;
   bool focus_fullscreen_video_ = false;
   bool fullscreen_video_window_forced_ = false;
