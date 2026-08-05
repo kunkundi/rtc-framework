@@ -117,10 +117,10 @@ void TestRepositoryConfig() {
         "load repository left camera");
   Check(options.camera.capture.width == 1280,
         "load repository camera width");
-  Check(options.surround_camera.front_device.empty(),
-        "load disabled repository surround front camera");
-  Check(options.surround_camera.right_device.empty(),
-        "load disabled repository surround right camera");
+  Check(!options.surround_camera.front_device.empty(),
+        "load enabled repository surround front camera");
+  Check(!options.surround_camera.right_device.empty(),
+        "load enabled repository surround right camera");
   Check(options.camera.yolo_enabled, "load repository YOLO enabled");
   Check(options.camera.yolo_max_fps == 15,
         "load repository YOLO max FPS");
