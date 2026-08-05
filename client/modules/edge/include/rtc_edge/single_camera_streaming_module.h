@@ -67,6 +67,7 @@ class SingleCameraStreamingModule {
   size_t local_stride_u_ = 0;
   size_t local_stride_v_ = 0;
   uint64_t local_captured_frames_ = 0;
+  std::chrono::steady_clock::time_point local_next_frame_time_{};
   bool started_ = false;
   bool first_frame_logged_ = false;
 };
