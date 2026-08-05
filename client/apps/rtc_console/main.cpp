@@ -3,6 +3,7 @@
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
 #include "rtc_vision/view_control_protocol.h"
+#include "video_view_state.h"
 #include "vehicle_control_sender.h"
 #include "vehicle_state_log_limiter.h"
 
@@ -1535,7 +1536,7 @@ class RtcConsoleApp {
       return false;
     }
 
-    enabled_video_view_mode_ = enable_view;
+    video_view_state_.Set(target, enable_view);
     std::ostringstream oss;
     oss << "Video view control sent to " << target
         << " enable_view=" << vts_rtc::vision::ViewModeText(enable_view);
@@ -1544,8 +1545,12 @@ class RtcConsoleApp {
   }
 
   void ToggleVideoViewControl() {
+    const RtcSessionId target =
+        vehicle_control_targets_.selected_target();
+    const vts_rtc::vision::ViewMode current_view =
+        video_view_state_.Get(target);
     const vts_rtc::vision::ViewMode next_view =
-        enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Binocular
+        current_view == vts_rtc::vision::ViewMode::Binocular
             ? vts_rtc::vision::ViewMode::Surround
             : vts_rtc::vision::ViewMode::Binocular;
     SendVideoViewControl(next_view);
@@ -1559,10 +1564,12 @@ class RtcConsoleApp {
   }
 
   bool IsFrameVisibleForEnabledView(const VideoFrameView& frame) const {
-    if (enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Binocular) {
+    const vts_rtc::vision::ViewMode enabled_view =
+        video_view_state_.Get(frame.remote_sessionid);
+    if (enabled_view == vts_rtc::vision::ViewMode::Binocular) {
       return frame.source_id == kExternalVideoSource;
     }
-    if (enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Surround) {
+    if (enabled_view == vts_rtc::vision::ViewMode::Surround) {
       return IsSurroundVideoSource(frame.source_id);
     }
     return true;
@@ -1588,9 +1595,11 @@ class RtcConsoleApp {
     ImGui::SameLine();
     ImGui::TextDisabled("| Double-click a frame for full screen");
 
+    const vts_rtc::vision::ViewMode selected_view =
+        video_view_state_.Get(vehicle_control_targets_.selected_target());
     const std::string video_view_button =
         std::string("Enable View: ") +
-        (enabled_video_view_mode_ == vts_rtc::vision::ViewMode::Binocular
+        (selected_view == vts_rtc::vision::ViewMode::Binocular
              ? "Binocular"
              : "Surround");
     if (ImGui::Button(video_view_button.c_str())) {
@@ -2560,6 +2569,7 @@ class RtcConsoleApp {
   void ResetVehicleControlOnUi(bool clear_targets) {
     if (clear_targets) {
       vehicle_control_targets_.Clear();
+      video_view_state_.Clear();
     }
     vehicle_control_enabled_ = false;
     ClearVehicleInput();
@@ -2805,6 +2815,7 @@ class RtcConsoleApp {
     }
     if (state == RtcP2PState::P2PDisconnected || state == RtcP2PState::P2PClosed ||
         state == RtcP2PState::P2PFailed) {
+      instance_->video_view_state_.Erase(sessionid);
       if (instance_->vehicle_control_targets_.SetP2PConnected(sessionid,
                                                                false)) {
         instance_->RequestVehicleControlReset();
@@ -3133,8 +3144,7 @@ class RtcConsoleApp {
   std::mutex edge_feedback_mutex_;
   std::map<uint32_t, EdgeFeedbackView> edge_feedback_by_session_;
   bool render_lr_pixel_interleave_ = false;
-  vts_rtc::vision::ViewMode enabled_video_view_mode_ =
-      vts_rtc::vision::ViewMode::Binocular;
+  rtc_console::VideoViewState video_view_state_;
   std::string fullscreen_video_stream_key_;
   bool focus_fullscreen_video_ = false;
   bool fullscreen_video_window_forced_ = false;
