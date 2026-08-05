@@ -66,6 +66,12 @@ if vtsrtc_on_linux() then
 
         after_buildcmd(function(target, batchcmds)
             batchcmds:cp(path.join(os.projectdir(), "config", "rtc.cfg"), target:targetdir())
+            local yuv_path = path.join(os.projectdir(), "test_data", "zjlabs.yuv")
+            if os.isfile(yuv_path) then
+                local test_data_dir = path.join(target:targetdir(), "test_data")
+                batchcmds:mkdir(test_data_dir)
+                batchcmds:cp(yuv_path, test_data_dir)
+            end
             if get_config("enable_yolo") then
                 local model_path = path.join(os.projectdir(), "models", "yolo26n.onnx")
                 if os.isfile(model_path) then

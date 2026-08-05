@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -10,6 +11,8 @@
 #include <string>
 
 #include <nlohmann/json.hpp>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace {
 
@@ -76,6 +79,11 @@ void WriteConfig(const std::string& path, const nlohmann::json& config) {
   Check(static_cast<bool>(output), "write temporary config");
 }
 
+void MakeDirectory(const std::string& path) {
+  Check(::mkdir(path.c_str(), 0755) == 0 || errno == EEXIST,
+        std::string("create temporary directory: ") + path);
+}
+
 void TestValidConfig() {
   const std::string path = "/tmp/rtc_edge_options_valid.json";
   WriteConfig(path, MakeValidConfig());
@@ -117,10 +125,10 @@ void TestRepositoryConfig() {
         "load repository left camera");
   Check(options.camera.capture.width == 1280,
         "load repository camera width");
-  Check(options.surround_camera.front_device.empty(),
-        "load disabled repository surround front camera");
-  Check(options.surround_camera.right_device.empty(),
-        "load disabled repository surround right camera");
+  Check(!options.surround_camera.front_device.empty(),
+        "load enabled repository surround front camera");
+  Check(!options.surround_camera.right_device.empty(),
+        "load enabled repository surround right camera");
   Check(options.camera.yolo_enabled, "load repository YOLO enabled");
   Check(options.camera.yolo_max_fps == 15,
         "load repository YOLO max FPS");
@@ -128,6 +136,44 @@ void TestRepositoryConfig() {
         "load repository YOLO processing downscale");
   Check(options.control.watchdog_ms == 300,
         "load repository watchdog");
+}
+
+void TestRelativeMediaPath() {
+  const std::string root = "rtc_edge_options_media_path_test";
+  const std::string config_dir = root + "/config";
+  const std::string media_dir = root + "/test_data";
+  const std::string config_path = config_dir + "/rtc.cfg";
+  const std::string media_path = media_dir + "/front.yuv";
+
+  MakeDirectory(root);
+  MakeDirectory(config_dir);
+  MakeDirectory(media_dir);
+
+  {
+    std::ofstream media(media_path.c_str(), std::ios::binary);
+    Check(media.is_open(), "open relative media file");
+    media.put('\0');
+    Check(static_cast<bool>(media), "write relative media file");
+  }
+
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["surround_camera"]["front_device"] =
+      "test_data/front.yuv";
+  config["edge"]["surround_camera"]["rear_device"] = "";
+  config["edge"]["surround_camera"]["left_device"] = "";
+  config["edge"]["surround_camera"]["right_device"] = "";
+  WriteConfig(config_path, config);
+
+  const rtc_edge_app::EdgeOptions options =
+      rtc_edge_app::LoadEdgeOptions(config_path);
+  Check(options.surround_camera.front_device == media_path,
+        "resolve media path under project root");
+
+  std::remove(config_path.c_str());
+  std::remove(media_path.c_str());
+  ::rmdir(config_dir.c_str());
+  ::rmdir(media_dir.c_str());
+  ::rmdir(root.c_str());
 }
 
 void TestInvalidWatchdog() {
@@ -290,6 +336,7 @@ void TestInvalidDogSpeed() {
 int main() {
   TestValidConfig();
   TestRepositoryConfig();
+  TestRelativeMediaPath();
   TestInvalidWatchdog();
   TestMissingCameraDevice();
   TestMissingSurroundCameraDevice();

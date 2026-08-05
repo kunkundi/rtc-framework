@@ -113,9 +113,8 @@ void JetsonH264EncoderImpl::ApplyRatesToEncoder(JetsonEncoder* encoder) {
     return;
   }
 
-  if (fps_ > 0) {
-    encoder->SetFps(fps_);
-  }
+  // NVENC frame rate is configured before STREAMON. Only bitrate is safe to
+  // update while the encoder is streaming.
   if (bitrate_ > 0) {
     encoder->SetBitrate(bitrate_);
   }
@@ -162,7 +161,9 @@ bool JetsonH264EncoderImpl::EnsureEncoderForResolution(unsigned int width,
 
   if (!encoder_) {
     encoder_ = JetsonEncoder::Create(width, height, V4L2_PIX_FMT_H264, false,
-                                     strategy_config);
+                                     strategy_config,
+                                     static_cast<int>(hardware_framerate_),
+                                     static_cast<int>(bitrate_));
     if (!encoder_) {
       LOG_ERROR("Failed to create Jetson encoder for <%ux%u>", width, height);
       return false;
@@ -269,6 +270,7 @@ int JetsonH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
   }
 
   codec_ = *codec_settings;
+  hardware_framerate_ = codec_.maxFramerate;
   max_payload_size_ = settings.max_payload_size;
 
   if (codec_.numberOfSimulcastStreams == 0) {
@@ -366,6 +368,13 @@ void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
 
   if (previous_fps == fps_ && previous_bitrate == bitrate_) {
     return;
+  }
+
+  if (previous_fps != fps_ && encoder_ && fps_ != hardware_framerate_) {
+    LOG_WARN(
+        "[JetsonEnc][rates] WebRTC requested fps=%u, keep NVENC hardware "
+        "fps=%u; recreate encoder to change hardware fps",
+        fps_, hardware_framerate_);
   }
 
   ApplyRatesToEncoder(encoder_.get());

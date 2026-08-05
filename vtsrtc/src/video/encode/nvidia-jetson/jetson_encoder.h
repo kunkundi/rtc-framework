@@ -35,7 +35,9 @@ class JetsonEncoder {
   static std::unique_ptr<JetsonEncoder> Create(int width, int height,
                                                 uint32_t dst_pix_fmt,
                                                 bool is_dma_src,
-                                                const StrategyConfig& config);
+                                                const StrategyConfig& config,
+                                                int framerate,
+                                                int bitrate_bps);
 
   void EmplaceBuffer(rtc::scoped_refptr<I420BufferInterface> i420_buffer,
                      std::function<void(const uint8_t* data, size_t size,
@@ -43,7 +45,6 @@ class JetsonEncoder {
                          on_capture);
   void SetStrategyConfig(const StrategyConfig& config);
   void ForceKeyFrame();
-  void SetFps(int fps);
   void SetBitrate(int bitrate_bps);
   bool Reconfigure(int new_width, int new_height);
 
@@ -89,6 +90,7 @@ class JetsonEncoder {
   bool Start();
   void StopEncoderIo(bool send_eos);
   void SendEOS();
+  void LogQueueState(const char* event);
   static bool EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
                                             NvBuffer* buffer,
                                             NvBuffer* shared_buffer, void* arg);

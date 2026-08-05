@@ -8,11 +8,13 @@
 #include "rtc_vehicle/vehicle_control_interface.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
+#include "rtc_vision/view_control_protocol.h"
 #include "rtc_dog/dog_command_forwarder.h"
 
 #include <stdint.h>
 
 #include <chrono>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -21,6 +23,8 @@ namespace rtc_edge_app {
 namespace {
 
 using rtc_runtime::RtcSession;
+
+constexpr uint64_t kInactiveVideoViewSendIntervalMs = 1000;
 
 rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
     const SurroundCameraOptions& surround,
@@ -122,25 +126,90 @@ class EdgeCameraModules {
   }
 
   bool Tick(RtcSession* rtc_session, std::string* error_message) {
-    if (!stereo_camera_.Tick(rtc_session, error_message)) {
+    const VideoSendPlan send_plan = CurrentVideoSendPlan();
+    if (!stereo_camera_.Tick(rtc_session, send_plan.stereo,
+                             error_message)) {
       return false;
     }
-    if (front_enabled_ && !front_camera_.Tick(rtc_session, error_message)) {
+    if (front_enabled_ &&
+        !front_camera_.Tick(rtc_session, send_plan.front, error_message)) {
       return false;
     }
-    if (rear_enabled_ && !rear_camera_.Tick(rtc_session, error_message)) {
+    if (rear_enabled_ &&
+        !rear_camera_.Tick(rtc_session, send_plan.rear, error_message)) {
       return false;
     }
-    if (left_enabled_ && !left_camera_.Tick(rtc_session, error_message)) {
+    if (left_enabled_ &&
+        !left_camera_.Tick(rtc_session, send_plan.left, error_message)) {
       return false;
     }
-    if (right_enabled_ && !right_camera_.Tick(rtc_session, error_message)) {
+    if (right_enabled_ &&
+        !right_camera_.Tick(rtc_session, send_plan.right, error_message)) {
       return false;
     }
     return true;
   }
 
+  void SetEnabledView(vts_rtc::vision::ViewMode enabled_view) {
+    if (enabled_view != vts_rtc::vision::ViewMode::Binocular &&
+        enabled_view != vts_rtc::vision::ViewMode::Surround) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(video_view_mutex_);
+    enabled_view_ = enabled_view;
+  }
+
  private:
+  struct VideoSendPlan {
+    bool stereo = false;
+    bool front = false;
+    bool rear = false;
+    bool left = false;
+    bool right = false;
+  };
+
+  static uint64_t NowMs() {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+  }
+
+  bool ShouldSendInactiveLocked(uint64_t now_ms,
+                                uint64_t* last_sent_ms) {
+    if (last_sent_ms == nullptr) {
+      return false;
+    }
+    if (*last_sent_ms == 0 ||
+        now_ms - *last_sent_ms >= kInactiveVideoViewSendIntervalMs) {
+      *last_sent_ms = now_ms;
+      return true;
+    }
+    return false;
+  }
+
+  VideoSendPlan CurrentVideoSendPlan() {
+    const uint64_t now_ms = NowMs();
+    std::lock_guard<std::mutex> lock(video_view_mutex_);
+    const bool binocular_enabled =
+        enabled_view_ == vts_rtc::vision::ViewMode::Binocular;
+    const bool surround_enabled =
+        enabled_view_ == vts_rtc::vision::ViewMode::Surround;
+
+    VideoSendPlan plan;
+    plan.stereo = binocular_enabled ||
+                  ShouldSendInactiveLocked(now_ms, &last_stereo_low_send_ms_);
+    plan.front = surround_enabled ||
+                 ShouldSendInactiveLocked(now_ms, &last_front_low_send_ms_);
+    plan.rear = surround_enabled ||
+                ShouldSendInactiveLocked(now_ms, &last_rear_low_send_ms_);
+    plan.left = surround_enabled ||
+                ShouldSendInactiveLocked(now_ms, &last_left_low_send_ms_);
+    plan.right = surround_enabled ||
+                 ShouldSendInactiveLocked(now_ms, &last_right_low_send_ms_);
+    return plan;
+  }
+
   void SetStartError(const char* module_name,
                      const std::string& module_error,
                      std::string* error_message) {
@@ -159,6 +228,14 @@ class EdgeCameraModules {
   rtc_edge::SingleCameraStreamingModule rear_camera_;
   rtc_edge::SingleCameraStreamingModule left_camera_;
   rtc_edge::SingleCameraStreamingModule right_camera_;
+  std::mutex video_view_mutex_;
+  vts_rtc::vision::ViewMode enabled_view_ =
+      vts_rtc::vision::ViewMode::Binocular;
+  uint64_t last_stereo_low_send_ms_ = 0;
+  uint64_t last_front_low_send_ms_ = 0;
+  uint64_t last_rear_low_send_ms_ = 0;
+  uint64_t last_left_low_send_ms_ = 0;
+  uint64_t last_right_low_send_ms_ = 0;
 };
 
 RtcSession::DataChannelConfig MakeDataChannel(
@@ -199,6 +276,9 @@ RtcSession::Features MakeVehicleRtcFeatures(
   features.additional_data_channels.push_back(MakeDataChannel(
       vts_rtc::vehicle::kVehicleStateChannelLabel, RtcPriorityType::Medium,
       false, 0));
+  features.additional_data_channels.push_back(MakeDataChannel(
+      vts_rtc::vision::kVideoViewControlChannelLabel, RtcPriorityType::High,
+      true, -1));
   if (yolo_enabled) {
     features.additional_data_channels.push_back(MakeDataChannel(
         vts_rtc::vision::kVisionDetectionChannelLabel,
@@ -251,10 +331,30 @@ void WriteErrorLog(const std::string& message) {
 
 void HandleReceivedMessage(
     rtc_vehicle::VehicleControlModule* control_module,
+    EdgeCameraModules* camera_modules,
     RtcSessionId remote_sessionid,
     RtcDataChannelLabel label,
     const char* message,
     size_t message_size) {
+  if (label != nullptr &&
+      std::string(label) == vts_rtc::vision::kVideoViewControlChannelLabel) {
+    if (camera_modules == nullptr) {
+      return;
+    }
+    const vts_rtc::vision::ViewControlDecodeResult decoded =
+        vts_rtc::vision::DecodeViewControl(
+            reinterpret_cast<const uint8_t*>(message), message_size);
+    if (!decoded) {
+      rtc_logging::LogError(std::string("Video view control decode failed: ") +
+                            decoded.error_message);
+      return;
+    }
+    camera_modules->SetEnabledView(decoded.envelope.command.enable_view);
+    rtc_logging::LogInfo(
+        std::string("Video view enabled: ") +
+        vts_rtc::vision::ViewModeText(decoded.envelope.command.enable_view));
+    return;
+  }
   if (control_module == nullptr) {
     return;
   }
@@ -300,16 +400,18 @@ void HandleServerConnectionState(
 }
 
 RtcSession::Callbacks MakeVehicleRtcCallbacks(
-    rtc_vehicle::VehicleControlModule* control_module) {
+    rtc_vehicle::VehicleControlModule* control_module,
+    EdgeCameraModules* camera_modules) {
   RtcSession::Callbacks callbacks;
 
   // RTC 回调需要记住控制模块指针，这里的 lambda 只负责转发参数。
   callbacks.recv_message =
-      [control_module](RtcSessionId remote_sessionid,
-                       RtcDataChannelLabel label, const char* message,
-                       size_t message_size) {
-        HandleReceivedMessage(control_module, remote_sessionid, label, message,
-                              message_size);
+      [control_module, camera_modules](RtcSessionId remote_sessionid,
+                                       RtcDataChannelLabel label,
+                                       const char* message,
+                                       size_t message_size) {
+        HandleReceivedMessage(control_module, camera_modules, remote_sessionid,
+                              label, message, message_size);
       };
   callbacks.p2p_state =
       [control_module](RtcSessionId remote_sessionid, RtcP2PState state) {
@@ -397,14 +499,14 @@ int RunEdgeApplication(const EdgeOptions& options) {
       vehicle_interface, &SendControlData, &WriteInfoLog, &WriteErrorLog,
       control_options);
 
+  EdgeCameraModules camera_modules(options);
   const RtcSession::Callbacks callbacks =
-      MakeVehicleRtcCallbacks(&control_module);
+      MakeVehicleRtcCallbacks(&control_module, &camera_modules);
   RtcSession rtc_session(
       options.rtc,
       MakeVehicleRtcFeatures(options.surround_camera,
                              options.camera.yolo_enabled),
       callbacks);
-  EdgeCameraModules camera_modules(options);
 
   try {
     std::string control_error;
