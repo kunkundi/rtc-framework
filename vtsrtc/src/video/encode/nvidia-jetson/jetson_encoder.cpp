@@ -643,11 +643,6 @@ void JetsonEncoder::EmplaceBuffer(
     return;
   }
 
-  LOG_INFO("[JetsonEnc][emplace] frame begin i420=%dx%d stride=%d/%d/%d",
-           i420_buffer->width(), i420_buffer->height(), i420_buffer->StrideY(),
-           i420_buffer->StrideU(), i420_buffer->StrideV());
-  LogQueueState("emplace:begin");
-
   struct v4l2_buffer v4l2_output_buf;
   struct v4l2_plane output_planes[MAX_PLANES];
   NvBuffer* nv_buffer = nullptr;
@@ -671,9 +666,6 @@ void JetsonEncoder::EmplaceBuffer(
       LogQueueState("emplace:output-dq-failed");
       return;
     }
-    LogV4L2Buffer("emplace:output-dq-ok", v4l2_output_buf);
-    LogNvBuffer("emplace:output-dq-nvbuf", nv_buffer);
-    LogQueueState("emplace:output-dq-ok");
   } else {
     nv_buffer = encoder_->output_plane.getNthBuffer(
         encoder_->output_plane.getNumQueuedBuffers());
@@ -683,14 +675,12 @@ void JetsonEncoder::EmplaceBuffer(
       return;
     }
     v4l2_output_buf.index = nv_buffer->index;
-    LogNvBuffer("emplace:output-next-nvbuf", nv_buffer);
   }
 
 #if ENABLE_ENCODE_PERF_STATS
   auto convert_start = std::chrono::steady_clock::now();
 #endif
   ConvertI420ToYUV420M(nv_buffer, i420_buffer);
-  LogNvBuffer("emplace:after-convert", nv_buffer);
 #if ENABLE_ENCODE_PERF_STATS
   auto convert_end = std::chrono::steady_clock::now();
   int64_t convert_duration_us =
@@ -712,8 +702,6 @@ void JetsonEncoder::EmplaceBuffer(
             .count();
 #endif
     capturing_tasks_.push_back(task);
-    LOG_INFO("[JetsonEnc][tasks] pushed pending_capture_tasks=%zu",
-             capturing_tasks_.size());
   }
 
 #if ENABLE_ENCODE_PERF_STATS
@@ -738,8 +726,6 @@ void JetsonEncoder::EmplaceBuffer(
     LogQueueState("emplace:output-qbuf-failed");
     return;
   }
-  LogV4L2Buffer("emplace:output-qbuf-ok", v4l2_output_buf);
-  LogQueueState("emplace:output-qbuf-ok");
 }
 
 bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
@@ -773,10 +759,6 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
     thiz->LogQueueState("capture-dq:empty-or-stopping");
     return false;
   }
-
-  LogV4L2Buffer("capture-dq:got-buffer", *v4l2_buf);
-  LogNvBuffer("capture-dq:got-nvbuf", buffer);
-  thiz->LogQueueState("capture-dq:got-buffer");
 
   v4l2_ctrl_videoenc_outputbuf_metadata enc_metadata;
   bool is_keyframe = false;
@@ -830,8 +812,6 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
       thiz->LogQueueState("capture-dq:no-task-requeue-ok");
       return true;
     }
-    LOG_INFO("[JetsonEnc][tasks] pop pending_capture_tasks_before=%zu",
-             thiz->capturing_tasks_.size());
     task = thiz->capturing_tasks_.front();
     thiz->capturing_tasks_.pop_front();
   }
@@ -852,9 +832,6 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
     thiz->LogQueueState("capture-dq:requeue-failed");
     return false;
   }
-  LogV4L2Buffer("capture-dq:requeue-ok", *v4l2_buf);
-  thiz->LogQueueState("capture-dq:requeue-ok");
-
   return true;
 }
 
