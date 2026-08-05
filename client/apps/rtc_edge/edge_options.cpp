@@ -112,7 +112,7 @@ std::string ResolveLocalMediaPath(const std::string& config_path,
   }
 
   const std::string project_root =
-      DirName(config_dir) == "." ? config_dir : DirName(config_dir);
+      config_dir == "." ? config_dir : DirName(config_dir);
   const std::string under_project_root =
       rtc_runtime::JoinPath(project_root, path);
   if (rtc_runtime::FileExists(under_project_root)) {
