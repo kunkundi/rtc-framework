@@ -1224,7 +1224,6 @@ bool BuildSerializedEngine(const std::string& model_path,
   }
   config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE,
                              kTensorRtWorkspaceBytes);
-  config->setBuilderOptimizationLevel(3);
   if (builder->platformHasFastFp16()) {
     config->setFlag(nvinfer1::BuilderFlag::kFP16);
   }
