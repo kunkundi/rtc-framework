@@ -78,11 +78,9 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
 }
 
 void DualCameraStreamingModule::Stop() {
+  RequestStop();
   if (yolo_consumer_) {
     yolo_consumer_->Stop();
-  }
-  if (rtc_frames_) {
-    rtc_frames_->Close();
   }
   if (video_source_) {
     video_source_->Stop();
@@ -95,6 +93,12 @@ void DualCameraStreamingModule::Stop() {
   started_ = false;
 }
 
+void DualCameraStreamingModule::RequestStop() {
+  if (rtc_frames_) {
+    rtc_frames_->Close();
+  }
+}
+
 bool DualCameraStreamingModule::Tick(
     rtc_runtime::RtcSession* rtc_session,
     bool send_frame,
@@ -105,6 +109,17 @@ bool DualCameraStreamingModule::Tick(
       *error_message = "dual camera streaming module is not started";
     }
     return false;
+  }
+  if (!send_frame) {
+    if (video_source_->failed()) {
+      if (error_message) {
+        *error_message =
+            std::string("camera capture failed: ") +
+            video_source_->error_message();
+      }
+      return false;
+    }
+    return true;
   }
 
   rtc_camera::dual::ImageFrame frame;
@@ -133,10 +148,6 @@ bool DualCameraStreamingModule::Tick(
     }
     return false;
   }
-  if (!send_frame) {
-    return true;
-  }
-
   rtc_camera::dual::ConvertedI420Frame converted;
   std::string convert_error;
   if (!converter_->ConvertToI420(frame, &converted, &convert_error)) {

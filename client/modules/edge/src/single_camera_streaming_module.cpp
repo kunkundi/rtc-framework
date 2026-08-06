@@ -5,6 +5,7 @@
 #include "rtc_runtime/rtc_session.h"
 
 #include <stdexcept>
+#include <thread>
 
 namespace rtc_edge {
 namespace {
@@ -132,6 +133,16 @@ bool SingleCameraStreamingModule::Tick(
     }
     return false;
   }
+  if (!send_frame) {
+    if (video_source_->failed()) {
+      if (error_message != nullptr) {
+        *error_message = options_.camera_name + " capture failed: " +
+                         video_source_->error_message();
+      }
+      return false;
+    }
+    return true;
+  }
 
   rtc_camera::single::CameraFrame frame;
   if (!rtc_frames_->WaitNext(&frame, options_.frame_wait)) {
@@ -160,10 +171,6 @@ bool SingleCameraStreamingModule::Tick(
     }
     return false;
   }
-  if (!send_frame) {
-    return true;
-  }
-
   rtc_camera::single::ConvertedCameraFrame converted;
   std::string convert_error;
   if (!converter_->ConvertToI420(frame, &converted, &convert_error)) {
@@ -248,13 +255,14 @@ bool SingleCameraStreamingModule::TickLocalYuvFile(
     return true;
   }
 
-  const std::chrono::steady_clock::time_point now =
+  std::chrono::steady_clock::time_point now =
       std::chrono::steady_clock::now();
   if (now < local_next_frame_time_) {
-    return true;
+    // 本地文件由独立消费线程驱动，等待只阻塞当前摄像头。
+    std::this_thread::sleep_until(local_next_frame_time_);
+    now = std::chrono::steady_clock::now();
   }
 
-  // 多路本地文件共用主循环，逐路休眠会累加阻塞时间。
   local_next_frame_time_ = now + options_.frame_wait;
   local_yuv_file_.read(reinterpret_cast<char*>(local_i420_frame_.data()),
                        static_cast<std::streamsize>(local_frame_size_));

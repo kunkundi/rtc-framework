@@ -1,5 +1,7 @@
 #include "edge_application.h"
 
+#include "video_send_planner.h"
+
 #include "rtc_edge/camera_video_sources.h"
 #include "rtc_edge/single_camera_streaming_module.h"
 #include "rtc_logging/rtc_logging.h"
@@ -14,9 +16,11 @@
 #include <stdint.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace rtc_edge_app {
@@ -25,6 +29,7 @@ namespace {
 using rtc_runtime::RtcSession;
 
 constexpr uint64_t kInactiveVideoViewSendIntervalMs = 1000;
+constexpr uint64_t kMainLoopSleepMs = 1;
 
 rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
     const SurroundCameraOptions& surround,
@@ -52,6 +57,8 @@ class EdgeCameraModules {
         rear_enabled_(!options.surround_camera.rear_device.empty()),
         left_enabled_(!options.surround_camera.left_device.empty()),
         right_enabled_(!options.surround_camera.right_device.empty()),
+        video_send_planner_(std::chrono::milliseconds(
+            kInactiveVideoViewSendIntervalMs)),
         stereo_camera_(options.camera),
         front_camera_(MakeSurroundCameraOptions(
             options.surround_camera, options.surround_camera.front_device,
@@ -67,7 +74,21 @@ class EdgeCameraModules {
             rtc_edge::kSurroundRightVideoSourceId,
             "surround right camera")) {}
 
-  bool Start(std::string* error_message) {
+  ~EdgeCameraModules() {
+    Stop();
+  }
+
+  bool Start(RtcSession* rtc_session, std::string* error_message) {
+    if (started_) {
+      return true;
+    }
+    if (rtc_session == nullptr) {
+      if (error_message != nullptr) {
+        *error_message = "RTC session must not be null";
+      }
+      return false;
+    }
+
     std::string module_error;
     if (!stereo_camera_.Start(&module_error)) {
       SetStartError("stereo camera", module_error, error_message);
@@ -94,10 +115,60 @@ class EdgeCameraModules {
       Stop();
       return false;
     }
+
+    {
+      std::lock_guard<std::mutex> lock(worker_mutex_);
+      rtc_session_ = rtc_session;
+      stop_requested_ = false;
+      worker_error_.clear();
+      ResetWorkerState(&stereo_worker_);
+      ResetWorkerState(&front_worker_);
+      ResetWorkerState(&rear_worker_);
+      ResetWorkerState(&left_worker_);
+      ResetWorkerState(&right_worker_);
+    }
+
+    try {
+      stereo_worker_.thread = std::thread([this] {
+        RunCameraWorker(&stereo_worker_, &stereo_camera_);
+      });
+      if (front_enabled_) {
+        front_worker_.thread = std::thread([this] {
+          RunCameraWorker(&front_worker_, &front_camera_);
+        });
+      }
+      if (rear_enabled_) {
+        rear_worker_.thread = std::thread([this] {
+          RunCameraWorker(&rear_worker_, &rear_camera_);
+        });
+      }
+      if (left_enabled_) {
+        left_worker_.thread = std::thread([this] {
+          RunCameraWorker(&left_worker_, &left_camera_);
+        });
+      }
+      if (right_enabled_) {
+        right_worker_.thread = std::thread([this] {
+          RunCameraWorker(&right_worker_, &right_camera_);
+        });
+      }
+    } catch (const std::exception& ex) {
+      SetStartError("camera streaming worker", ex.what(), error_message);
+      Stop();
+      return false;
+    }
+
+    started_ = true;
     return true;
   }
 
   void Stop() {
+    {
+      std::lock_guard<std::mutex> lock(worker_mutex_);
+      stop_requested_ = true;
+    }
+    worker_condition_.notify_all();
+
     if (right_enabled_) {
       right_camera_.RequestStop();
     }
@@ -110,6 +181,14 @@ class EdgeCameraModules {
     if (front_enabled_) {
       front_camera_.RequestStop();
     }
+    stereo_camera_.RequestStop();
+
+    JoinWorker(&right_worker_);
+    JoinWorker(&left_worker_);
+    JoinWorker(&rear_worker_);
+    JoinWorker(&front_worker_);
+    JoinWorker(&stereo_worker_);
+
     stereo_camera_.Stop();
     if (right_enabled_) {
       right_camera_.Stop();
@@ -123,29 +202,41 @@ class EdgeCameraModules {
     if (front_enabled_) {
       front_camera_.Stop();
     }
+    rtc_session_ = nullptr;
+    started_ = false;
   }
 
-  bool Tick(RtcSession* rtc_session, std::string* error_message) {
+  bool Tick(std::string* error_message) {
     const VideoSendPlan send_plan = CurrentVideoSendPlan();
-    if (!stereo_camera_.Tick(rtc_session, send_plan.stereo,
-                             error_message)) {
-      return false;
+    bool notify_workers = false;
+    {
+      std::lock_guard<std::mutex> lock(worker_mutex_);
+      if (!worker_error_.empty()) {
+        if (error_message != nullptr) {
+          *error_message = worker_error_;
+        }
+        return false;
+      }
+      if (stop_requested_) {
+        return true;
+      }
+
+      notify_workers |= UpdateWorkerPlan(send_plan.stereo, &stereo_worker_);
+      if (front_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.front, &front_worker_);
+      }
+      if (rear_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.rear, &rear_worker_);
+      }
+      if (left_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.left, &left_worker_);
+      }
+      if (right_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.right, &right_worker_);
+      }
     }
-    if (front_enabled_ &&
-        !front_camera_.Tick(rtc_session, send_plan.front, error_message)) {
-      return false;
-    }
-    if (rear_enabled_ &&
-        !rear_camera_.Tick(rtc_session, send_plan.rear, error_message)) {
-      return false;
-    }
-    if (left_enabled_ &&
-        !left_camera_.Tick(rtc_session, send_plan.left, error_message)) {
-      return false;
-    }
-    if (right_enabled_ &&
-        !right_camera_.Tick(rtc_session, send_plan.right, error_message)) {
-      return false;
+    if (notify_workers) {
+      worker_condition_.notify_all();
     }
     return true;
   }
@@ -160,54 +251,87 @@ class EdgeCameraModules {
   }
 
  private:
-  struct VideoSendPlan {
-    bool stereo = false;
-    bool front = false;
-    bool rear = false;
-    bool left = false;
-    bool right = false;
+  struct CameraWorkerState {
+    bool continuous = false;
+    bool pending_send = false;
+    std::thread thread;
   };
 
-  static uint64_t NowMs() {
-    return static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
+  static void ResetWorkerState(CameraWorkerState* worker) {
+    if (worker == nullptr) {
+      return;
+    }
+    worker->continuous = false;
+    worker->pending_send = false;
   }
 
-  bool ShouldSendInactiveLocked(uint64_t now_ms,
-                                uint64_t* last_sent_ms) {
-    if (last_sent_ms == nullptr) {
+  static bool UpdateWorkerPlan(const CameraSendPlan& plan,
+                               CameraWorkerState* worker) {
+    if (worker == nullptr) {
       return false;
     }
-    if (*last_sent_ms == 0 ||
-        now_ms - *last_sent_ms >= kInactiveVideoViewSendIntervalMs) {
-      *last_sent_ms = now_ms;
-      return true;
+    bool changed = worker->continuous != plan.continuous;
+    worker->continuous = plan.continuous;
+    if (worker->continuous) {
+      if (worker->pending_send) {
+        worker->pending_send = false;
+        changed = true;
+      }
+    } else if (plan.send_once && !worker->pending_send) {
+      worker->pending_send = true;
+      changed = true;
     }
-    return false;
+    return changed;
   }
 
   VideoSendPlan CurrentVideoSendPlan() {
-    const uint64_t now_ms = NowMs();
     std::lock_guard<std::mutex> lock(video_view_mutex_);
     const bool binocular_enabled =
         enabled_view_ == vts_rtc::vision::ViewMode::Binocular;
-    const bool surround_enabled =
-        enabled_view_ == vts_rtc::vision::ViewMode::Surround;
+    return video_send_planner_.Next(binocular_enabled,
+                                    std::chrono::steady_clock::now());
+  }
 
-    VideoSendPlan plan;
-    plan.stereo = binocular_enabled ||
-                  ShouldSendInactiveLocked(now_ms, &last_stereo_low_send_ms_);
-    plan.front = surround_enabled ||
-                 ShouldSendInactiveLocked(now_ms, &last_front_low_send_ms_);
-    plan.rear = surround_enabled ||
-                ShouldSendInactiveLocked(now_ms, &last_rear_low_send_ms_);
-    plan.left = surround_enabled ||
-                ShouldSendInactiveLocked(now_ms, &last_left_low_send_ms_);
-    plan.right = surround_enabled ||
-                 ShouldSendInactiveLocked(now_ms, &last_right_low_send_ms_);
-    return plan;
+  bool WaitForWorker(CameraWorkerState* worker) {
+    std::unique_lock<std::mutex> lock(worker_mutex_);
+    worker_condition_.wait(lock, [this, worker] {
+      return stop_requested_ || worker->continuous || worker->pending_send;
+    });
+    if (stop_requested_) {
+      return false;
+    }
+    worker->pending_send = false;
+    return true;
+  }
+
+  template <typename Module>
+  void RunCameraWorker(CameraWorkerState* worker, Module* module) {
+    while (WaitForWorker(worker)) {
+      std::string module_error;
+      if (!module->Tick(rtc_session_, true, &module_error)) {
+        ReportWorkerError(module_error);
+        return;
+      }
+    }
+  }
+
+  void ReportWorkerError(const std::string& error_message) {
+    {
+      std::lock_guard<std::mutex> lock(worker_mutex_);
+      if (worker_error_.empty()) {
+        worker_error_ = error_message.empty()
+                            ? "Camera streaming worker failed"
+                            : error_message;
+      }
+      stop_requested_ = true;
+    }
+    worker_condition_.notify_all();
+  }
+
+  static void JoinWorker(CameraWorkerState* worker) {
+    if (worker != nullptr && worker->thread.joinable()) {
+      worker->thread.join();
+    }
   }
 
   void SetStartError(const char* module_name,
@@ -223,19 +347,26 @@ class EdgeCameraModules {
   bool rear_enabled_ = false;
   bool left_enabled_ = false;
   bool right_enabled_ = false;
+  VideoSendPlanner video_send_planner_;
   rtc_edge::DualCameraStreamingModule stereo_camera_;
   rtc_edge::SingleCameraStreamingModule front_camera_;
   rtc_edge::SingleCameraStreamingModule rear_camera_;
   rtc_edge::SingleCameraStreamingModule left_camera_;
   rtc_edge::SingleCameraStreamingModule right_camera_;
+  RtcSession* rtc_session_ = nullptr;
+  bool started_ = false;
+  std::mutex worker_mutex_;
+  std::condition_variable worker_condition_;
+  bool stop_requested_ = true;
+  std::string worker_error_;
+  CameraWorkerState stereo_worker_;
+  CameraWorkerState front_worker_;
+  CameraWorkerState rear_worker_;
+  CameraWorkerState left_worker_;
+  CameraWorkerState right_worker_;
   std::mutex video_view_mutex_;
   vts_rtc::vision::ViewMode enabled_view_ =
       vts_rtc::vision::ViewMode::Binocular;
-  uint64_t last_stereo_low_send_ms_ = 0;
-  uint64_t last_front_low_send_ms_ = 0;
-  uint64_t last_rear_low_send_ms_ = 0;
-  uint64_t last_left_low_send_ms_ = 0;
-  uint64_t last_right_low_send_ms_ = 0;
 };
 
 RtcSession::DataChannelConfig MakeDataChannel(
@@ -448,7 +579,7 @@ void RunMainLoop(const EdgeOptions& options,
     control_module.Tick(GetSteadyTimeMs());
 
     std::string camera_error;
-    if (!camera_modules.Tick(&rtc_session, &camera_error)) {
+    if (!camera_modules.Tick(&camera_error)) {
       throw std::runtime_error(camera_error);
     }
 
@@ -460,6 +591,8 @@ void RunMainLoop(const EdgeOptions& options,
         rtc_runtime::RequestStop();
       }
     }
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(kMainLoopSleepMs));
   }
 }
 
@@ -519,7 +652,7 @@ int RunEdgeApplication(const EdgeOptions& options) {
     }
 
     std::string camera_error;
-    if (!camera_modules.Start(&camera_error)) {
+    if (!camera_modules.Start(&rtc_session, &camera_error)) {
       throw std::runtime_error(std::string("Camera modules failed to start: ") +
                                camera_error);
     }

@@ -17,6 +17,7 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "apps", "rtc_edge", "main.cpp"),
             vtsrtc_path("client", "apps", "rtc_edge", "edge_options.cpp"),
             vtsrtc_path("client", "apps", "rtc_edge", "edge_application.cpp"),
+            vtsrtc_path("client", "apps", "rtc_edge", "video_send_planner.cpp"),
             vtsrtc_path("client", "modules", "edge", "src", "dual_camera_streaming_module.cpp"),
             vtsrtc_path("client", "modules", "edge", "src", "single_camera_streaming_module.cpp"),
             vtsrtc_path("client", "modules", "vision", "src", "stereo_detection_fuser.cpp"),
@@ -108,4 +109,13 @@ if vtsrtc_on_linux() then
         )
         vtsrtc_add_json_config()
         add_syslinks("pthread")
+
+    target("rtc_edge_streaming_tests")
+        set_kind("binary")
+        set_default(false)
+        add_files(
+            vtsrtc_path("client", "apps", "rtc_edge", "video_send_planner.cpp"),
+            vtsrtc_path("client", "apps", "rtc_edge", "video_send_planner_tests.cpp")
+        )
+        add_includedirs(vtsrtc_path("client", "apps", "rtc_edge"))
 end
