@@ -48,15 +48,13 @@ void CopyFrame(const internal::VideoFrame& source,
   destination->left_width = source.left_width;
   destination->left_height = source.left_height;
   destination->left_stride_bytes = source.left_stride_bytes;
-  destination->left_data =
-      source.left_data.empty() ? nullptr : source.left_data.data();
-  destination->left_data_size = source.left_data.size();
+  destination->left_data = source.left_data;
+  destination->left_data_size = source.left_data_size;
   destination->right_width = source.right_width;
   destination->right_height = source.right_height;
   destination->right_stride_bytes = source.right_stride_bytes;
-  destination->right_data =
-      source.right_data.empty() ? nullptr : source.right_data.data();
-  destination->right_data_size = source.right_data.size();
+  destination->right_data = source.right_data;
+  destination->right_data_size = source.right_data_size;
 }
 
 }  // 匿名命名空间

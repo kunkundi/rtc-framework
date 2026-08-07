@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstring>
 #include <stdexcept>
 
 namespace rtc_camera {
@@ -27,6 +26,11 @@ class CapturedFrameGuard {
 
   CapturedFrameGuard(const CapturedFrameGuard&) = delete;
   CapturedFrameGuard& operator=(const CapturedFrameGuard&) = delete;
+
+  void Release() {
+    device_ = nullptr;
+    frame_ = nullptr;
+  }
 
  private:
   rtc_camera::V4l2CameraDevice* device_ = nullptr;
@@ -82,6 +86,25 @@ void RunDualWarmup(rtc_camera::V4l2CameraDevice& left_device,
 }
 
 }  // 匿名命名空间
+
+VideoFrame::~VideoFrame() {
+  if (left_device && left_captured_frame.data) {
+    try {
+      left_device->RequeueCapturedFrame(&left_captured_frame);
+    } catch (const std::exception& ex) {
+      rtc_logging::LogError(std::string("left camera buffer requeue failed: ") +
+                            ex.what());
+    }
+  }
+  if (right_device && right_captured_frame.data) {
+    try {
+      right_device->RequeueCapturedFrame(&right_captured_frame);
+    } catch (const std::exception& ex) {
+      rtc_logging::LogError(std::string("right camera buffer requeue failed: ") +
+                            ex.what());
+    }
+  }
+}
 
 VideoSourceSubscription::VideoSourceSubscription(size_t queue_depth)
     : queue_depth_(queue_depth == 0 ? 1 : queue_depth) {}
@@ -234,75 +257,82 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
     rtc_camera::CameraCaptureOptions left_camera_options = config_.options;
     left_camera_options.device = config_.left_device;
 
-    rtc_camera::V4l2CameraDevice left_device;
-    left_device.Open(left_camera_options);
-    LogCameraInfo("left camera", left_device);
+    std::shared_ptr<rtc_camera::V4l2CameraDevice> left_device(
+        new rtc_camera::V4l2CameraDevice());
+    left_device->Open(left_camera_options);
+    LogCameraInfo("left camera", *left_device);
 
     rtc_camera::CameraCaptureOptions right_camera_options = config_.options;
     right_camera_options.device = config_.right_device;
     if (right_camera_options.width == 0) {
-      right_camera_options.width = static_cast<int>(left_device.width());
+      right_camera_options.width = static_cast<int>(left_device->width());
     }
     if (right_camera_options.height == 0) {
-      right_camera_options.height = static_cast<int>(left_device.height());
+      right_camera_options.height = static_cast<int>(left_device->height());
     }
 
-    rtc_camera::V4l2CameraDevice right_device;
-    right_device.Open(right_camera_options);
-    LogCameraInfo("right camera", right_device);
+    std::shared_ptr<rtc_camera::V4l2CameraDevice> right_device(
+        new rtc_camera::V4l2CameraDevice());
+    right_device->Open(right_camera_options);
+    LogCameraInfo("right camera", *right_device);
 
-    if (left_device.height() != right_device.height()) {
+    if (left_device->height() != right_device->height()) {
       throw std::runtime_error(
           "camera heights do not match, unable to stitch side-by-side");
     }
 
     rtc_logging::LogInfo(std::string("sampled left output: ") +
-            std::to_string(left_device.width() / 2) + "x" +
-            std::to_string(left_device.height()));
+            std::to_string(left_device->width() / 2) + "x" +
+            std::to_string(left_device->height()));
     rtc_logging::LogInfo(std::string("sampled right output: ") +
-            std::to_string(right_device.width() / 2) + "x" +
-            std::to_string(right_device.height()));
+            std::to_string(right_device->width() / 2) + "x" +
+            std::to_string(right_device->height()));
     rtc_logging::LogInfo(std::string("stitched output: ") +
-            std::to_string(left_device.width() / 2 + right_device.width() / 2) +
-            "x" + std::to_string(left_device.height()));
+            std::to_string(left_device->width() / 2 +
+                           right_device->width() / 2) +
+            "x" + std::to_string(left_device->height()));
 
-    RunDualWarmup(left_device, right_device, config_.options, this);
+    RunDualWarmup(*left_device, *right_device, config_.options, this);
 
     bool first_frame_logged = false;
     uint64_t sequence = 0;
     while (!StopRequestedBySource(this)) {
       rtc_camera::V4l2CameraDevice::CapturedFrame left_frame;
-      if (!left_device.DequeueCapturedFrame(&left_frame)) {
+      if (!left_device->DequeueCapturedFrame(&left_frame)) {
         continue;
       }
-      CapturedFrameGuard left_guard(&left_device, &left_frame);
+      CapturedFrameGuard left_guard(left_device.get(), &left_frame);
 
       rtc_camera::V4l2CameraDevice::CapturedFrame right_frame;
-      if (!right_device.DequeueCapturedFrame(&right_frame)) {
+      if (!right_device->DequeueCapturedFrame(&right_frame)) {
         continue;
       }
-      CapturedFrameGuard right_guard(&right_device, &right_frame);
+      CapturedFrameGuard right_guard(right_device.get(), &right_frame);
 
       std::shared_ptr<VideoFrame> frame(new VideoFrame());
       frame->format = VideoFrameFormat::kDualUyvy;
       frame->sequence = ++sequence;
       frame->timestamp_us = NowMicros();
-      frame->left_pixel_format = left_device.pixel_format();
-      frame->right_pixel_format = right_device.pixel_format();
-      frame->width = left_device.width() / 2 + right_device.width() / 2;
-      frame->height = left_device.height();
-      frame->left_width = left_device.width();
-      frame->left_height = left_device.height();
-      frame->left_stride_bytes = left_device.bytes_per_line();
-      frame->left_data.resize(left_frame.bytes_used);
-      std::memcpy(frame->left_data.data(), left_frame.data,
-                  left_frame.bytes_used);
-      frame->right_width = right_device.width();
-      frame->right_height = right_device.height();
-      frame->right_stride_bytes = right_device.bytes_per_line();
-      frame->right_data.resize(right_frame.bytes_used);
-      std::memcpy(frame->right_data.data(), right_frame.data,
-                  right_frame.bytes_used);
+      frame->left_pixel_format = left_device->pixel_format();
+      frame->right_pixel_format = right_device->pixel_format();
+      frame->width = left_device->width() / 2 + right_device->width() / 2;
+      frame->height = left_device->height();
+      frame->left_width = left_device->width();
+      frame->left_height = left_device->height();
+      frame->left_stride_bytes = left_device->bytes_per_line();
+      frame->left_data = left_frame.data;
+      frame->left_data_size = left_frame.bytes_used;
+      frame->right_width = right_device->width();
+      frame->right_height = right_device->height();
+      frame->right_stride_bytes = right_device->bytes_per_line();
+      frame->right_data = right_frame.data;
+      frame->right_data_size = right_frame.bytes_used;
+      frame->left_device = left_device;
+      frame->right_device = right_device;
+      frame->left_captured_frame = left_frame;
+      frame->right_captured_frame = right_frame;
+      left_guard.Release();
+      right_guard.Release();
 
       {
         std::lock_guard<std::mutex> lock(state_mutex_);

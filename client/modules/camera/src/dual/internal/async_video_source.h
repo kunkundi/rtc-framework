@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rtc_camera/camera_capture_options.h"
+#include "rtc_camera/v4l2_camera.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -24,6 +25,8 @@ enum class VideoFrameFormat {
 };
 
 struct VideoFrame {
+  ~VideoFrame();
+
   VideoFrameFormat format = VideoFrameFormat::kDualUyvy;
   uint32_t left_pixel_format = 0;
   uint32_t right_pixel_format = 0;
@@ -43,11 +46,19 @@ struct VideoFrame {
   size_t left_width = 0;
   size_t left_height = 0;
   size_t left_stride_bytes = 0;
-  std::vector<uint8_t> left_data;
+  const uint8_t* left_data = nullptr;
+  size_t left_data_size = 0;
   size_t right_width = 0;
   size_t right_height = 0;
   size_t right_stride_bytes = 0;
-  std::vector<uint8_t> right_data;
+  const uint8_t* right_data = nullptr;
+  size_t right_data_size = 0;
+
+  // 保持 mmap 缓冲及其设备有效，最后一个消费者释放后自动回队。
+  std::shared_ptr<rtc_camera::V4l2CameraDevice> left_device;
+  std::shared_ptr<rtc_camera::V4l2CameraDevice> right_device;
+  rtc_camera::V4l2CameraDevice::CapturedFrame left_captured_frame;
+  rtc_camera::V4l2CameraDevice::CapturedFrame right_captured_frame;
 };
 
 using VideoFramePtr = std::shared_ptr<const VideoFrame>;

@@ -5,8 +5,8 @@
 
 #include <algorithm>
 #include <condition_variable>
-#include <cstring>
 #include <deque>
+#include <exception>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -16,13 +16,27 @@ namespace single {
 namespace {
 
 struct OwnedCameraFrame {
+  ~OwnedCameraFrame() {
+    if (device && captured_frame.data) {
+      try {
+        device->RequeueCapturedFrame(&captured_frame);
+      } catch (const std::exception& ex) {
+        rtc_logging::LogError(std::string("camera buffer requeue failed: ") +
+                              ex.what());
+      }
+    }
+  }
+
   uint64_t sequence = 0;
   int64_t timestamp_us = 0;
   uint32_t pixel_format = 0;
   size_t width = 0;
   size_t height = 0;
   size_t stride_bytes = 0;
-  std::vector<uint8_t> data;
+  const uint8_t* data = nullptr;
+  size_t data_size = 0;
+  std::shared_ptr<V4l2CameraDevice> device;
+  V4l2CameraDevice::CapturedFrame captured_frame;
 };
 
 int64_t NowMicros() {
@@ -47,6 +61,11 @@ class CapturedFrameGuard {
 
   CapturedFrameGuard(const CapturedFrameGuard&) = delete;
   CapturedFrameGuard& operator=(const CapturedFrameGuard&) = delete;
+
+  void Release() {
+    device_ = nullptr;
+    frame_ = nullptr;
+  }
 
  private:
   V4l2CameraDevice* device_ = nullptr;
@@ -133,8 +152,8 @@ bool CameraFrameSubscription::WaitNext(
   frame->width = source_frame->width;
   frame->height = source_frame->height;
   frame->stride_bytes = source_frame->stride_bytes;
-  frame->data = source_frame->data.data();
-  frame->data_size = source_frame->data.size();
+  frame->data = source_frame->data;
+  frame->data_size = source_frame->data_size;
   frame->owner_ = source_frame;
   return true;
 }
@@ -217,34 +236,36 @@ struct AsyncCameraImageSource::Impl {
 
   void CaptureLoop() {
     try {
-      V4l2CameraDevice device;
-      device.Open(options);
+      std::shared_ptr<V4l2CameraDevice> device(new V4l2CameraDevice());
+      device->Open(options);
       rtc_logging::LogInfo(
-          std::string("camera source: ") + device.device_path() + " " +
-          std::to_string(device.width()) + "x" +
-          std::to_string(device.height()) + " " +
-          PixelFormatToString(device.pixel_format()));
+          std::string("camera source: ") + device->device_path() + " " +
+          std::to_string(device->width()) + "x" +
+          std::to_string(device->height()) + " " +
+          PixelFormatToString(device->pixel_format()));
 
-      RunWarmup(device);
+      RunWarmup(*device);
 
       uint64_t sequence = 0;
       while (IsRunning()) {
         V4l2CameraDevice::CapturedFrame captured_frame;
-        if (!device.DequeueCapturedFrame(&captured_frame)) {
+        if (!device->DequeueCapturedFrame(&captured_frame)) {
           continue;
         }
-        CapturedFrameGuard frame_guard(&device, &captured_frame);
+        CapturedFrameGuard frame_guard(device.get(), &captured_frame);
 
         std::shared_ptr<OwnedCameraFrame> frame(new OwnedCameraFrame());
         frame->sequence = ++sequence;
         frame->timestamp_us = NowMicros();
-        frame->pixel_format = device.pixel_format();
-        frame->width = device.width();
-        frame->height = device.height();
-        frame->stride_bytes = device.bytes_per_line();
-        frame->data.resize(captured_frame.bytes_used);
-        std::memcpy(frame->data.data(), captured_frame.data,
-                    captured_frame.bytes_used);
+        frame->pixel_format = device->pixel_format();
+        frame->width = device->width();
+        frame->height = device->height();
+        frame->stride_bytes = device->bytes_per_line();
+        frame->data = captured_frame.data;
+        frame->data_size = captured_frame.bytes_used;
+        frame->device = device;
+        frame->captured_frame = captured_frame;
+        frame_guard.Release();
 
         {
           std::lock_guard<std::mutex> lock(state_mutex);
