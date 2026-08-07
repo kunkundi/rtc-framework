@@ -130,19 +130,19 @@ bool V4l2CameraDevice::DequeueCapturedFrame(CapturedFrame* frame) {
     throw std::runtime_error("captured frame output is null");
   }
 
-  pollfd pfd;
-  pfd.fd = fd_;
-  pfd.events = POLLIN;
-  pfd.revents = 0;
-  const int poll_ret = poll(&pfd, 1, timeout_ms_);
-  if (poll_ret == 0) {
+  bool ready = false;
+  if (!WaitForCapturedFrames(this, nullptr, &ready, nullptr) || !ready) {
     return false;
   }
-  if (poll_ret < 0) {
-    if (errno == EINTR) {
-      return false;
-    }
-    throw std::runtime_error("poll failed: " + std::string(strerror(errno)));
+  return DequeueReadyCapturedFrame(frame);
+}
+
+bool V4l2CameraDevice::DequeueReadyCapturedFrame(CapturedFrame* frame) {
+  if (fd_ < 0) {
+    throw std::runtime_error("capture device is not open");
+  }
+  if (!frame) {
+    throw std::runtime_error("captured frame output is null");
   }
 
   v4l2_buffer buffer;
@@ -165,6 +165,73 @@ bool V4l2CameraDevice::DequeueCapturedFrame(CapturedFrame* frame) {
   frame->bytes_used = buffer.bytesused;
   frame->buffer_index = buffer.index;
   return true;
+}
+
+bool WaitForCapturedFrames(V4l2CameraDevice* first,
+                           V4l2CameraDevice* second,
+                           bool* first_ready,
+                           bool* second_ready) {
+  if (first_ready) {
+    *first_ready = false;
+  }
+  if (second_ready) {
+    *second_ready = false;
+  }
+  if (!first && !second) {
+    return false;
+  }
+
+  pollfd descriptors[2];
+  V4l2CameraDevice* devices[2] = {first, second};
+  size_t descriptor_count = 0;
+  int timeout_ms = -1;
+  for (size_t i = 0; i < 2; ++i) {
+    if (!devices[i]) {
+      continue;
+    }
+    if (devices[i]->fd_ < 0) {
+      throw std::runtime_error("capture device is not open");
+    }
+    descriptors[descriptor_count].fd = devices[i]->fd_;
+    descriptors[descriptor_count].events = POLLIN;
+    descriptors[descriptor_count].revents = 0;
+    if (timeout_ms < 0 || devices[i]->timeout_ms_ < timeout_ms) {
+      timeout_ms = devices[i]->timeout_ms_;
+    }
+    ++descriptor_count;
+  }
+
+  const int poll_ret = poll(descriptors, descriptor_count, timeout_ms);
+  if (poll_ret == 0) {
+    return false;
+  }
+  if (poll_ret < 0) {
+    if (errno == EINTR) {
+      return false;
+    }
+    throw std::runtime_error("poll failed: " + std::string(strerror(errno)));
+  }
+
+  size_t descriptor_index = 0;
+  bool any_ready = false;
+  for (size_t i = 0; i < 2; ++i) {
+    if (!devices[i]) {
+      continue;
+    }
+    const short revents = descriptors[descriptor_index++].revents;
+    if ((revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+      throw std::runtime_error("camera poll reported a device error");
+    }
+    const bool ready = (revents & (POLLIN | POLLPRI)) != 0;
+    if (i == 0 && first_ready) {
+      *first_ready = ready;
+    }
+    if (i == 1 && second_ready) {
+      *second_ready = ready;
+    }
+    any_ready = any_ready || ready;
+  }
+  return any_ready;
 }
 
 void V4l2CameraDevice::RequeueCapturedFrame(CapturedFrame* frame) {

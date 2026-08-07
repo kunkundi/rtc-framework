@@ -11,6 +11,13 @@
 
 namespace rtc_camera {
 
+class V4l2CameraDevice;
+
+bool WaitForCapturedFrames(V4l2CameraDevice* first,
+                           V4l2CameraDevice* second,
+                           bool* first_ready,
+                           bool* second_ready);
+
 class V4l2CameraDevice {
  public:
   struct CapturedFrame {
@@ -25,6 +32,7 @@ class V4l2CameraDevice {
   void Close();
 
   bool DequeueCapturedFrame(CapturedFrame* frame);
+  bool DequeueReadyCapturedFrame(CapturedFrame* frame);
   void RequeueCapturedFrame(CapturedFrame* frame);
 
   uint32_t pixel_format() const;
@@ -35,6 +43,11 @@ class V4l2CameraDevice {
   const std::string& device_path() const;
 
  private:
+  friend bool WaitForCapturedFrames(V4l2CameraDevice* first,
+                                    V4l2CameraDevice* second,
+                                    bool* first_ready,
+                                    bool* second_ready);
+
   void ConfigureFormat(const CameraCaptureOptions& options);
   void InitMmap(int requested_count);
   void QueueAllBuffers();

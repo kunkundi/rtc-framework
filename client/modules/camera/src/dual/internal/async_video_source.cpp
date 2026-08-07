@@ -55,6 +55,44 @@ bool StopRequestedBySource(const AsyncDualCameraVideoSource* source) {
   return !source->running();
 }
 
+bool DequeueFramePair(
+    rtc_camera::V4l2CameraDevice& left_device,
+    rtc_camera::V4l2CameraDevice& right_device,
+    const AsyncDualCameraVideoSource* source,
+    rtc_camera::V4l2CameraDevice::CapturedFrame* left_frame,
+    rtc_camera::V4l2CameraDevice::CapturedFrame* right_frame) {
+  if (!left_frame || !right_frame) {
+    throw std::runtime_error("dual captured frame output is null");
+  }
+
+  CapturedFrameGuard left_guard(&left_device, left_frame);
+  CapturedFrameGuard right_guard(&right_device, right_frame);
+  bool has_left = false;
+  bool has_right = false;
+  while (!StopRequestedBySource(source) && (!has_left || !has_right)) {
+    bool left_ready = false;
+    bool right_ready = false;
+    if (!rtc_camera::WaitForCapturedFrames(
+            has_left ? nullptr : &left_device,
+            has_right ? nullptr : &right_device, &left_ready, &right_ready)) {
+      continue;
+    }
+    if (left_ready) {
+      has_left = left_device.DequeueReadyCapturedFrame(left_frame);
+    }
+    if (right_ready) {
+      has_right = right_device.DequeueReadyCapturedFrame(right_frame);
+    }
+  }
+  if (!has_left || !has_right) {
+    return false;
+  }
+
+  left_guard.Release();
+  right_guard.Release();
+  return true;
+}
+
 void RunDualWarmup(rtc_camera::V4l2CameraDevice& left_device,
                    rtc_camera::V4l2CameraDevice& right_device,
                    const rtc_camera::CameraCaptureOptions& options,
@@ -71,15 +109,12 @@ void RunDualWarmup(rtc_camera::V4l2CameraDevice& left_device,
   while (!StopRequestedBySource(source) &&
          discarded < options.warmup_frames) {
     rtc_camera::V4l2CameraDevice::CapturedFrame left_frame;
-    if (!left_device.DequeueCapturedFrame(&left_frame)) {
+    rtc_camera::V4l2CameraDevice::CapturedFrame right_frame;
+    if (!DequeueFramePair(left_device, right_device, source, &left_frame,
+                          &right_frame)) {
       continue;
     }
     CapturedFrameGuard left_guard(&left_device, &left_frame);
-
-    rtc_camera::V4l2CameraDevice::CapturedFrame right_frame;
-    if (!right_device.DequeueCapturedFrame(&right_frame)) {
-      continue;
-    }
     CapturedFrameGuard right_guard(&right_device, &right_frame);
     ++discarded;
   }
@@ -298,15 +333,12 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
     uint64_t sequence = 0;
     while (!StopRequestedBySource(this)) {
       rtc_camera::V4l2CameraDevice::CapturedFrame left_frame;
-      if (!left_device->DequeueCapturedFrame(&left_frame)) {
+      rtc_camera::V4l2CameraDevice::CapturedFrame right_frame;
+      if (!DequeueFramePair(*left_device, *right_device, this, &left_frame,
+                            &right_frame)) {
         continue;
       }
       CapturedFrameGuard left_guard(left_device.get(), &left_frame);
-
-      rtc_camera::V4l2CameraDevice::CapturedFrame right_frame;
-      if (!right_device->DequeueCapturedFrame(&right_frame)) {
-        continue;
-      }
       CapturedFrameGuard right_guard(right_device.get(), &right_frame);
 
       std::shared_ptr<VideoFrame> frame(new VideoFrame());
