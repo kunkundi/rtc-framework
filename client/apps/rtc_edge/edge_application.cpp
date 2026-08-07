@@ -292,7 +292,7 @@ class EdgeCameraModules {
                                     std::chrono::steady_clock::now());
   }
 
-  bool WaitForWorker(CameraWorkerState* worker) {
+  bool WaitForWorker(CameraWorkerState* worker, bool* continuous) {
     std::unique_lock<std::mutex> lock(worker_mutex_);
     worker_condition_.wait(lock, [this, worker] {
       return stop_requested_ || worker->continuous || worker->pending_send;
@@ -300,15 +300,19 @@ class EdgeCameraModules {
     if (stop_requested_) {
       return false;
     }
+    if (continuous != nullptr) {
+      *continuous = worker->continuous;
+    }
     worker->pending_send = false;
     return true;
   }
 
   template <typename Module>
   void RunCameraWorker(CameraWorkerState* worker, Module* module) {
-    while (WaitForWorker(worker)) {
+    bool continuous = false;
+    while (WaitForWorker(worker, &continuous)) {
       std::string module_error;
-      if (!module->Tick(rtc_session_, true, &module_error)) {
+      if (!module->Tick(rtc_session_, true, continuous, &module_error)) {
         ReportWorkerError(module_error);
         return;
       }

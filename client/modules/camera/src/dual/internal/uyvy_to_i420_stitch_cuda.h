@@ -34,6 +34,16 @@ class DualUyvyToI420StitchCudaConverter {
                const uint8_t** dst_host,
                size_t* dst_size,
                std::string* error_message);
+  bool Enqueue(const uint8_t* left_src_host,
+               size_t left_src_size,
+               const uint8_t* right_src_host,
+               size_t right_src_size,
+               std::string* error_message);
+  bool Dequeue(const uint8_t** dst_host,
+               size_t* dst_size,
+               std::string* error_message);
+  void DiscardPending();
+  size_t pending_count() const;
 
   size_t output_width() const;
   size_t output_height() const;

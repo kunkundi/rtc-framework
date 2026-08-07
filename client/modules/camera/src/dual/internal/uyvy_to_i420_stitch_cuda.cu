@@ -114,6 +114,16 @@ namespace rtc_camera {
 namespace dual {
 
 struct DualUyvyToI420StitchCudaConverter::Impl {
+  struct Slot {
+    uint8_t* device_left_input = nullptr;
+    uint8_t* device_right_input = nullptr;
+    uint8_t* device_output = nullptr;
+    uint8_t* host_output = nullptr;
+    cudaStream_t stream = nullptr;
+    cudaEvent_t completed = nullptr;
+    bool pending = false;
+  };
+
   size_t left_width = 0;
   size_t left_height = 0;
   size_t left_input_stride_bytes = 0;
@@ -130,11 +140,11 @@ struct DualUyvyToI420StitchCudaConverter::Impl {
   size_t u_stride = 0;
   size_t v_stride = 0;
   size_t output_size = 0;
-  uint8_t* device_left_input = nullptr;
-  uint8_t* device_right_input = nullptr;
-  uint8_t* device_output = nullptr;
-  uint8_t* host_output = nullptr;
-  cudaStream_t stream = nullptr;
+  Slot slots[2];
+  size_t pending_order[2] = {0, 0};
+  size_t pending_head = 0;
+  size_t pending_count = 0;
+  size_t next_slot = 0;
   bool initialized = false;
 };
 
@@ -145,25 +155,32 @@ DualUyvyToI420StitchCudaConverter::~DualUyvyToI420StitchCudaConverter() {
   if (!impl_) {
     return;
   }
-  if (impl_->stream) {
-    cudaStreamDestroy(impl_->stream);
-    impl_->stream = nullptr;
-  }
-  if (impl_->device_left_input) {
-    cudaFree(impl_->device_left_input);
-    impl_->device_left_input = nullptr;
-  }
-  if (impl_->device_right_input) {
-    cudaFree(impl_->device_right_input);
-    impl_->device_right_input = nullptr;
-  }
-  if (impl_->device_output) {
-    cudaFree(impl_->device_output);
-    impl_->device_output = nullptr;
-  }
-  if (impl_->host_output) {
-    cudaFreeHost(impl_->host_output);
-    impl_->host_output = nullptr;
+  for (size_t i = 0; i < 2; ++i) {
+    Impl::Slot& slot = impl_->slots[i];
+    if (slot.completed) {
+      cudaEventDestroy(slot.completed);
+      slot.completed = nullptr;
+    }
+    if (slot.stream) {
+      cudaStreamDestroy(slot.stream);
+      slot.stream = nullptr;
+    }
+    if (slot.device_left_input) {
+      cudaFree(slot.device_left_input);
+      slot.device_left_input = nullptr;
+    }
+    if (slot.device_right_input) {
+      cudaFree(slot.device_right_input);
+      slot.device_right_input = nullptr;
+    }
+    if (slot.device_output) {
+      cudaFree(slot.device_output);
+      slot.device_output = nullptr;
+    }
+    if (slot.host_output) {
+      cudaFreeHost(slot.host_output);
+      slot.host_output = nullptr;
+    }
   }
   delete impl_;
   impl_ = nullptr;
@@ -258,46 +275,56 @@ bool DualUyvyToI420StitchCudaConverter::Init(
       impl_->output_width * impl_->output_height +
       impl_->u_stride * ((impl_->output_height + 1) / 2) * 2;
 
-  cuda_code = cudaStreamCreateWithFlags(&impl_->stream, cudaStreamNonBlocking);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message = MakeCudaError("cudaStreamCreateWithFlags", cuda_code);
+  for (size_t i = 0; i < 2; ++i) {
+    Impl::Slot& slot = impl_->slots[i];
+    cuda_code =
+        cudaStreamCreateWithFlags(&slot.stream, cudaStreamNonBlocking);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message = MakeCudaError("cudaStreamCreateWithFlags", cuda_code);
+      }
+      return false;
     }
-    return false;
-  }
-
-  cuda_code = cudaMalloc(&impl_->device_left_input, impl_->left_input_size);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message =
-          MakeCudaError("cudaMalloc(device_left_input)", cuda_code);
+    cuda_code = cudaEventCreateWithFlags(&slot.completed,
+                                         cudaEventDisableTiming);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message = MakeCudaError("cudaEventCreateWithFlags", cuda_code);
+      }
+      return false;
     }
-    return false;
-  }
-
-  cuda_code = cudaMalloc(&impl_->device_right_input, impl_->right_input_size);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message =
-          MakeCudaError("cudaMalloc(device_right_input)", cuda_code);
+    cuda_code =
+        cudaMalloc(&slot.device_left_input, impl_->left_input_size);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message =
+            MakeCudaError("cudaMalloc(device_left_input)", cuda_code);
+      }
+      return false;
     }
-    return false;
-  }
-
-  cuda_code = cudaMalloc(&impl_->device_output, impl_->output_size);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message = MakeCudaError("cudaMalloc(device_output)", cuda_code);
+    cuda_code =
+        cudaMalloc(&slot.device_right_input, impl_->right_input_size);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message =
+            MakeCudaError("cudaMalloc(device_right_input)", cuda_code);
+      }
+      return false;
     }
-    return false;
-  }
-
-  cuda_code = cudaMallocHost(&impl_->host_output, impl_->output_size);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message = MakeCudaError("cudaMallocHost(host_output)", cuda_code);
+    cuda_code = cudaMalloc(&slot.device_output, impl_->output_size);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message = MakeCudaError("cudaMalloc(device_output)", cuda_code);
+      }
+      return false;
     }
-    return false;
+    cuda_code = cudaMallocHost(&slot.host_output, impl_->output_size);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message = MakeCudaError("cudaMallocHost(host_output)", cuda_code);
+      }
+      return false;
+    }
   }
 
   impl_->initialized = true;
@@ -311,6 +338,23 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
     size_t right_src_size,
     const uint8_t** dst_host,
     size_t* dst_size,
+    std::string* error_message) {
+  if (pending_count() != 0) {
+    if (error_message) {
+      *error_message = "converter has pending asynchronous frames";
+    }
+    return false;
+  }
+  return Enqueue(left_src_host, left_src_size, right_src_host, right_src_size,
+                 error_message) &&
+         Dequeue(dst_host, dst_size, error_message);
+}
+
+bool DualUyvyToI420StitchCudaConverter::Enqueue(
+    const uint8_t* left_src_host,
+    size_t left_src_size,
+    const uint8_t* right_src_host,
+    size_t right_src_size,
     std::string* error_message) {
   if (!impl_ || !impl_->initialized) {
     if (error_message) {
@@ -331,10 +375,22 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
     }
     return false;
   }
+  if (impl_->pending_count >= 2) {
+    if (error_message) {
+      *error_message = "converter pipeline is full";
+    }
+    return false;
+  }
+
+  size_t slot_index = impl_->next_slot;
+  if (impl_->slots[slot_index].pending) {
+    slot_index = (slot_index + 1) % 2;
+  }
+  Impl::Slot& slot = impl_->slots[slot_index];
 
   cudaError_t cuda_code = cudaMemcpyAsync(
-      impl_->device_left_input, left_src_host, impl_->left_input_size,
-      cudaMemcpyHostToDevice, impl_->stream);
+      slot.device_left_input, left_src_host, impl_->left_input_size,
+      cudaMemcpyHostToDevice, slot.stream);
   if (cuda_code != cudaSuccess) {
     if (error_message) {
       *error_message = MakeCudaError("cudaMemcpyAsync(left H2D)", cuda_code);
@@ -342,9 +398,9 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
     return false;
   }
 
-  cuda_code = cudaMemcpyAsync(impl_->device_right_input, right_src_host,
+  cuda_code = cudaMemcpyAsync(slot.device_right_input, right_src_host,
                               impl_->right_input_size, cudaMemcpyHostToDevice,
-                              impl_->stream);
+                              slot.stream);
   if (cuda_code != cudaSuccess) {
     if (error_message) {
       *error_message = MakeCudaError("cudaMemcpyAsync(right H2D)", cuda_code);
@@ -352,7 +408,7 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
     return false;
   }
 
-  uint8_t* dst_y = impl_->device_output;
+  uint8_t* dst_y = slot.device_output;
   uint8_t* dst_u = dst_y + impl_->y_stride * impl_->output_height;
   uint8_t* dst_v = dst_u + impl_->u_stride * ((impl_->output_height + 1) / 2);
   const int total_chroma_width = static_cast<int>(impl_->u_stride);
@@ -365,12 +421,12 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
       (static_cast<unsigned int>(total_chroma_width) + block.x - 1) / block.x,
       (static_cast<unsigned int>((impl_->output_height + 1) / 2) + block.y - 1) /
           block.y);
-  DualUyvyToSampledI420SideBySideKernel<<<grid, block, 0, impl_->stream>>>(
-      impl_->device_left_input,
+  DualUyvyToSampledI420SideBySideKernel<<<grid, block, 0, slot.stream>>>(
+      slot.device_left_input,
       static_cast<int>(impl_->left_input_stride_bytes),
       static_cast<int>(impl_->left_width),
       impl_->left_is_yuyv ? 1 : 0,
-      impl_->device_right_input,
+      slot.device_right_input,
       static_cast<int>(impl_->right_input_stride_bytes),
       static_cast<int>(impl_->right_width),
       impl_->right_is_yuyv ? 1 : 0,
@@ -389,9 +445,9 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
     return false;
   }
 
-  cuda_code = cudaMemcpyAsync(impl_->host_output, impl_->device_output,
+  cuda_code = cudaMemcpyAsync(slot.host_output, slot.device_output,
                               impl_->output_size, cudaMemcpyDeviceToHost,
-                              impl_->stream);
+                              slot.stream);
   if (cuda_code != cudaSuccess) {
     if (error_message) {
       *error_message = MakeCudaError("cudaMemcpyAsync(D2H)", cuda_code);
@@ -399,21 +455,72 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
     return false;
   }
 
-  cuda_code = cudaStreamSynchronize(impl_->stream);
+  cuda_code = cudaEventRecord(slot.completed, slot.stream);
   if (cuda_code != cudaSuccess) {
     if (error_message) {
-      *error_message = MakeCudaError("cudaStreamSynchronize", cuda_code);
+      *error_message = MakeCudaError("cudaEventRecord", cuda_code);
+    }
+    cudaStreamSynchronize(slot.stream);
+    return false;
+  }
+
+  slot.pending = true;
+  impl_->pending_order[(impl_->pending_head + impl_->pending_count) % 2] =
+      slot_index;
+  ++impl_->pending_count;
+  impl_->next_slot = (slot_index + 1) % 2;
+  return true;
+}
+
+bool DualUyvyToI420StitchCudaConverter::Dequeue(
+    const uint8_t** dst_host,
+    size_t* dst_size,
+    std::string* error_message) {
+  if (!impl_ || !impl_->initialized || impl_->pending_count == 0) {
+    if (error_message) {
+      *error_message = "converter pipeline is empty";
+    }
+    return false;
+  }
+
+  const size_t slot_index = impl_->pending_order[impl_->pending_head];
+  Impl::Slot& slot = impl_->slots[slot_index];
+  const cudaError_t cuda_code = cudaEventSynchronize(slot.completed);
+  if (cuda_code != cudaSuccess) {
+    if (error_message) {
+      *error_message = MakeCudaError("cudaEventSynchronize", cuda_code);
     }
     return false;
   }
 
   if (dst_host) {
-    *dst_host = impl_->host_output;
+    *dst_host = slot.host_output;
   }
   if (dst_size) {
     *dst_size = impl_->output_size;
   }
+  slot.pending = false;
+  impl_->pending_head = (impl_->pending_head + 1) % 2;
+  --impl_->pending_count;
   return true;
+}
+
+void DualUyvyToI420StitchCudaConverter::DiscardPending() {
+  if (!impl_) {
+    return;
+  }
+  while (impl_->pending_count > 0) {
+    const size_t slot_index = impl_->pending_order[impl_->pending_head];
+    Impl::Slot& slot = impl_->slots[slot_index];
+    cudaEventSynchronize(slot.completed);
+    slot.pending = false;
+    impl_->pending_head = (impl_->pending_head + 1) % 2;
+    --impl_->pending_count;
+  }
+}
+
+size_t DualUyvyToI420StitchCudaConverter::pending_count() const {
+  return impl_ ? impl_->pending_count : 0;
 }
 
 size_t DualUyvyToI420StitchCudaConverter::output_width() const {

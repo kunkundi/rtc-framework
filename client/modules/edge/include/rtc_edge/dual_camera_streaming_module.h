@@ -45,6 +45,7 @@ class DualCameraStreamingModule {
   void Stop();
   bool Tick(rtc_runtime::RtcSession* rtc_session,
             bool send_frame,
+            bool continuous,
             std::string* error_message);
 
   bool started() const { return started_; }

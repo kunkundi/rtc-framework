@@ -82,12 +82,60 @@ void TestNv12Conversion() {
         "converted frame bytes");
 }
 
+void TestCudaConversionPipeline() {
+  const std::vector<uint8_t> first_uyvy = {
+      10, 1, 20, 2,
+      14, 3, 24, 4,
+  };
+  const std::vector<uint8_t> second_uyvy = {
+      30, 5, 40, 6,
+      34, 7, 44, 8,
+  };
+  const std::vector<uint8_t> expected_first = {1, 2, 3, 4, 12, 22};
+  const std::vector<uint8_t> expected_second = {5, 6, 7, 8, 32, 42};
+
+  rtc_camera::single::CameraFrame first;
+  first.pixel_format = V4L2_PIX_FMT_UYVY;
+  first.width = 2;
+  first.height = 2;
+  first.stride_bytes = 4;
+  first.data = first_uyvy.data();
+  first.data_size = first_uyvy.size();
+  rtc_camera::single::CameraFrame second = first;
+  second.data = second_uyvy.data();
+  second.data_size = second_uyvy.size();
+
+  rtc_camera::single::CameraFrameConverter converter;
+  std::string error_message;
+  Check(converter.EnqueueToI420(first, &error_message),
+        "enqueue first CUDA frame: " + error_message);
+  Check(converter.EnqueueToI420(second, &error_message),
+        "enqueue second CUDA frame: " + error_message);
+  Check(converter.pending_frames() == 2, "two CUDA frames are pending");
+
+  rtc_camera::single::ConvertedCameraFrame converted;
+  Check(converter.DequeueI420(&converted, &error_message),
+        "dequeue first CUDA frame: " + error_message);
+  Check(std::vector<uint8_t>(converted.data,
+                             converted.data + converted.data_size) ==
+            expected_first,
+        "first CUDA pipeline frame bytes");
+  Check(converter.DequeueI420(&converted, &error_message),
+        "dequeue second CUDA frame: " + error_message);
+  Check(std::vector<uint8_t>(converted.data,
+                             converted.data + converted.data_size) ==
+            expected_second,
+        "second CUDA pipeline frame bytes");
+  Check(converter.pending_frames() == 0, "CUDA pipeline is empty");
+}
+
 }  // 匿名命名空间
 
 int main() {
   TestFrameState();
   TestClosedSubscription();
   TestNv12Conversion();
+  TestCudaConversionPipeline();
   std::cout << "rtc_camera_tests passed" << std::endl;
   return 0;
 }

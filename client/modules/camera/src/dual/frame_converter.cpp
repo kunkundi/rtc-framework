@@ -39,6 +39,8 @@ bool DualUyvyFrameConverter::EnsureConverter(
     return true;
   }
 
+  DiscardPending();
+
   std::unique_ptr<DualUyvyToI420StitchCudaConverter> converter(
       new DualUyvyToI420StitchCudaConverter());
   if (!converter->Init(frame.left_width, frame.left_height,
@@ -72,6 +74,7 @@ bool DualUyvyFrameConverter::ConvertToI420(
     return false;
   }
   *output = ConvertedI420Frame();
+  DiscardPending();
 
   if (frame.format == ImagePixelFormat::kI420) {
     if (frame.empty() || frame.stride_y == 0 || frame.stride_u == 0 ||
@@ -119,6 +122,70 @@ bool DualUyvyFrameConverter::ConvertToI420(
   output->stride_u = converter_->u_stride();
   output->stride_v = converter_->v_stride();
   return true;
+}
+
+bool DualUyvyFrameConverter::EnqueueToI420(
+    const ImageFrame& frame,
+    std::string* error_message) {
+  if (frame.left_pixel_format == V4L2_PIX_FMT_NV12 ||
+      frame.right_pixel_format == V4L2_PIX_FMT_NV12) {
+    if (error_message) {
+      *error_message = "Asynchronous conversion requires UYVY or YUYV";
+    }
+    return false;
+  }
+  if (!EnsureConverter(frame, error_message) ||
+      !converter_->Enqueue(frame.left_data, frame.left_data_size,
+                           frame.right_data, frame.right_data_size,
+                           error_message)) {
+    return false;
+  }
+  pending_cuda_frames_.push_back(frame);
+  return true;
+}
+
+bool DualUyvyFrameConverter::DequeueI420(
+    ConvertedI420Frame* output,
+    std::string* error_message) {
+  if (!output) {
+    if (error_message) {
+      *error_message = "null converted frame output";
+    }
+    return false;
+  }
+  *output = ConvertedI420Frame();
+  if (!converter_ || pending_cuda_frames_.empty()) {
+    if (error_message) {
+      *error_message = "No asynchronous stereo frame is pending";
+    }
+    return false;
+  }
+
+  const uint8_t* converted_data = nullptr;
+  size_t converted_size = 0;
+  if (!converter_->Dequeue(&converted_data, &converted_size, error_message)) {
+    return false;
+  }
+  pending_cuda_frames_.pop_front();
+  output->data = converted_data;
+  output->data_size = converted_size;
+  output->width = converter_->output_width();
+  output->height = converter_->output_height();
+  output->stride_y = converter_->y_stride();
+  output->stride_u = converter_->u_stride();
+  output->stride_v = converter_->v_stride();
+  return true;
+}
+
+void DualUyvyFrameConverter::DiscardPending() {
+  if (converter_) {
+    converter_->DiscardPending();
+  }
+  pending_cuda_frames_.clear();
+}
+
+size_t DualUyvyFrameConverter::pending_frames() const {
+  return pending_cuda_frames_.size();
 }
 
 namespace {

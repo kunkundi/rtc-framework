@@ -7,6 +7,8 @@
 #include "rtc_runtime/rtc_session.h"
 #include "rtc_vision/yolo_frame_consumer.h"
 
+#include <linux/videodev2.h>
+
 #include <exception>
 
 namespace rtc_edge {
@@ -102,6 +104,7 @@ void DualCameraStreamingModule::RequestStop() {
 bool DualCameraStreamingModule::Tick(
     rtc_runtime::RtcSession* rtc_session,
     bool send_frame,
+    bool continuous,
     std::string* error_message) {
   if (!started_ || !rtc_session || !video_source_ || !rtc_frames_ ||
       !converter_) {
@@ -140,6 +143,7 @@ bool DualCameraStreamingModule::Tick(
     rtc_logging::LogInfo("Camera module received first raw stereo frame");
   }
   if (!rtc_session->IsReadyToSend()) {
+    converter_->DiscardPending();
     return true;
   }
   if (frame.empty()) {
@@ -150,7 +154,21 @@ bool DualCameraStreamingModule::Tick(
   }
   rtc_camera::dual::ConvertedI420Frame converted;
   std::string convert_error;
-  if (!converter_->ConvertToI420(frame, &converted, &convert_error)) {
+  bool converted_ok = false;
+  if (continuous && frame.left_pixel_format != V4L2_PIX_FMT_NV12 &&
+      frame.right_pixel_format != V4L2_PIX_FMT_NV12) {
+    converted_ok = converter_->EnqueueToI420(frame, &convert_error);
+    if (converted_ok && converter_->pending_frames() < 2) {
+      return true;
+    }
+    if (converted_ok) {
+      converted_ok = converter_->DequeueI420(&converted, &convert_error);
+    }
+  } else {
+    converted_ok =
+        converter_->ConvertToI420(frame, &converted, &convert_error);
+  }
+  if (!converted_ok) {
     if (error_message) {
       *error_message = std::string("camera pixel format conversion failed: ") +
                        convert_error;

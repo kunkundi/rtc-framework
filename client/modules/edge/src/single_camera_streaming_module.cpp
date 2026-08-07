@@ -4,6 +4,8 @@
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/rtc_session.h"
 
+#include <linux/videodev2.h>
+
 #include <stdexcept>
 #include <thread>
 
@@ -122,9 +124,11 @@ void SingleCameraStreamingModule::RequestStop() {
 bool SingleCameraStreamingModule::Tick(
     rtc_runtime::RtcSession* rtc_session,
     bool send_frame,
+    bool continuous,
     std::string* error_message) {
   if (use_local_yuv_file_) {
-    return TickLocalYuvFile(rtc_session, send_frame, error_message);
+    return TickLocalYuvFile(rtc_session, send_frame, continuous,
+                            error_message);
   }
   if (!started_ || rtc_session == nullptr || !video_source_ || !rtc_frames_ ||
       !converter_) {
@@ -163,6 +167,7 @@ bool SingleCameraStreamingModule::Tick(
                          " received its first camera frame");
   }
   if (!rtc_session->IsReadyToSend()) {
+    converter_->DiscardPending();
     return true;
   }
   if (frame.empty()) {
@@ -173,7 +178,20 @@ bool SingleCameraStreamingModule::Tick(
   }
   rtc_camera::single::ConvertedCameraFrame converted;
   std::string convert_error;
-  if (!converter_->ConvertToI420(frame, &converted, &convert_error)) {
+  bool converted_ok = false;
+  if (continuous && frame.pixel_format != V4L2_PIX_FMT_NV12) {
+    converted_ok = converter_->EnqueueToI420(frame, &convert_error);
+    if (converted_ok && converter_->pending_frames() < 2) {
+      return true;
+    }
+    if (converted_ok) {
+      converted_ok = converter_->DequeueI420(&converted, &convert_error);
+    }
+  } else {
+    converted_ok =
+        converter_->ConvertToI420(frame, &converted, &convert_error);
+  }
+  if (!converted_ok) {
     if (error_message != nullptr) {
       *error_message = options_.camera_name + " conversion failed: " +
                        convert_error;
@@ -242,7 +260,9 @@ bool SingleCameraStreamingModule::StartLocalYuvFile(
 bool SingleCameraStreamingModule::TickLocalYuvFile(
     rtc_runtime::RtcSession* rtc_session,
     bool send_frame,
+    bool continuous,
     std::string* error_message) {
+  (void)continuous;
   if (!started_ || rtc_session == nullptr || !local_yuv_file_.is_open() ||
       local_i420_frame_.empty()) {
     if (error_message != nullptr) {

@@ -26,6 +26,14 @@ class UyvyToI420CudaConverter {
                const uint8_t** dst_host,
                size_t* dst_size,
                std::string* error_message);
+  bool Enqueue(const uint8_t* src_host,
+               size_t src_size,
+               std::string* error_message);
+  bool Dequeue(const uint8_t** dst_host,
+               size_t* dst_size,
+               std::string* error_message);
+  void DiscardPending();
+  size_t pending_count() const;
 
   size_t y_stride() const;
   size_t u_stride() const;

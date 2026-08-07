@@ -42,6 +42,7 @@ class SingleCameraStreamingModule {
   void Stop();
   bool Tick(rtc_runtime::RtcSession* rtc_session,
             bool send_frame,
+            bool continuous,
             std::string* error_message);
 
   bool started() const;
@@ -51,6 +52,7 @@ class SingleCameraStreamingModule {
   bool StartLocalYuvFile(std::string* error_message);
   bool TickLocalYuvFile(rtc_runtime::RtcSession* rtc_session,
                         bool send_frame,
+                        bool continuous,
                         std::string* error_message);
 
   SingleCameraStreamingModuleOptions options_;

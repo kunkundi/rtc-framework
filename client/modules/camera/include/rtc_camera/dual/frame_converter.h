@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -35,6 +36,12 @@ class DualUyvyFrameConverter {
   bool ConvertToI420(const ImageFrame& frame,
                      ConvertedI420Frame* output,
                      std::string* error_message);
+  bool EnqueueToI420(const ImageFrame& frame,
+                     std::string* error_message);
+  bool DequeueI420(ConvertedI420Frame* output,
+                   std::string* error_message);
+  void DiscardPending();
+  size_t pending_frames() const;
 
  private:
   bool EnsureConverter(const ImageFrame& frame,
@@ -50,6 +57,7 @@ class DualUyvyFrameConverter {
   size_t right_width_ = 0;
   size_t right_height_ = 0;
   size_t right_stride_bytes_ = 0;
+  std::deque<ImageFrame> pending_cuda_frames_;
 
   // NV12 CPU 转换缓冲区。
   std::vector<uint8_t> left_y_;
