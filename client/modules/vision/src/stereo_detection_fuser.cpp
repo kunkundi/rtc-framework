@@ -14,8 +14,9 @@ namespace rtc_camera_headless {
 namespace {
 
 constexpr size_t kMaxStereoDetections = 64;
-constexpr int kOrbFeatures = 900;
-constexpr int kOrbFastThreshold = 12;
+constexpr int kOrbFeatures = 600;
+constexpr int kOrbPyramidLevels = 6;
+constexpr int kOrbFastThreshold = 15;
 constexpr int kMinGoodMatches = 12;
 constexpr int kMinGlobalMatches = 8;
 constexpr int kMinLocalMatches = 3;
@@ -47,6 +48,16 @@ struct DetectionCandidate {
   PixelBox box;
   bool source_is_left = true;
   bool suppressed = false;
+};
+
+struct OrbMatcherContext {
+  OrbMatcherContext()
+      : orb(cv::ORB::create(kOrbFeatures, 1.2f, kOrbPyramidLevels, 31, 0, 2,
+                            cv::ORB::HARRIS_SCORE, 31, kOrbFastThreshold)),
+        matcher(cv::NORM_HAMMING, false) {}
+
+  cv::Ptr<cv::ORB> orb;
+  cv::BFMatcher matcher;
 };
 
 template <typename T>
@@ -227,7 +238,8 @@ MatchOffset GlobalMedianOffset(const std::vector<StereoMatch>& matches,
 
 std::vector<StereoMatch> ComputeOrbRansacMatches(
     const StereoLumaFrame& frame,
-    size_t left_width) {
+    size_t left_width,
+    const std::vector<DetectionCandidate>& candidates) {
   std::vector<StereoMatch> result;
   if (!frame.data || frame.width == 0 || frame.height == 0 ||
       frame.stride == 0 || left_width == 0 || left_width >= frame.width) {
@@ -242,23 +254,83 @@ std::vector<StereoMatch> ComputeOrbRansacMatches(
   cv::Mat left = y_plane(cv::Rect(0, 0, left_w, height));
   cv::Mat right = y_plane(cv::Rect(left_w, 0, right_w, height));
 
-  cv::Ptr<cv::ORB> orb = cv::ORB::create(
-      kOrbFeatures, 1.2f, 8, 31, 0, 2, cv::ORB::HARRIS_SCORE, 31,
-      kOrbFastThreshold);
+  cv::Mat left_mask(height, left_w, CV_8UC1, cv::Scalar(0));
+  cv::Mat right_mask(height, right_w, CV_8UC1, cv::Scalar(0));
+  const auto add_mask_region = [height](cv::Mat* mask,
+                                        float x,
+                                        float y,
+                                        float width,
+                                        float region_height) {
+    if (!mask || mask->empty() || width <= 0.0f || region_height <= 0.0f) {
+      return;
+    }
+    const float padding_x = std::max(48.0f, width * 1.25f);
+    const float padding_y = std::max(24.0f, region_height * 0.50f);
+    const int x0 = Clamp(static_cast<int>(std::floor(x - padding_x)), 0,
+                         mask->cols);
+    const int y0 = Clamp(static_cast<int>(std::floor(y - padding_y)), 0,
+                         height);
+    const int x1 = Clamp(
+        static_cast<int>(std::ceil(x + width + padding_x)), 0, mask->cols);
+    const int y1 = Clamp(
+        static_cast<int>(std::ceil(y + region_height + padding_y)), 0, height);
+    if (x1 > x0 && y1 > y0) {
+      (*mask)(cv::Rect(x0, y0, x1 - x0, y1 - y0)).setTo(255);
+    }
+  };
+
+  for (const DetectionCandidate& candidate : candidates) {
+    const PixelBox& box = candidate.box;
+    if (candidate.source_is_left) {
+      add_mask_region(&left_mask, box.x, box.y, box.w, box.h);
+      add_mask_region(&right_mask,
+                      box.x * static_cast<float>(right_w) /
+                          static_cast<float>(left_w),
+                      box.y,
+                      box.w * static_cast<float>(right_w) /
+                          static_cast<float>(left_w),
+                      box.h);
+    } else {
+      const float local_x = box.x - static_cast<float>(left_width);
+      add_mask_region(&right_mask, local_x, box.y, box.w, box.h);
+      add_mask_region(&left_mask,
+                      local_x * static_cast<float>(left_w) /
+                          static_cast<float>(right_w),
+                      box.y,
+                      box.w * static_cast<float>(left_w) /
+                          static_cast<float>(right_w),
+                      box.h);
+    }
+  }
+
+  const double total_pixels =
+      static_cast<double>(left_mask.total() + right_mask.total());
+  const double masked_pixels =
+      static_cast<double>(cv::countNonZero(left_mask) +
+                          cv::countNonZero(right_mask));
+  if (total_pixels > 0.0 && masked_pixels / total_pixels > 0.70) {
+    left_mask.release();
+    right_mask.release();
+  }
+
+  static thread_local OrbMatcherContext context;
   std::vector<cv::KeyPoint> left_keypoints;
   std::vector<cv::KeyPoint> right_keypoints;
   cv::Mat left_descriptors;
   cv::Mat right_descriptors;
-  orb->detectAndCompute(left, cv::noArray(), left_keypoints, left_descriptors);
-  orb->detectAndCompute(right, cv::noArray(), right_keypoints,
-                        right_descriptors);
+  context.orb->detectAndCompute(
+      left, left_mask.empty() ? cv::noArray() : cv::InputArray(left_mask),
+      left_keypoints, left_descriptors);
+  context.orb->detectAndCompute(
+      right, right_mask.empty() ? cv::noArray() : cv::InputArray(right_mask),
+      right_keypoints, right_descriptors);
   if (left_descriptors.empty() || right_descriptors.empty()) {
     return result;
   }
 
-  cv::BFMatcher matcher(cv::NORM_HAMMING, false);
   std::vector<std::vector<cv::DMatch> > knn_matches;
-  matcher.knnMatch(left_descriptors, right_descriptors, knn_matches, 2);
+  context.matcher.knnMatch(left_descriptors, right_descriptors, knn_matches,
+                           2);
 
   std::vector<cv::DMatch> good_matches;
   good_matches.reserve(knn_matches.size());
@@ -399,7 +471,7 @@ std::vector<YoloDetectionBox> FuseStereoDetectionsWithLocalMatching(
             });
 
   const std::vector<StereoMatch> matches =
-      ComputeOrbRansacMatches(frame, left_width);
+      ComputeOrbRansacMatches(frame, left_width, candidates);
   const MatchOffset left_global_offset =
       GlobalMedianOffset(matches, true, left_width);
   const MatchOffset right_global_offset =
