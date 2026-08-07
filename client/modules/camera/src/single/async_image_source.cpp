@@ -182,6 +182,13 @@ struct AsyncCameraImageSource::Impl {
     {
       std::lock_guard<std::mutex> lock(state_mutex);
       close_immediately = failed;
+      subscriptions.erase(
+          std::remove_if(
+              subscriptions.begin(), subscriptions.end(),
+              [](const std::weak_ptr<CameraFrameSubscription::Impl>& weak) {
+                return weak.expired();
+              }),
+          subscriptions.end());
       subscriptions.push_back(subscription_impl);
     }
     if (close_immediately) {
@@ -305,27 +312,18 @@ struct AsyncCameraImageSource::Impl {
   }
 
   void Publish(const std::shared_ptr<const OwnedCameraFrame>& frame) {
-    std::vector<std::shared_ptr<CameraFrameSubscription::Impl>> active;
+    std::vector<std::weak_ptr<CameraFrameSubscription::Impl>> snapshot;
     {
       std::lock_guard<std::mutex> lock(state_mutex);
-      subscriptions.erase(
-          std::remove_if(
-              subscriptions.begin(), subscriptions.end(),
-              [](const std::weak_ptr<CameraFrameSubscription::Impl>& weak) {
-                return weak.expired();
-              }),
-          subscriptions.end());
-      for (size_t i = 0; i < subscriptions.size(); ++i) {
-        std::shared_ptr<CameraFrameSubscription::Impl> subscription =
-            subscriptions[i].lock();
-        if (subscription) {
-          active.push_back(subscription);
-        }
-      }
+      snapshot = subscriptions;
     }
 
-    for (size_t i = 0; i < active.size(); ++i) {
-      active[i]->Push(frame);
+    for (size_t i = 0; i < snapshot.size(); ++i) {
+      std::shared_ptr<CameraFrameSubscription::Impl> subscription =
+          snapshot[i].lock();
+      if (subscription) {
+        subscription->Push(frame);
+      }
     }
   }
 

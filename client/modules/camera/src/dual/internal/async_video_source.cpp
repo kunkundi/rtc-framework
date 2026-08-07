@@ -215,6 +215,12 @@ std::shared_ptr<VideoSourceSubscription> AsyncDualCameraVideoSource::Subscribe(
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     close_immediately = failed_;
+    subscriptions_.erase(
+        std::remove_if(subscriptions_.begin(), subscriptions_.end(),
+                       [](const std::weak_ptr<VideoSourceSubscription>& weak) {
+                         return weak.expired();
+                       }),
+        subscriptions_.end());
     subscriptions_.push_back(subscription);
   }
 
@@ -397,25 +403,17 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
 }
 
 void AsyncDualCameraVideoSource::Publish(VideoFramePtr frame) {
-  std::vector<std::shared_ptr<VideoSourceSubscription>> subscriptions;
+  std::vector<std::weak_ptr<VideoSourceSubscription>> snapshot;
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    subscriptions_.erase(
-        std::remove_if(subscriptions_.begin(), subscriptions_.end(),
-                       [](const std::weak_ptr<VideoSourceSubscription>& weak) {
-                         return weak.expired();
-                       }),
-        subscriptions_.end());
-    for (const auto& weak : subscriptions_) {
-      std::shared_ptr<VideoSourceSubscription> subscription = weak.lock();
-      if (subscription) {
-        subscriptions.push_back(subscription);
-      }
-    }
+    snapshot = subscriptions_;
   }
 
-  for (const auto& subscription : subscriptions) {
-    subscription->Push(frame);
+  for (const auto& weak : snapshot) {
+    std::shared_ptr<VideoSourceSubscription> subscription = weak.lock();
+    if (subscription) {
+      subscription->Push(frame);
+    }
   }
 }
 
