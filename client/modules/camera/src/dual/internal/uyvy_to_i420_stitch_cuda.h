@@ -31,15 +31,19 @@ class DualUyvyToI420StitchCudaConverter {
             std::string* error_message);
   bool Convert(const uint8_t* left_src_host,
                size_t left_src_size,
+               bool left_src_mmap_backed,
                const uint8_t* right_src_host,
                size_t right_src_size,
+               bool right_src_mmap_backed,
                const uint8_t** dst_host,
                size_t* dst_size,
                std::string* error_message);
   bool Enqueue(const uint8_t* left_src_host,
                size_t left_src_size,
+               bool left_src_mmap_backed,
                const uint8_t* right_src_host,
                size_t right_src_size,
+               bool right_src_mmap_backed,
                std::string* error_message);
   bool Dequeue(const uint8_t** dst_host,
                size_t* dst_size,

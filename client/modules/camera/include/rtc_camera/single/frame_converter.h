@@ -46,6 +46,7 @@ class CameraFrameConverter {
   bool EnsureCudaConverter(const CameraFrame& frame,
                            std::string* error_message);
 
+  std::shared_ptr<const void> mapped_device_owner_;
   std::unique_ptr<UyvyToI420CudaConverter> cuda_converter_;
   uint32_t cuda_pixel_format_ = 0;
   size_t cuda_width_ = 0;

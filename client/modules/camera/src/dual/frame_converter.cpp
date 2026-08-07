@@ -68,6 +68,12 @@ bool DualUyvyFrameConverter::EnsureConverter(
   }
 
   converter_ = std::move(converter);
+  mapped_left_device_owner_ =
+      frame.left_mmap_backed_ ? frame.left_device_owner_
+                              : std::shared_ptr<const void>();
+  mapped_right_device_owner_ =
+      frame.right_mmap_backed_ ? frame.right_device_owner_
+                               : std::shared_ptr<const void>();
   left_pixel_format_ = frame.left_pixel_format;
   left_width_ = frame.left_width;
   left_height_ = frame.left_height;
@@ -118,7 +124,8 @@ bool DualUyvyFrameConverter::ConvertToI420(
   const uint8_t* converted_data = nullptr;
   size_t converted_size = 0;
   if (!converter_->Convert(frame.left_data, frame.left_data_size,
-                           frame.right_data, frame.right_data_size,
+                           frame.left_mmap_backed_, frame.right_data,
+                           frame.right_data_size, frame.right_mmap_backed_,
                            &converted_data, &converted_size,
                            error_message)) {
     return false;
@@ -139,7 +146,8 @@ bool DualUyvyFrameConverter::EnqueueToI420(
     std::string* error_message) {
   if (!EnsureConverter(frame, error_message) ||
       !converter_->Enqueue(frame.left_data, frame.left_data_size,
-                           frame.right_data, frame.right_data_size,
+                           frame.left_mmap_backed_, frame.right_data,
+                           frame.right_data_size, frame.right_mmap_backed_,
                            error_message)) {
     return false;
   }

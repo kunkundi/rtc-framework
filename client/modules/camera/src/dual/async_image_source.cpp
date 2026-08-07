@@ -99,6 +99,10 @@ bool AsyncImageFrameSubscription::WaitNext(
 
   CopyFrame(*source_frame, frame);
   frame->owner_ = source_frame;
+  frame->left_device_owner_ = source_frame->left_device;
+  frame->right_device_owner_ = source_frame->right_device;
+  frame->left_mmap_backed_ = source_frame->left_data != nullptr;
+  frame->right_mmap_backed_ = source_frame->right_data != nullptr;
   return true;
 }
 

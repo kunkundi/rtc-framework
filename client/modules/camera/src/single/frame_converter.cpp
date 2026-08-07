@@ -52,7 +52,8 @@ bool CameraFrameConverter::ConvertToI420(
 
   const uint8_t* converted_data = nullptr;
   size_t converted_size = 0;
-  if (!cuda_converter_->Convert(frame.data, frame.data_size, &converted_data,
+  if (!cuda_converter_->Convert(frame.data, frame.data_size,
+                                frame.mmap_backed_, &converted_data,
                                 &converted_size, error_message)) {
     return false;
   }
@@ -87,7 +88,8 @@ bool CameraFrameConverter::EnqueueToI420(
     return false;
   }
   if (!EnsureCudaConverter(frame, error_message) ||
-      !cuda_converter_->Enqueue(frame.data, frame.data_size, error_message)) {
+      !cuda_converter_->Enqueue(frame.data, frame.data_size,
+                                frame.mmap_backed_, error_message)) {
     return false;
   }
   pending_cuda_frames_.push_back(frame);
@@ -161,6 +163,8 @@ bool CameraFrameConverter::EnsureCudaConverter(
   }
 
   cuda_converter_ = std::move(converter);
+  mapped_device_owner_ = frame.mmap_backed_ ? frame.device_owner_
+                                            : std::shared_ptr<const void>();
   cuda_pixel_format_ = frame.pixel_format;
   cuda_width_ = frame.width;
   cuda_height_ = frame.height;

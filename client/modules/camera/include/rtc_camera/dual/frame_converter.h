@@ -46,6 +46,8 @@ class DualUyvyFrameConverter {
   bool EnsureConverter(const ImageFrame& frame,
                        std::string* error_message);
 
+  std::shared_ptr<const void> mapped_left_device_owner_;
+  std::shared_ptr<const void> mapped_right_device_owner_;
   std::unique_ptr<DualUyvyToI420StitchCudaConverter> converter_;
   uint32_t left_pixel_format_ = 0;
   size_t left_width_ = 0;

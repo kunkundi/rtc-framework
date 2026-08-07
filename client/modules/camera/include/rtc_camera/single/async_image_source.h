@@ -12,6 +12,8 @@
 namespace rtc_camera {
 namespace single {
 
+class CameraFrameConverter;
+
 struct CameraFrame {
   uint64_t sequence = 0;
   int64_t timestamp_us = 0;
@@ -26,9 +28,12 @@ struct CameraFrame {
 
  private:
   friend class CameraFrameSubscription;
+  friend class CameraFrameConverter;
 
   // 保持帧数据有效，直到当前 CameraFrame 被释放或被下一帧覆盖。
   std::shared_ptr<const void> owner_;
+  std::shared_ptr<const void> device_owner_;
+  bool mmap_backed_ = false;
 };
 
 class CameraFrameSubscription {

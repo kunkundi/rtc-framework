@@ -11,6 +11,7 @@ namespace rtc_camera {
 namespace dual {
 
 class AsyncImageFrameSubscription;
+class DualUyvyFrameConverter;
 
 enum class ImagePixelFormat {
   kI420,
@@ -50,8 +51,13 @@ struct ImageFrame {
 
  private:
   friend class AsyncImageFrameSubscription;
+  friend class DualUyvyFrameConverter;
 
   std::shared_ptr<const void> owner_;
+  std::shared_ptr<const void> left_device_owner_;
+  std::shared_ptr<const void> right_device_owner_;
+  bool left_mmap_backed_ = false;
+  bool right_mmap_backed_ = false;
 };
 
 struct AsyncDualCameraImageSourceOptions {

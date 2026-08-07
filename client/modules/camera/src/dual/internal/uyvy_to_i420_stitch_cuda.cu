@@ -4,6 +4,7 @@
 
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -128,6 +129,13 @@ struct DualUyvyToI420StitchCudaConverter::Impl {
     cudaStream_t stream = nullptr;
     cudaEvent_t completed = nullptr;
     bool pending = false;
+    bool output_mapped = false;
+  };
+
+  struct RegisteredInput {
+    const uint8_t* host = nullptr;
+    const uint8_t* device = nullptr;
+    size_t size = 0;
   };
 
   size_t left_width = 0;
@@ -151,6 +159,8 @@ struct DualUyvyToI420StitchCudaConverter::Impl {
   size_t pending_head = 0;
   size_t pending_count = 0;
   size_t next_slot = 0;
+  bool integrated_device = false;
+  std::vector<RegisteredInput> registered_inputs;
   bool initialized = false;
 };
 
@@ -161,6 +171,12 @@ DualUyvyToI420StitchCudaConverter::~DualUyvyToI420StitchCudaConverter() {
   if (!impl_) {
     return;
   }
+  for (const Impl::RegisteredInput& input : impl_->registered_inputs) {
+    if (input.host) {
+      cudaHostUnregister(const_cast<uint8_t*>(input.host));
+    }
+  }
+  impl_->registered_inputs.clear();
   for (size_t i = 0; i < 2; ++i) {
     Impl::Slot& slot = impl_->slots[i];
     if (slot.completed) {
@@ -180,7 +196,9 @@ DualUyvyToI420StitchCudaConverter::~DualUyvyToI420StitchCudaConverter() {
       slot.device_right_input = nullptr;
     }
     if (slot.device_output) {
-      cudaFree(slot.device_output);
+      if (!slot.output_mapped) {
+        cudaFree(slot.device_output);
+      }
       slot.device_output = nullptr;
     }
     if (slot.host_output) {
@@ -269,6 +287,17 @@ bool DualUyvyToI420StitchCudaConverter::Init(
     return false;
   }
 
+  int integrated_device = 0;
+  cuda_code = cudaDeviceGetAttribute(&integrated_device, cudaDevAttrIntegrated,
+                                     0);
+  if (cuda_code != cudaSuccess) {
+    if (error_message) {
+      *error_message = MakeCudaError("cudaDeviceGetAttribute", cuda_code);
+    }
+    return false;
+  }
+  impl_->integrated_device = integrated_device != 0;
+
   impl_->left_width = left_width;
   impl_->left_height = left_height;
   impl_->left_input_stride_bytes = left_input_stride_bytes;
@@ -334,19 +363,37 @@ bool DualUyvyToI420StitchCudaConverter::Init(
       }
       return false;
     }
-    cuda_code = cudaMalloc(&slot.device_output, impl_->output_size);
+    const unsigned int host_flags = impl_->integrated_device
+                                        ? cudaHostAllocMapped
+                                        : cudaHostAllocDefault;
+    cuda_code = cudaHostAlloc(&slot.host_output, impl_->output_size,
+                              host_flags);
     if (cuda_code != cudaSuccess) {
       if (error_message) {
-        *error_message = MakeCudaError("cudaMalloc(device_output)", cuda_code);
+        *error_message = MakeCudaError("cudaHostAlloc(host_output)", cuda_code);
       }
       return false;
     }
-    cuda_code = cudaMallocHost(&slot.host_output, impl_->output_size);
-    if (cuda_code != cudaSuccess) {
-      if (error_message) {
-        *error_message = MakeCudaError("cudaMallocHost(host_output)", cuda_code);
+    if (impl_->integrated_device) {
+      cuda_code = cudaHostGetDevicePointer(&slot.device_output,
+                                           slot.host_output, 0);
+      if (cuda_code != cudaSuccess) {
+        if (error_message) {
+          *error_message =
+              MakeCudaError("cudaHostGetDevicePointer(output)", cuda_code);
+        }
+        return false;
       }
-      return false;
+      slot.output_mapped = true;
+    } else {
+      cuda_code = cudaMalloc(&slot.device_output, impl_->output_size);
+      if (cuda_code != cudaSuccess) {
+        if (error_message) {
+          *error_message =
+              MakeCudaError("cudaMalloc(device_output)", cuda_code);
+        }
+        return false;
+      }
     }
   }
 
@@ -357,8 +404,10 @@ bool DualUyvyToI420StitchCudaConverter::Init(
 bool DualUyvyToI420StitchCudaConverter::Convert(
     const uint8_t* left_src_host,
     size_t left_src_size,
+    bool left_src_mmap_backed,
     const uint8_t* right_src_host,
     size_t right_src_size,
+    bool right_src_mmap_backed,
     const uint8_t** dst_host,
     size_t* dst_size,
     std::string* error_message) {
@@ -368,7 +417,8 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
     }
     return false;
   }
-  return Enqueue(left_src_host, left_src_size, right_src_host, right_src_size,
+  return Enqueue(left_src_host, left_src_size, left_src_mmap_backed,
+                 right_src_host, right_src_size, right_src_mmap_backed,
                  error_message) &&
          Dequeue(dst_host, dst_size, error_message);
 }
@@ -376,8 +426,10 @@ bool DualUyvyToI420StitchCudaConverter::Convert(
 bool DualUyvyToI420StitchCudaConverter::Enqueue(
     const uint8_t* left_src_host,
     size_t left_src_size,
+    bool left_src_mmap_backed,
     const uint8_t* right_src_host,
     size_t right_src_size,
+    bool right_src_mmap_backed,
     std::string* error_message) {
   if (!impl_ || !impl_->initialized) {
     if (error_message) {
@@ -411,24 +463,76 @@ bool DualUyvyToI420StitchCudaConverter::Enqueue(
   }
   Impl::Slot& slot = impl_->slots[slot_index];
 
-  cudaError_t cuda_code = cudaMemcpyAsync(
-      slot.device_left_input, left_src_host, impl_->left_input_size,
-      cudaMemcpyHostToDevice, slot.stream);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message = MakeCudaError("cudaMemcpyAsync(left H2D)", cuda_code);
+  const auto map_input = [this](const uint8_t* host,
+                                size_t size,
+                                const uint8_t** device) {
+    for (const Impl::RegisteredInput& input : impl_->registered_inputs) {
+      if (input.host == host && input.size >= size) {
+        *device = input.device;
+        return true;
+      }
     }
-    return false;
+    cudaError_t register_code = cudaHostRegister(
+        const_cast<uint8_t*>(host), size,
+        cudaHostRegisterMapped | cudaHostRegisterIoMemory);
+    if (register_code != cudaSuccess) {
+      cudaGetLastError();
+      register_code = cudaHostRegister(const_cast<uint8_t*>(host), size,
+                                       cudaHostRegisterMapped);
+    }
+    if (register_code != cudaSuccess) {
+      cudaGetLastError();
+      return false;
+    }
+    uint8_t* mapped_device = nullptr;
+    register_code = cudaHostGetDevicePointer(
+        &mapped_device, const_cast<uint8_t*>(host), 0);
+    if (register_code != cudaSuccess) {
+      cudaHostUnregister(const_cast<uint8_t*>(host));
+      return false;
+    }
+    Impl::RegisteredInput input;
+    input.host = host;
+    input.device = mapped_device;
+    input.size = size;
+    impl_->registered_inputs.push_back(input);
+    *device = mapped_device;
+    return true;
+  };
+
+  const uint8_t* left_device_source = slot.device_left_input;
+  const uint8_t* right_device_source = slot.device_right_input;
+  const bool left_input_mapped =
+      left_src_mmap_backed && impl_->integrated_device &&
+      map_input(left_src_host, impl_->left_input_size, &left_device_source);
+  const bool right_input_mapped =
+      right_src_mmap_backed && impl_->integrated_device &&
+      map_input(right_src_host, impl_->right_input_size, &right_device_source);
+
+  cudaError_t cuda_code = cudaSuccess;
+  if (!left_input_mapped) {
+    cuda_code = cudaMemcpyAsync(
+        slot.device_left_input, left_src_host, impl_->left_input_size,
+        cudaMemcpyHostToDevice, slot.stream);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message = MakeCudaError("cudaMemcpyAsync(left H2D)", cuda_code);
+      }
+      return false;
+    }
   }
 
-  cuda_code = cudaMemcpyAsync(slot.device_right_input, right_src_host,
-                              impl_->right_input_size, cudaMemcpyHostToDevice,
-                              slot.stream);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message = MakeCudaError("cudaMemcpyAsync(right H2D)", cuda_code);
+  if (!right_input_mapped) {
+    cuda_code = cudaMemcpyAsync(
+        slot.device_right_input, right_src_host, impl_->right_input_size,
+        cudaMemcpyHostToDevice, slot.stream);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message =
+            MakeCudaError("cudaMemcpyAsync(right H2D)", cuda_code);
+      }
+      return false;
     }
-    return false;
   }
 
   uint8_t* dst_y = slot.device_output;
@@ -445,10 +549,10 @@ bool DualUyvyToI420StitchCudaConverter::Enqueue(
       (static_cast<unsigned int>((impl_->output_height + 1) / 2) + block.y - 1) /
           block.y);
   DualCameraToI420SideBySideKernel<<<grid, block, 0, slot.stream>>>(
-      slot.device_left_input,
+      left_device_source,
       static_cast<int>(impl_->left_input_stride_bytes),
       impl_->left_format,
-      slot.device_right_input,
+      right_device_source,
       static_cast<int>(impl_->right_input_stride_bytes),
       impl_->right_format,
       dst_y,
@@ -466,14 +570,16 @@ bool DualUyvyToI420StitchCudaConverter::Enqueue(
     return false;
   }
 
-  cuda_code = cudaMemcpyAsync(slot.host_output, slot.device_output,
-                              impl_->output_size, cudaMemcpyDeviceToHost,
-                              slot.stream);
-  if (cuda_code != cudaSuccess) {
-    if (error_message) {
-      *error_message = MakeCudaError("cudaMemcpyAsync(D2H)", cuda_code);
+  if (!slot.output_mapped) {
+    cuda_code = cudaMemcpyAsync(slot.host_output, slot.device_output,
+                                impl_->output_size, cudaMemcpyDeviceToHost,
+                                slot.stream);
+    if (cuda_code != cudaSuccess) {
+      if (error_message) {
+        *error_message = MakeCudaError("cudaMemcpyAsync(D2H)", cuda_code);
+      }
+      return false;
     }
-    return false;
   }
 
   cuda_code = cudaEventRecord(slot.completed, slot.stream);

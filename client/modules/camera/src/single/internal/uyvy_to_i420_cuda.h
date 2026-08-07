@@ -24,11 +24,13 @@ class UyvyToI420CudaConverter {
             std::string* error_message);
   bool Convert(const uint8_t* src_host,
                size_t src_size,
+               bool src_mmap_backed,
                const uint8_t** dst_host,
                size_t* dst_size,
                std::string* error_message);
   bool Enqueue(const uint8_t* src_host,
                size_t src_size,
+               bool src_mmap_backed,
                std::string* error_message);
   bool Dequeue(const uint8_t** dst_host,
                size_t* dst_size,

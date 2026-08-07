@@ -155,6 +155,8 @@ bool CameraFrameSubscription::WaitNext(
   frame->data = source_frame->data;
   frame->data_size = source_frame->data_size;
   frame->owner_ = source_frame;
+  frame->device_owner_ = source_frame->device;
+  frame->mmap_backed_ = true;
   return true;
 }
 
