@@ -27,6 +27,14 @@ VideoSendPlan VideoSendPlanner::Next(
   return plan;
 }
 
+void VideoSendPlanner::Reset() {
+  stereo_inactive_ = InactiveSendState();
+  front_inactive_ = InactiveSendState();
+  rear_inactive_ = InactiveSendState();
+  left_inactive_ = InactiveSendState();
+  right_inactive_ = InactiveSendState();
+}
+
 bool VideoSendPlanner::ShouldSendInactive(
     std::chrono::steady_clock::time_point now,
     InactiveSendState* state) {

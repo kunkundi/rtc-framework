@@ -84,11 +84,27 @@ void TestViewSwitchKeepsIndependentCadence() {
   CheckSendOnce(plan.right, "right");
 }
 
+void TestResetRestartsInactiveSchedule() {
+  rtc_edge_app::VideoSendPlanner planner(std::chrono::milliseconds(1000));
+  const std::chrono::steady_clock::time_point start(
+      std::chrono::milliseconds(100));
+
+  planner.Next(true, start);
+  rtc_edge_app::VideoSendPlan plan =
+      planner.Next(true, start + std::chrono::milliseconds(100));
+  CheckInactive(plan.front, "front before reset");
+
+  planner.Reset();
+  plan = planner.Next(true, start + std::chrono::milliseconds(100));
+  CheckSendOnce(plan.front, "front after reset");
+}
+
 }  // 匿名命名空间
 
 int main() {
   TestBinocularPlanAndInactiveCadence();
   TestViewSwitchKeepsIndependentCadence();
+  TestResetRestartsInactiveSchedule();
   std::cout << "rtc_edge_streaming_tests passed" << std::endl;
   return 0;
 }

@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -29,7 +30,7 @@ namespace {
 using rtc_runtime::RtcSession;
 
 constexpr uint64_t kInactiveVideoViewSendIntervalMs = 1000;
-constexpr uint64_t kMainLoopSleepMs = 1;
+constexpr uint64_t kMaxMainLoopSleepMs = 10;
 
 rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
     const SurroundCameraOptions& surround,
@@ -117,6 +118,12 @@ class EdgeCameraModules {
     }
 
     {
+      std::lock_guard<std::mutex> lock(video_view_mutex_);
+      video_send_planner_.Reset();
+      send_plan_dirty_ = true;
+      next_send_plan_update_ = std::chrono::steady_clock::time_point();
+    }
+    {
       std::lock_guard<std::mutex> lock(worker_mutex_);
       rtc_session_ = rtc_session;
       stop_requested_ = false;
@@ -158,6 +165,7 @@ class EdgeCameraModules {
       return false;
     }
 
+    RefreshVideoSendPlan(std::chrono::steady_clock::now(), true);
     started_ = true;
     return true;
   }
@@ -207,8 +215,6 @@ class EdgeCameraModules {
   }
 
   bool Tick(std::string* error_message) {
-    const VideoSendPlan send_plan = CurrentVideoSendPlan();
-    bool notify_workers = false;
     {
       std::lock_guard<std::mutex> lock(worker_mutex_);
       if (!worker_error_.empty()) {
@@ -220,24 +226,8 @@ class EdgeCameraModules {
       if (stop_requested_) {
         return true;
       }
-
-      notify_workers |= UpdateWorkerPlan(send_plan.stereo, &stereo_worker_);
-      if (front_enabled_) {
-        notify_workers |= UpdateWorkerPlan(send_plan.front, &front_worker_);
-      }
-      if (rear_enabled_) {
-        notify_workers |= UpdateWorkerPlan(send_plan.rear, &rear_worker_);
-      }
-      if (left_enabled_) {
-        notify_workers |= UpdateWorkerPlan(send_plan.left, &left_worker_);
-      }
-      if (right_enabled_) {
-        notify_workers |= UpdateWorkerPlan(send_plan.right, &right_worker_);
-      }
     }
-    if (notify_workers) {
-      worker_condition_.notify_all();
-    }
+    RefreshVideoSendPlan(std::chrono::steady_clock::now(), false);
     return true;
   }
 
@@ -246,8 +236,18 @@ class EdgeCameraModules {
         enabled_view != vts_rtc::vision::ViewMode::Surround) {
       return;
     }
-    std::lock_guard<std::mutex> lock(video_view_mutex_);
-    enabled_view_ = enabled_view;
+    bool changed = false;
+    {
+      std::lock_guard<std::mutex> lock(video_view_mutex_);
+      if (enabled_view_ != enabled_view) {
+        enabled_view_ = enabled_view;
+        send_plan_dirty_ = true;
+        changed = true;
+      }
+    }
+    if (changed) {
+      RefreshVideoSendPlan(std::chrono::steady_clock::now(), true);
+    }
   }
 
  private:
@@ -284,12 +284,45 @@ class EdgeCameraModules {
     return changed;
   }
 
-  VideoSendPlan CurrentVideoSendPlan() {
-    std::lock_guard<std::mutex> lock(video_view_mutex_);
-    const bool binocular_enabled =
-        enabled_view_ == vts_rtc::vision::ViewMode::Binocular;
-    return video_send_planner_.Next(binocular_enabled,
-                                    std::chrono::steady_clock::now());
+  void RefreshVideoSendPlan(std::chrono::steady_clock::time_point now,
+                            bool force) {
+    VideoSendPlan send_plan;
+    {
+      std::lock_guard<std::mutex> lock(video_view_mutex_);
+      if (!force && !send_plan_dirty_ && now < next_send_plan_update_) {
+        return;
+      }
+      const bool binocular_enabled =
+          enabled_view_ == vts_rtc::vision::ViewMode::Binocular;
+      send_plan = video_send_planner_.Next(binocular_enabled, now);
+      send_plan_dirty_ = false;
+      next_send_plan_update_ =
+          now + std::chrono::milliseconds(kInactiveVideoViewSendIntervalMs);
+    }
+
+    bool notify_workers = false;
+    {
+      std::lock_guard<std::mutex> lock(worker_mutex_);
+      if (stop_requested_) {
+        return;
+      }
+      notify_workers |= UpdateWorkerPlan(send_plan.stereo, &stereo_worker_);
+      if (front_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.front, &front_worker_);
+      }
+      if (rear_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.rear, &rear_worker_);
+      }
+      if (left_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.left, &left_worker_);
+      }
+      if (right_enabled_) {
+        notify_workers |= UpdateWorkerPlan(send_plan.right, &right_worker_);
+      }
+    }
+    if (notify_workers) {
+      worker_condition_.notify_all();
+    }
   }
 
   bool WaitForWorker(CameraWorkerState* worker, bool* continuous) {
@@ -371,6 +404,8 @@ class EdgeCameraModules {
   std::mutex video_view_mutex_;
   vts_rtc::vision::ViewMode enabled_view_ =
       vts_rtc::vision::ViewMode::Binocular;
+  bool send_plan_dirty_ = true;
+  std::chrono::steady_clock::time_point next_send_plan_update_;
 };
 
 RtcSession::DataChannelConfig MakeDataChannel(
@@ -578,6 +613,10 @@ void RunMainLoop(const EdgeOptions& options,
                  rtc_vehicle::VehicleControlModule& control_module,
                  RtcSession& rtc_session,
                  EdgeCameraModules& camera_modules) {
+  const uint64_t main_loop_sleep_ms =
+      std::max<uint64_t>(
+          1, std::min<uint64_t>(kMaxMainLoopSleepMs,
+                                options.control.state_interval_ms));
   while (!rtc_runtime::StopRequested()) {
     rtc_session.Tick();
     control_module.Tick(GetSteadyTimeMs());
@@ -596,7 +635,7 @@ void RunMainLoop(const EdgeOptions& options,
       }
     }
     std::this_thread::sleep_for(
-        std::chrono::milliseconds(kMainLoopSleepMs));
+        std::chrono::milliseconds(main_loop_sleep_ms));
   }
 }
 

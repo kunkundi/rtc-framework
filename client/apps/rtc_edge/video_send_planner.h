@@ -23,6 +23,7 @@ class VideoSendPlanner {
 
   VideoSendPlan Next(bool binocular_enabled,
                      std::chrono::steady_clock::time_point now);
+  void Reset();
 
  private:
   struct InactiveSendState {
