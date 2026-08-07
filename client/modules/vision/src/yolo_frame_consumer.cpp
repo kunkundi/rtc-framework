@@ -10,7 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "rtc_camera/dual/frame_converter.h"
+#include <linux/videodev2.h>
+
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/process_runtime.h"
 #include "rtc_vision/stereo_detection_fuser.h"
@@ -20,9 +21,6 @@
 #endif
 
 namespace rtc_camera_headless {
-
-using rtc_camera::dual::ConvertedI420Frame;
-using rtc_camera::dual::DualUyvyFrameConverter;
 
 namespace {
 
@@ -51,8 +49,11 @@ constexpr int kTrackMaxMissedFrames = 6;
 constexpr size_t kMaxStabilizedDetections = 64;
 
 struct VisionWorkFrame {
-  ConvertedI420Frame frame;
+  StereoLumaFrame frame;
   std::vector<uint8_t> storage;
+  size_t source_width = 0;
+  size_t source_height = 0;
+  size_t left_width = 0;
 };
 
 struct VisionPerfStats {
@@ -62,7 +63,6 @@ struct VisionPerfStats {
   uint64_t processed_frames = 0;
   uint64_t sent_detection_frames = 0;
   uint64_t total_boxes = 0;
-  double convert_ms = 0.0;
   double downscale_ms = 0.0;
   double yolo_ms = 0.0;
   double fuse_ms = 0.0;
@@ -131,9 +131,7 @@ void MaybeLogVisionPerfStats(VisionPerfStats* stats) {
       << " avg_boxes=" << AverageMs(static_cast<double>(stats->total_boxes),
                                     stats->sent_detection_frames)
       << " avg_ms total=" << AverageMs(stats->total_ms, stats->processed_frames)
-      << " convert=" << AverageMs(stats->convert_ms, stats->processed_frames)
-      << " downscale=" << AverageMs(stats->downscale_ms,
-                                    stats->processed_frames)
+      << " luma=" << AverageMs(stats->downscale_ms, stats->processed_frames)
       << " yolo=" << AverageMs(stats->yolo_ms, stats->processed_frames)
       << " fuse=" << AverageMs(stats->fuse_ms, stats->processed_frames)
       << " stabilize=" << AverageMs(stats->stabilize_ms,
@@ -686,66 +684,107 @@ class DetectionStabilizer {
   uint32_t next_track_id_ = 1;
 };
 
-bool ValidateI420Frame(const ConvertedI420Frame& frame,
-                       std::string* error_message) {
-  if (!frame.data || frame.width == 0 || frame.height == 0 ||
-      frame.stride_y == 0 || frame.stride_u == 0 || frame.stride_v == 0) {
+bool IsSupportedLumaFormat(uint32_t pixel_format) {
+  return pixel_format == V4L2_PIX_FMT_UYVY ||
+         pixel_format == V4L2_PIX_FMT_YUYV ||
+         pixel_format == V4L2_PIX_FMT_NV12;
+}
+
+size_t HorizontalSampleStep(uint32_t pixel_format) {
+  return pixel_format == V4L2_PIX_FMT_NV12 ? 1 : 2;
+}
+
+uint8_t ReadLuma(const uint8_t* row,
+                 size_t source_x,
+                 uint32_t pixel_format) {
+  if (pixel_format == V4L2_PIX_FMT_NV12) {
+    return row[source_x];
+  }
+  const size_t byte_offset = source_x * 2;
+  return pixel_format == V4L2_PIX_FMT_YUYV ? row[byte_offset]
+                                           : row[byte_offset + 1];
+}
+
+bool ValidateDualLumaFrame(const rtc_camera::dual::ImageFrame& source,
+                           std::string* error_message) {
+  if (source.format != rtc_camera::dual::ImagePixelFormat::kDualUyvy ||
+      !source.left_data || !source.right_data || source.left_width == 0 ||
+      source.right_width == 0 || source.left_height == 0 ||
+      source.left_height != source.right_height ||
+      source.left_stride_bytes == 0 || source.right_stride_bytes == 0 ||
+      !IsSupportedLumaFormat(source.left_pixel_format) ||
+      !IsSupportedLumaFormat(source.right_pixel_format)) {
     if (error_message) {
-      *error_message = "invalid I420 frame";
+      *error_message = "invalid raw stereo frame for luma extraction";
     }
     return false;
   }
-
-  const size_t chroma_height = (frame.height + 1) / 2;
-  const size_t required_size =
-      frame.stride_y * frame.height + frame.stride_u * chroma_height +
-      frame.stride_v * chroma_height;
-  if (frame.data_size < required_size) {
+  const size_t left_minimum_stride =
+      source.left_width *
+      (source.left_pixel_format == V4L2_PIX_FMT_NV12 ? 1 : 2);
+  const size_t right_minimum_stride =
+      source.right_width *
+      (source.right_pixel_format == V4L2_PIX_FMT_NV12 ? 1 : 2);
+  if (source.left_stride_bytes < left_minimum_stride ||
+      source.right_stride_bytes < right_minimum_stride) {
     if (error_message) {
-      *error_message = "I420 frame buffer is smaller than its strides";
+      *error_message = "raw stereo luma stride is smaller than its width";
     }
     return false;
   }
-
+  const size_t left_required =
+      source.left_stride_bytes * source.left_height;
+  const size_t right_required =
+      source.right_stride_bytes * source.right_height;
+  if (source.left_data_size < left_required ||
+      source.right_data_size < right_required) {
+    if (error_message) {
+      *error_message = "raw stereo frame is smaller than its luma planes";
+    }
+    return false;
+  }
   return true;
 }
 
-void DownscalePlaneBox(const uint8_t* src,
-                       size_t src_stride,
-                       size_t src_width,
-                       size_t src_height,
-                       uint8_t* dst,
-                       size_t dst_stride,
-                       size_t dst_width,
-                       size_t dst_height) {
-  for (size_t y = 0; y < dst_height; ++y) {
-    const size_t src_y0 = y * src_height / dst_height;
-    size_t src_y1 = (y + 1) * src_height / dst_height;
-    if (src_y1 <= src_y0) {
-      src_y1 = std::min(src_height, src_y0 + 1);
-    }
-    for (size_t x = 0; x < dst_width; ++x) {
-      const size_t src_x0 = x * src_width / dst_width;
-      size_t src_x1 = (x + 1) * src_width / dst_width;
-      if (src_x1 <= src_x0) {
-        src_x1 = std::min(src_width, src_x0 + 1);
-      }
+void DownscalePackedLuma(const uint8_t* source,
+                         size_t source_stride,
+                         size_t source_width,
+                         size_t source_height,
+                         uint32_t pixel_format,
+                         uint8_t* destination,
+                         size_t destination_stride,
+                         size_t destination_width,
+                         size_t destination_height) {
+  const size_t sample_step = HorizontalSampleStep(pixel_format);
+  const size_t sampled_width = source_width / sample_step;
+  for (size_t y = 0; y < destination_height; ++y) {
+    const size_t source_y_begin = y * source_height / destination_height;
+    const size_t source_y_end =
+        std::max(source_y_begin + 1,
+                 (y + 1) * source_height / destination_height);
+    for (size_t x = 0; x < destination_width; ++x) {
+      const size_t sampled_x_begin = x * sampled_width / destination_width;
+      const size_t sampled_x_end =
+          std::max(sampled_x_begin + 1,
+                   (x + 1) * sampled_width / destination_width);
       uint32_t sum = 0;
       uint32_t count = 0;
-      for (size_t src_y = src_y0; src_y < src_y1; ++src_y) {
-        const uint8_t* src_row = src + src_y * src_stride;
-        for (size_t src_x = src_x0; src_x < src_x1; ++src_x) {
-          sum += src_row[src_x];
+      for (size_t source_y = source_y_begin; source_y < source_y_end;
+           ++source_y) {
+        const uint8_t* row = source + source_y * source_stride;
+        for (size_t sampled_x = sampled_x_begin;
+             sampled_x < sampled_x_end; ++sampled_x) {
+          sum += ReadLuma(row, sampled_x * sample_step, pixel_format);
           ++count;
         }
       }
-      dst[y * dst_stride + x] =
-          count > 0 ? static_cast<uint8_t>((sum + count / 2) / count) : 0;
+      destination[y * destination_stride + x] =
+          static_cast<uint8_t>((sum + count / 2) / count);
     }
   }
 }
 
-bool BuildVisionWorkFrame(const ConvertedI420Frame& source,
+bool BuildVisionWorkFrame(const rtc_camera::dual::ImageFrame& source,
                           size_t requested_downscale,
                           VisionWorkFrame* output,
                           std::string* error_message) {
@@ -755,66 +794,56 @@ bool BuildVisionWorkFrame(const ConvertedI420Frame& source,
     }
     return false;
   }
-  output->frame = ConvertedI420Frame();
+  output->frame = StereoLumaFrame();
   output->storage.clear();
+  output->source_width = 0;
+  output->source_height = 0;
+  output->left_width = 0;
 
-  if (!ValidateI420Frame(source, error_message)) {
+  if (!ValidateDualLumaFrame(source, error_message)) {
     return false;
   }
 
   const size_t factor = ClampProcessingDownscale(requested_downscale);
-  if (factor <= 1) {
-    output->frame = source;
-    return true;
-  }
-
-  const size_t dst_width = (source.width / factor) & ~static_cast<size_t>(1);
-  const size_t dst_height = (source.height / factor) & ~static_cast<size_t>(1);
-  if (dst_width < 2 || dst_height < 2) {
+  const size_t source_left_width =
+      source.left_width / HorizontalSampleStep(source.left_pixel_format);
+  const size_t source_right_width =
+      source.right_width / HorizontalSampleStep(source.right_pixel_format);
+  const size_t source_width = source_left_width + source_right_width;
+  const size_t destination_width =
+      (source_width / factor) & ~static_cast<size_t>(1);
+  const size_t destination_height =
+      (source.left_height / factor) & ~static_cast<size_t>(1);
+  const size_t destination_left_width =
+      source_left_width * destination_width / source_width;
+  const size_t destination_right_width =
+      destination_width - destination_left_width;
+  if (destination_left_width == 0 || destination_right_width == 0 ||
+      destination_height < 2) {
     if (error_message) {
       *error_message = "vision processing downscale factor is too large";
     }
     return false;
   }
 
-  const size_t src_chroma_width = (source.width + 1) / 2;
-  const size_t src_chroma_height = (source.height + 1) / 2;
-  const size_t dst_chroma_width = dst_width / 2;
-  const size_t dst_chroma_height = dst_height / 2;
-  const size_t dst_stride_y = dst_width;
-  const size_t dst_stride_u = dst_chroma_width;
-  const size_t dst_stride_v = dst_chroma_width;
-  const size_t dst_y_bytes = dst_stride_y * dst_height;
-  const size_t dst_u_bytes = dst_stride_u * dst_chroma_height;
-  const size_t dst_v_bytes = dst_stride_v * dst_chroma_height;
-
-  output->storage.resize(dst_y_bytes + dst_u_bytes + dst_v_bytes);
-  uint8_t* dst_y = output->storage.data();
-  uint8_t* dst_u = dst_y + dst_y_bytes;
-  uint8_t* dst_v = dst_u + dst_u_bytes;
-
-  const size_t src_y_bytes = source.stride_y * source.height;
-  const size_t src_u_bytes = source.stride_u * src_chroma_height;
-  const uint8_t* src_y = source.data;
-  const uint8_t* src_u = src_y + src_y_bytes;
-  const uint8_t* src_v = src_u + src_u_bytes;
-
-  DownscalePlaneBox(src_y, source.stride_y, source.width, source.height,
-                    dst_y, dst_stride_y, dst_width, dst_height);
-  DownscalePlaneBox(src_u, source.stride_u, src_chroma_width,
-                    src_chroma_height, dst_u, dst_stride_u, dst_chroma_width,
-                    dst_chroma_height);
-  DownscalePlaneBox(src_v, source.stride_v, src_chroma_width,
-                    src_chroma_height, dst_v, dst_stride_v, dst_chroma_width,
-                    dst_chroma_height);
+  output->storage.resize(destination_width * destination_height);
+  DownscalePackedLuma(
+      source.left_data, source.left_stride_bytes, source.left_width,
+      source.left_height, source.left_pixel_format, output->storage.data(),
+      destination_width, destination_left_width, destination_height);
+  DownscalePackedLuma(
+      source.right_data, source.right_stride_bytes, source.right_width,
+      source.right_height, source.right_pixel_format,
+      output->storage.data() + destination_left_width, destination_width,
+      destination_right_width, destination_height);
 
   output->frame.data = output->storage.data();
-  output->frame.data_size = output->storage.size();
-  output->frame.width = dst_width;
-  output->frame.height = dst_height;
-  output->frame.stride_y = dst_stride_y;
-  output->frame.stride_u = dst_stride_u;
-  output->frame.stride_v = dst_stride_v;
+  output->frame.width = destination_width;
+  output->frame.height = destination_height;
+  output->frame.stride = destination_width;
+  output->source_width = source_width;
+  output->source_height = source.left_height;
+  output->left_width = destination_left_width;
   return true;
 }
 
@@ -843,7 +872,7 @@ bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
 
 bool RunYoloInferenceOnOriginalMonoFrames(
     const rtc_camera::dual::ImageFrame& source_frame,
-    const ConvertedI420Frame& stereo_frame,
+    const StereoLumaFrame& stereo_frame,
     size_t left_width,
     std::vector<YoloDetectionBox>* yolo_boxes,
     std::string* error_message) {
@@ -946,20 +975,7 @@ bool RunYoloInference(const rtc_camera::dual::ImageFrame& source_frame,
 #endif
 }
 
-size_t StereoLeftWidth(const rtc_camera::dual::ImageFrame& frame,
-                       const ConvertedI420Frame& converted_frame) {
-  if (frame.format == rtc_camera::dual::ImagePixelFormat::kDualUyvy &&
-      frame.left_width > 0 && frame.right_width > 0) {
-    const size_t total_sampled = frame.left_width / 2 + frame.right_width / 2;
-    if (total_sampled > 0) {
-      return converted_frame.width * (frame.left_width / 2) / total_sampled;
-    }
-  }
-  return converted_frame.width / 2;
-}
-
 void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
-                      DualUyvyFrameConverter* frame_converter,
                       const YoloFrameConsumerOptions& options,
                       DetectionStabilizer* stabilizer,
                       VisionPerfStats* stats) {
@@ -969,7 +985,6 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
 
   if (!kSendYoloDetections) {
     (void)frame;
-    (void)frame_converter;
     (void)options;
     (void)stabilizer;
     (void)stats;
@@ -980,7 +995,6 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
   std::vector<YoloDetectionBox> unused_left_boxes;
   std::vector<YoloDetectionBox> unused_right_boxes;
   RunYoloInference(frame, &unused_left_boxes, &unused_right_boxes);
-  (void)frame_converter;
   (void)options;
   (void)stabilizer;
   (void)stats;
@@ -988,25 +1002,10 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
 #endif
 
   const auto total_start = std::chrono::steady_clock::now();
-  ConvertedI420Frame converted_frame;
   std::string error_message;
-  const auto convert_start = std::chrono::steady_clock::now();
-  if (!frame_converter ||
-      !frame_converter->ConvertToI420(frame, &converted_frame,
-                                      &error_message)) {
-    static bool convert_error_logged = false;
-    if (!convert_error_logged) {
-      convert_error_logged = true;
-      rtc_logging::LogError(std::string("YOLO frame conversion disabled after error: ") +
-               error_message);
-    }
-    return;
-  }
-  const auto convert_end = std::chrono::steady_clock::now();
-
   VisionWorkFrame work_frame;
-  const auto downscale_start = convert_end;
-  if (!BuildVisionWorkFrame(converted_frame, options.processing_downscale,
+  const auto downscale_start = std::chrono::steady_clock::now();
+  if (!BuildVisionWorkFrame(frame, options.processing_downscale,
                             &work_frame, &error_message)) {
     static bool resize_error_logged = false;
     if (!resize_error_logged) {
@@ -1019,7 +1018,7 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
   const auto downscale_end = std::chrono::steady_clock::now();
 
   static bool work_frame_logged = false;
-  const size_t left_width = StereoLeftWidth(frame, work_frame.frame);
+  const size_t left_width = work_frame.left_width;
   if (!work_frame_logged) {
     work_frame_logged = true;
     std::ostringstream oss;
@@ -1027,8 +1026,8 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
         << frame.left_width << "x" << frame.left_height << " and "
         << frame.right_width << "x" << frame.right_height
         << ", mapped to stereo frame " << work_frame.frame.width << "x"
-        << work_frame.frame.height << " from " << converted_frame.width
-        << "x" << converted_frame.height << ", display downscale="
+        << work_frame.frame.height << " from " << work_frame.source_width
+        << "x" << work_frame.source_height << ", display downscale="
         << ClampProcessingDownscale(options.processing_downscale);
     rtc_logging::LogInfo(oss.str());
   }
@@ -1066,15 +1065,14 @@ void ProcessYoloFrame(const rtc_camera::dual::ImageFrame& frame,
   const auto stabilize_end = std::chrono::steady_clock::now();
   const auto send_start = stabilize_end;
   SendYoloDetections(stabilized_boxes,
-                     static_cast<uint32_t>(converted_frame.width),
-                     static_cast<uint32_t>(converted_frame.height));
+                     static_cast<uint32_t>(work_frame.source_width),
+                     static_cast<uint32_t>(work_frame.source_height));
   const auto send_end = std::chrono::steady_clock::now();
 
   if (stats) {
     ++stats->processed_frames;
     ++stats->sent_detection_frames;
     stats->total_boxes += stabilized_boxes.size();
-    stats->convert_ms += MsSince(convert_start, convert_end);
     stats->downscale_ms += MsSince(downscale_start, downscale_end);
     stats->yolo_ms += MsSince(yolo_start, yolo_end);
     stats->fuse_ms += MsSince(fuse_start, fuse_end);
@@ -1113,7 +1111,6 @@ void YoloFrameConsumer::Stop() {
 
 void YoloFrameConsumer::Run() {
   bool first_frame_logged = false;
-  DualUyvyFrameConverter frame_converter;
   DetectionStabilizer stabilizer;
   VisionPerfStats stats;
   std::chrono::steady_clock::time_point last_processed_at;
@@ -1148,7 +1145,7 @@ void YoloFrameConsumer::Run() {
     }
     last_processed_at = now;
 
-    ProcessYoloFrame(frame, &frame_converter, options_, &stabilizer, &stats);
+    ProcessYoloFrame(frame, options_, &stabilizer, &stats);
     MaybeLogVisionPerfStats(&stats);
   }
 }

@@ -1,16 +1,23 @@
 #pragma once
 
-#include "rtc_camera/dual/frame_converter.h"
 #include "rtc_vision/vision_detection_sender.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <vector>
 
 namespace rtc_camera_headless {
 
+struct StereoLumaFrame {
+  const uint8_t* data = nullptr;
+  size_t width = 0;
+  size_t height = 0;
+  size_t stride = 0;
+};
+
 std::vector<YoloDetectionBox> FuseStereoDetectionsWithLocalMatching(
-    const rtc_camera::dual::ConvertedI420Frame& frame,
+    const StereoLumaFrame& frame,
     size_t left_width,
     const std::vector<YoloDetectionBox>& detections);
 

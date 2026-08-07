@@ -11,8 +11,6 @@
 
 namespace rtc_camera_headless {
 
-using rtc_camera::dual::ConvertedI420Frame;
-
 namespace {
 
 constexpr size_t kMaxStereoDetections = 64;
@@ -228,11 +226,11 @@ MatchOffset GlobalMedianOffset(const std::vector<StereoMatch>& matches,
 }
 
 std::vector<StereoMatch> ComputeOrbRansacMatches(
-    const ConvertedI420Frame& frame,
+    const StereoLumaFrame& frame,
     size_t left_width) {
   std::vector<StereoMatch> result;
   if (!frame.data || frame.width == 0 || frame.height == 0 ||
-      frame.stride_y == 0 || left_width == 0 || left_width >= frame.width) {
+      frame.stride == 0 || left_width == 0 || left_width >= frame.width) {
     return result;
   }
 
@@ -240,7 +238,7 @@ std::vector<StereoMatch> ComputeOrbRansacMatches(
   const int right_w = static_cast<int>(frame.width - left_width);
   const int height = static_cast<int>(frame.height);
   cv::Mat y_plane(height, static_cast<int>(frame.width), CV_8UC1,
-                  const_cast<uint8_t*>(frame.data), frame.stride_y);
+                  const_cast<uint8_t*>(frame.data), frame.stride);
   cv::Mat left = y_plane(cv::Rect(0, 0, left_w, height));
   cv::Mat right = y_plane(cv::Rect(left_w, 0, right_w, height));
 
@@ -313,7 +311,7 @@ PixelBox ProjectToOtherHalf(const PixelBox& box,
   return projected;
 }
 
-void AddStereoPair(const ConvertedI420Frame& frame,
+void AddStereoPair(const StereoLumaFrame& frame,
                    size_t left_width,
                    const YoloDetectionBox& source,
                    const PixelBox& source_box,
@@ -369,12 +367,12 @@ void AddStereoPair(const ConvertedI420Frame& frame,
 }  // namespace
 
 std::vector<YoloDetectionBox> FuseStereoDetectionsWithLocalMatching(
-    const ConvertedI420Frame& frame,
+    const StereoLumaFrame& frame,
     size_t left_width,
     const std::vector<YoloDetectionBox>& detections) {
   std::vector<YoloDetectionBox> fused;
   if (!frame.data || frame.width == 0 || frame.height == 0 ||
-      frame.stride_y == 0 || left_width == 0 || left_width >= frame.width) {
+      frame.stride == 0 || left_width == 0 || left_width >= frame.width) {
     return detections;
   }
 
