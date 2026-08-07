@@ -7,8 +7,6 @@
 #include "rtc_runtime/rtc_session.h"
 #include "rtc_vision/yolo_frame_consumer.h"
 
-#include <linux/videodev2.h>
-
 #include <exception>
 
 namespace rtc_edge {
@@ -155,8 +153,7 @@ bool DualCameraStreamingModule::Tick(
   rtc_camera::dual::ConvertedI420Frame converted;
   std::string convert_error;
   bool converted_ok = false;
-  if (continuous && frame.left_pixel_format != V4L2_PIX_FMT_NV12 &&
-      frame.right_pixel_format != V4L2_PIX_FMT_NV12) {
+  if (continuous) {
     converted_ok = converter_->EnqueueToI420(frame, &convert_error);
     if (converted_ok && converter_->pending_frames() < 2) {
       return true;

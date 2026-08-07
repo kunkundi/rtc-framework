@@ -8,7 +8,6 @@
 #include <deque>
 #include <memory>
 #include <string>
-#include <vector>
 
 namespace rtc_camera {
 namespace single {
@@ -44,9 +43,6 @@ class CameraFrameConverter {
   size_t pending_frames() const;
 
  private:
-  bool ConvertNv12(const CameraFrame& frame,
-                   ConvertedCameraFrame* output,
-                   std::string* error_message);
   bool EnsureCudaConverter(const CameraFrame& frame,
                            std::string* error_message);
 
@@ -56,7 +52,6 @@ class CameraFrameConverter {
   size_t cuda_height_ = 0;
   size_t cuda_stride_bytes_ = 0;
   std::deque<CameraFrame> pending_cuda_frames_;
-  std::vector<uint8_t> nv12_i420_;
 };
 
 }  // 命名空间 single

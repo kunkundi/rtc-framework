@@ -7,7 +7,9 @@
 
 namespace {
 
-constexpr int kHorizontalSampleStep = 2;
+constexpr int kUyvyFormat = 0;
+constexpr int kYuyvFormat = 1;
+constexpr int kNv12Format = 2;
 
 std::string MakeCudaError(const char* action, cudaError_t code) {
   std::ostringstream oss;
@@ -16,15 +18,13 @@ std::string MakeCudaError(const char* action, cudaError_t code) {
   return oss.str();
 }
 
-__global__ void DualUyvyToSampledI420SideBySideKernel(
+__global__ void DualCameraToI420SideBySideKernel(
     const uint8_t* left_src,
     int left_stride,
-    int left_width,
-    int left_is_yuyv,
+    int left_format,
     const uint8_t* right_src,
     int right_stride,
-    int right_width,
-    int right_is_yuyv,
+    int right_format,
     uint8_t* dst_y,
     int dst_stride_y,
     uint8_t* dst_u,
@@ -32,8 +32,8 @@ __global__ void DualUyvyToSampledI420SideBySideKernel(
     uint8_t* dst_v,
     int dst_stride_v,
     int height,
-    int left_sampled_width,
-    int left_sampled_chroma_width,
+    int left_output_width,
+    int left_output_chroma_width,
     int total_chroma_width) {
   const int chroma_x = blockIdx.x * blockDim.x + threadIdx.x;
   const int chroma_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -42,61 +42,67 @@ __global__ void DualUyvyToSampledI420SideBySideKernel(
     return;
   }
 
-  const bool use_left = chroma_x < left_sampled_chroma_width;
+  const bool use_left = chroma_x < left_output_chroma_width;
   const uint8_t* src = use_left ? left_src : right_src;
   const int src_stride = use_left ? left_stride : right_stride;
-  const int is_yuyv = use_left ? left_is_yuyv : right_is_yuyv;
-  const int dst_y_offset = use_left ? 0 : left_sampled_width;
-  const int dst_uv_offset = use_left ? 0 : left_sampled_chroma_width;
+  const int source_format = use_left ? left_format : right_format;
+  const int dst_y_offset = use_left ? 0 : left_output_width;
+  const int dst_uv_offset = use_left ? 0 : left_output_chroma_width;
   const int local_chroma_x =
-      use_left ? chroma_x : (chroma_x - left_sampled_chroma_width);
-  const int src_x = local_chroma_x * 4;
+      use_left ? chroma_x : (chroma_x - left_output_chroma_width);
   const int dst_x = dst_y_offset + local_chroma_x * 2;
   const int dst_uv_x = dst_uv_offset + local_chroma_x;
   const int src_y0 = chroma_y * 2;
   const int src_y1 = src_y0 + 1;
 
+  if (source_format == kNv12Format) {
+    const int src_x = local_chroma_x * 2;
+    const uint8_t* source_uv = src + src_stride * height;
+    dst_y[src_y0 * dst_stride_y + dst_x] =
+        src[src_y0 * src_stride + src_x];
+    dst_y[src_y0 * dst_stride_y + dst_x + 1] =
+        src[src_y0 * src_stride + src_x + 1];
+    if (src_y1 < height) {
+      dst_y[src_y1 * dst_stride_y + dst_x] =
+          src[src_y1 * src_stride + src_x];
+      dst_y[src_y1 * dst_stride_y + dst_x + 1] =
+          src[src_y1 * src_stride + src_x + 1];
+    }
+    const int uv_offset = chroma_y * src_stride + src_x;
+    dst_u[chroma_y * dst_stride_u + dst_uv_x] = source_uv[uv_offset];
+    dst_v[chroma_y * dst_stride_v + dst_uv_x] = source_uv[uv_offset + 1];
+    return;
+  }
+
+  const int src_x = local_chroma_x * 4;
   const uint8_t* row0 = src + src_y0 * src_stride;
   const uint8_t* pair00 = row0 + src_x * 2;
   const uint8_t* pair01 = row0 + (src_x + 2) * 2;
-
-  uint8_t y00, u00, v00;
-  uint8_t y01, u01, v01;
-  if (is_yuyv) {
-    // YUYV 字节顺序：Y0 U0 Y1 V0。
-    y00 = pair00[0]; u00 = pair00[1]; v00 = pair00[3];
-    y01 = pair01[0]; u01 = pair01[1]; v01 = pair01[3];
-  } else {
-    // UYVY 字节顺序：U0 Y0 V0 Y1。
-    u00 = pair00[0]; y00 = pair00[1]; v00 = pair00[2];
-    u01 = pair01[0]; y01 = pair01[1]; v01 = pair01[2];
-  }
-
+  const bool is_yuyv = source_format == kYuyvFormat;
+  const uint8_t y00 = is_yuyv ? pair00[0] : pair00[1];
+  const uint8_t u00 = is_yuyv ? pair00[1] : pair00[0];
+  const uint8_t v00 = is_yuyv ? pair00[3] : pair00[2];
+  const uint8_t y01 = is_yuyv ? pair01[0] : pair01[1];
+  const uint8_t u01 = is_yuyv ? pair01[1] : pair01[0];
+  const uint8_t v01 = is_yuyv ? pair01[3] : pair01[2];
   dst_y[src_y0 * dst_stride_y + dst_x] = y00;
   dst_y[src_y0 * dst_stride_y + dst_x + 1] = y01;
 
   int u_sum = static_cast<int>(u00) + static_cast<int>(u01);
   int v_sum = static_cast<int>(v00) + static_cast<int>(v01);
   int uv_samples = 2;
-
   if (src_y1 < height) {
     const uint8_t* row1 = src + src_y1 * src_stride;
     const uint8_t* pair10 = row1 + src_x * 2;
     const uint8_t* pair11 = row1 + (src_x + 2) * 2;
-
-    uint8_t y10, u10, v10;
-    uint8_t y11, u11, v11;
-    if (is_yuyv) {
-      y10 = pair10[0]; u10 = pair10[1]; v10 = pair10[3];
-      y11 = pair11[0]; u11 = pair11[1]; v11 = pair11[3];
-    } else {
-      u10 = pair10[0]; y10 = pair10[1]; v10 = pair10[2];
-      u11 = pair11[0]; y11 = pair11[1]; v11 = pair11[2];
-    }
-
+    const uint8_t y10 = is_yuyv ? pair10[0] : pair10[1];
+    const uint8_t u10 = is_yuyv ? pair10[1] : pair10[0];
+    const uint8_t v10 = is_yuyv ? pair10[3] : pair10[2];
+    const uint8_t y11 = is_yuyv ? pair11[0] : pair11[1];
+    const uint8_t u11 = is_yuyv ? pair11[1] : pair11[0];
+    const uint8_t v11 = is_yuyv ? pair11[3] : pair11[2];
     dst_y[src_y1 * dst_stride_y + dst_x] = y10;
     dst_y[src_y1 * dst_stride_y + dst_x + 1] = y11;
-
     u_sum += static_cast<int>(u10) + static_cast<int>(u11);
     v_sum += static_cast<int>(v10) + static_cast<int>(v11);
     uv_samples += 2;
@@ -128,12 +134,12 @@ struct DualUyvyToI420StitchCudaConverter::Impl {
   size_t left_height = 0;
   size_t left_input_stride_bytes = 0;
   size_t left_input_size = 0;
-  bool left_is_yuyv = false;
+  int left_format = kUyvyFormat;
   size_t right_width = 0;
   size_t right_height = 0;
   size_t right_input_stride_bytes = 0;
   size_t right_input_size = 0;
-  bool right_is_yuyv = false;
+  int right_format = kUyvyFormat;
   size_t output_width = 0;
   size_t output_height = 0;
   size_t y_stride = 0;
@@ -191,10 +197,12 @@ bool DualUyvyToI420StitchCudaConverter::Init(
     size_t left_height,
     size_t left_input_stride_bytes,
     bool left_is_yuyv,
+    bool left_is_nv12,
     size_t right_width,
     size_t right_height,
     size_t right_input_stride_bytes,
     bool right_is_yuyv,
+    bool right_is_nv12,
     std::string* error_message) {
   if (!impl_) {
     if (error_message) {
@@ -216,18 +224,24 @@ bool DualUyvyToI420StitchCudaConverter::Init(
     }
     return false;
   }
-  if ((left_width % (kHorizontalSampleStep * 2)) != 0 ||
-      (right_width % (kHorizontalSampleStep * 2)) != 0) {
+  const size_t left_width_alignment = left_is_nv12 ? 2 : 4;
+  const size_t right_width_alignment = right_is_nv12 ? 2 : 4;
+  if ((left_width % left_width_alignment) != 0 ||
+      (right_width % right_width_alignment) != 0) {
     if (error_message) {
       *error_message =
-          "camera widths must be multiples of 4 for sampled I420 stitching";
+          "camera widths do not meet their I420 alignment requirements";
     }
     return false;
   }
-  if (left_input_stride_bytes < left_width * 2 ||
-      right_input_stride_bytes < right_width * 2) {
+  const size_t left_minimum_stride =
+      left_width * (left_is_nv12 ? 1 : 2);
+  const size_t right_minimum_stride =
+      right_width * (right_is_nv12 ? 1 : 2);
+  if (left_input_stride_bytes < left_minimum_stride ||
+      right_input_stride_bytes < right_minimum_stride) {
     if (error_message) {
-      *error_message = "input stride is smaller than width * 2";
+      *error_message = "input stride is smaller than the frame width";
     }
     return false;
   }
@@ -258,15 +272,24 @@ bool DualUyvyToI420StitchCudaConverter::Init(
   impl_->left_width = left_width;
   impl_->left_height = left_height;
   impl_->left_input_stride_bytes = left_input_stride_bytes;
-  impl_->left_is_yuyv = left_is_yuyv;
-  impl_->left_input_size = left_input_stride_bytes * left_height;
+  impl_->left_format = left_is_nv12
+                           ? kNv12Format
+                           : (left_is_yuyv ? kYuyvFormat : kUyvyFormat);
+  impl_->left_input_size =
+      left_input_stride_bytes *
+      (left_is_nv12 ? left_height + (left_height + 1) / 2 : left_height);
   impl_->right_width = right_width;
   impl_->right_height = right_height;
   impl_->right_input_stride_bytes = right_input_stride_bytes;
-  impl_->right_is_yuyv = right_is_yuyv;
-  impl_->right_input_size = right_input_stride_bytes * right_height;
-  impl_->output_width = left_width / kHorizontalSampleStep +
-                        right_width / kHorizontalSampleStep;
+  impl_->right_format = right_is_nv12
+                            ? kNv12Format
+                            : (right_is_yuyv ? kYuyvFormat : kUyvyFormat);
+  impl_->right_input_size =
+      right_input_stride_bytes *
+      (right_is_nv12 ? right_height + (right_height + 1) / 2 : right_height);
+  const size_t left_output_width = left_width / (left_is_nv12 ? 1 : 2);
+  const size_t right_output_width = right_width / (right_is_nv12 ? 1 : 2);
+  impl_->output_width = left_output_width + right_output_width;
   impl_->output_height = left_height;
   impl_->y_stride = impl_->output_width;
   impl_->u_stride = impl_->output_width / 2;
@@ -371,7 +394,7 @@ bool DualUyvyToI420StitchCudaConverter::Enqueue(
   if (left_src_size < impl_->left_input_size ||
       right_src_size < impl_->right_input_size) {
     if (error_message) {
-      *error_message = "input buffer is smaller than required UYVY frame size";
+      *error_message = "input buffer is smaller than required camera frame size";
     }
     return false;
   }
@@ -412,35 +435,33 @@ bool DualUyvyToI420StitchCudaConverter::Enqueue(
   uint8_t* dst_u = dst_y + impl_->y_stride * impl_->output_height;
   uint8_t* dst_v = dst_u + impl_->u_stride * ((impl_->output_height + 1) / 2);
   const int total_chroma_width = static_cast<int>(impl_->u_stride);
-  const int left_sampled_width = static_cast<int>(impl_->left_width / 2);
-  const int left_sampled_chroma_width =
-      static_cast<int>(impl_->left_width / 4);
+  const int left_output_width = static_cast<int>(
+      impl_->left_width / (impl_->left_format == kNv12Format ? 1 : 2));
+  const int left_output_chroma_width = left_output_width / 2;
 
   const dim3 block(16, 16);
   const dim3 grid(
       (static_cast<unsigned int>(total_chroma_width) + block.x - 1) / block.x,
       (static_cast<unsigned int>((impl_->output_height + 1) / 2) + block.y - 1) /
           block.y);
-  DualUyvyToSampledI420SideBySideKernel<<<grid, block, 0, slot.stream>>>(
+  DualCameraToI420SideBySideKernel<<<grid, block, 0, slot.stream>>>(
       slot.device_left_input,
       static_cast<int>(impl_->left_input_stride_bytes),
-      static_cast<int>(impl_->left_width),
-      impl_->left_is_yuyv ? 1 : 0,
+      impl_->left_format,
       slot.device_right_input,
       static_cast<int>(impl_->right_input_stride_bytes),
-      static_cast<int>(impl_->right_width),
-      impl_->right_is_yuyv ? 1 : 0,
+      impl_->right_format,
       dst_y,
       static_cast<int>(impl_->y_stride), dst_u, static_cast<int>(impl_->u_stride),
       dst_v, static_cast<int>(impl_->v_stride),
-      static_cast<int>(impl_->output_height), left_sampled_width,
-      left_sampled_chroma_width, total_chroma_width);
+      static_cast<int>(impl_->output_height), left_output_width,
+      left_output_chroma_width, total_chroma_width);
 
   cuda_code = cudaGetLastError();
   if (cuda_code != cudaSuccess) {
     if (error_message) {
-      *error_message = MakeCudaError(
-          "DualUyvyToSampledI420SideBySideKernel launch", cuda_code);
+      *error_message =
+          MakeCudaError("dual camera I420 kernel launch", cuda_code);
     }
     return false;
   }

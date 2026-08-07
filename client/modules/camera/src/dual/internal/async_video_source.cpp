@@ -51,6 +51,11 @@ void LogCameraInfo(const char* label, const rtc_camera::V4l2CameraDevice& device
           rtc_camera::PixelFormatToString(device.pixel_format()));
 }
 
+size_t ConvertedOutputWidth(const rtc_camera::V4l2CameraDevice& device) {
+  return device.pixel_format() == V4L2_PIX_FMT_NV12 ? device.width()
+                                                     : device.width() / 2;
+}
+
 bool StopRequestedBySource(const AsyncDualCameraVideoSource* source) {
   return !source->running();
 }
@@ -317,14 +322,14 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
     }
 
     rtc_logging::LogInfo(std::string("sampled left output: ") +
-            std::to_string(left_device->width() / 2) + "x" +
+            std::to_string(ConvertedOutputWidth(*left_device)) + "x" +
             std::to_string(left_device->height()));
     rtc_logging::LogInfo(std::string("sampled right output: ") +
-            std::to_string(right_device->width() / 2) + "x" +
+            std::to_string(ConvertedOutputWidth(*right_device)) + "x" +
             std::to_string(right_device->height()));
     rtc_logging::LogInfo(std::string("stitched output: ") +
-            std::to_string(left_device->width() / 2 +
-                           right_device->width() / 2) +
+            std::to_string(ConvertedOutputWidth(*left_device) +
+                           ConvertedOutputWidth(*right_device)) +
             "x" + std::to_string(left_device->height()));
 
     RunDualWarmup(*left_device, *right_device, config_.options, this);
@@ -347,7 +352,8 @@ void AsyncDualCameraVideoSource::CaptureLoop() {
       frame->timestamp_us = NowMicros();
       frame->left_pixel_format = left_device->pixel_format();
       frame->right_pixel_format = right_device->pixel_format();
-      frame->width = left_device->width() / 2 + right_device->width() / 2;
+      frame->width = ConvertedOutputWidth(*left_device) +
+                     ConvertedOutputWidth(*right_device);
       frame->height = left_device->height();
       frame->left_width = left_device->width();
       frame->left_height = left_device->height();

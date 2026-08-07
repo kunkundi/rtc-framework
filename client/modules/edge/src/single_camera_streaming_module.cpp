@@ -4,8 +4,6 @@
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/rtc_session.h"
 
-#include <linux/videodev2.h>
-
 #include <stdexcept>
 #include <thread>
 
@@ -179,7 +177,7 @@ bool SingleCameraStreamingModule::Tick(
   rtc_camera::single::ConvertedCameraFrame converted;
   std::string convert_error;
   bool converted_ok = false;
-  if (continuous && frame.pixel_format != V4L2_PIX_FMT_NV12) {
+  if (continuous) {
     converted_ok = converter_->EnqueueToI420(frame, &convert_error);
     if (converted_ok && converter_->pending_frames() < 2) {
       return true;

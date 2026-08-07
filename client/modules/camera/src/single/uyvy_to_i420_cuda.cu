@@ -71,6 +71,44 @@ __global__ void UYVYToI420Kernel(const uint8_t* src,
   dst_v[chroma_y * dst_stride_v + chroma_x] = v_out;
 }
 
+__global__ void NV12ToI420Kernel(const uint8_t* src,
+                                 int src_stride,
+                                 uint8_t* dst_y,
+                                 int dst_stride_y,
+                                 uint8_t* dst_u,
+                                 int dst_stride_u,
+                                 uint8_t* dst_v,
+                                 int dst_stride_v,
+                                 int width,
+                                 int height) {
+  const int chroma_x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int chroma_y = blockIdx.y * blockDim.y + threadIdx.y;
+  const int chroma_width = width / 2;
+  const int chroma_height = (height + 1) / 2;
+  if (chroma_x >= chroma_width || chroma_y >= chroma_height) {
+    return;
+  }
+
+  const int x = chroma_x * 2;
+  const int y = chroma_y * 2;
+  const uint8_t* source_y = src;
+  const uint8_t* source_uv = src + src_stride * height;
+  dst_y[y * dst_stride_y + x] = source_y[y * src_stride + x];
+  dst_y[y * dst_stride_y + x + 1] = source_y[y * src_stride + x + 1];
+  if (y + 1 < height) {
+    dst_y[(y + 1) * dst_stride_y + x] =
+        source_y[(y + 1) * src_stride + x];
+    dst_y[(y + 1) * dst_stride_y + x + 1] =
+        source_y[(y + 1) * src_stride + x + 1];
+  }
+
+  const int source_uv_offset = chroma_y * src_stride + x;
+  dst_u[chroma_y * dst_stride_u + chroma_x] =
+      source_uv[source_uv_offset];
+  dst_v[chroma_y * dst_stride_v + chroma_x] =
+      source_uv[source_uv_offset + 1];
+}
+
 }  // 匿名命名空间
 
 namespace rtc_camera {
@@ -101,6 +139,7 @@ struct UyvyToI420CudaConverter::Impl {
   size_t next_slot = 0;
   bool initialized = false;
   bool is_yuyv = false;
+  bool is_nv12 = false;
 };
 
 UyvyToI420CudaConverter::UyvyToI420CudaConverter() : impl_(new Impl()) {}
@@ -140,6 +179,7 @@ bool UyvyToI420CudaConverter::Init(size_t width,
                                    size_t height,
                                    size_t input_stride_bytes,
                                    bool is_yuyv,
+                                   bool is_nv12,
                                    std::string* error_message) {
   if (!impl_) {
     if (error_message) {
@@ -160,9 +200,10 @@ bool UyvyToI420CudaConverter::Init(size_t width,
     }
     return false;
   }
-  if (input_stride_bytes < width * 2) {
+  const size_t minimum_stride = is_nv12 ? width : width * 2;
+  if (input_stride_bytes < minimum_stride) {
     if (error_message) {
-      *error_message = "input stride is smaller than width * 2";
+      *error_message = "input stride is smaller than the frame width";
     }
     return false;
   }
@@ -194,10 +235,13 @@ bool UyvyToI420CudaConverter::Init(size_t width,
   impl_->height = height;
   impl_->input_stride_bytes = input_stride_bytes;
   impl_->is_yuyv = is_yuyv;
+  impl_->is_nv12 = is_nv12;
   impl_->y_stride = width;
   impl_->u_stride = width / 2;
   impl_->v_stride = width / 2;
-  impl_->input_size = input_stride_bytes * height;
+  impl_->input_size =
+      input_stride_bytes *
+      (is_nv12 ? height + (height + 1) / 2 : height);
   impl_->output_size = width * height * 3 / 2;
 
   for (size_t i = 0; i < 2; ++i) {
@@ -311,17 +355,26 @@ bool UyvyToI420CudaConverter::Enqueue(const uint8_t* src_host,
   const dim3 block(16, 16);
   const dim3 grid((static_cast<unsigned int>(impl_->u_stride) + block.x - 1) / block.x,
                   (static_cast<unsigned int>((impl_->height + 1) / 2) + block.y - 1) / block.y);
-  UYVYToI420Kernel<<<grid, block, 0, slot.stream>>>(
-      slot.device_input, static_cast<int>(impl_->input_stride_bytes), dst_y,
-      static_cast<int>(impl_->y_stride), dst_u, static_cast<int>(impl_->u_stride),
-      dst_v, static_cast<int>(impl_->v_stride), static_cast<int>(impl_->width),
-      static_cast<int>(impl_->height),
-      impl_->is_yuyv ? 1 : 0);
+  if (impl_->is_nv12) {
+    NV12ToI420Kernel<<<grid, block, 0, slot.stream>>>(
+        slot.device_input, static_cast<int>(impl_->input_stride_bytes), dst_y,
+        static_cast<int>(impl_->y_stride), dst_u,
+        static_cast<int>(impl_->u_stride), dst_v,
+        static_cast<int>(impl_->v_stride), static_cast<int>(impl_->width),
+        static_cast<int>(impl_->height));
+  } else {
+    UYVYToI420Kernel<<<grid, block, 0, slot.stream>>>(
+        slot.device_input, static_cast<int>(impl_->input_stride_bytes), dst_y,
+        static_cast<int>(impl_->y_stride), dst_u,
+        static_cast<int>(impl_->u_stride), dst_v,
+        static_cast<int>(impl_->v_stride), static_cast<int>(impl_->width),
+        static_cast<int>(impl_->height), impl_->is_yuyv ? 1 : 0);
+  }
 
   cuda_code = cudaGetLastError();
   if (cuda_code != cudaSuccess) {
     if (error_message) {
-      *error_message = MakeCudaError("UYVYToI420Kernel launch", cuda_code);
+      *error_message = MakeCudaError("camera I420 kernel launch", cuda_code);
     }
     return false;
   }

@@ -165,6 +165,44 @@ void TestDualCudaConversionPipeline() {
   Check(converter.pending_frames() == 0, "dual CUDA pipeline is empty");
 }
 
+void TestMixedNv12AndUyvyConversion() {
+  const std::vector<uint8_t> left_nv12 = {1, 2, 3, 4, 5, 6};
+  const std::vector<uint8_t> right_uyvy = MakeUyvyFrame(21, 30, 40);
+  const std::vector<uint8_t> expected_i420 = {
+      1, 2, 21, 23,
+      3, 4, 25, 27,
+      5, 33,
+      6, 43,
+  };
+
+  rtc_camera::dual::ImageFrame frame;
+  frame.format = rtc_camera::dual::ImagePixelFormat::kDualUyvy;
+  frame.left_pixel_format = V4L2_PIX_FMT_NV12;
+  frame.left_width = 2;
+  frame.left_height = 2;
+  frame.left_stride_bytes = 2;
+  frame.left_data = left_nv12.data();
+  frame.left_data_size = left_nv12.size();
+  frame.right_pixel_format = V4L2_PIX_FMT_UYVY;
+  frame.right_width = 4;
+  frame.right_height = 2;
+  frame.right_stride_bytes = 8;
+  frame.right_data = right_uyvy.data();
+  frame.right_data_size = right_uyvy.size();
+
+  rtc_camera::dual::DualUyvyFrameConverter converter;
+  rtc_camera::dual::ConvertedI420Frame converted;
+  std::string error_message;
+  Check(converter.ConvertToI420(frame, &converted, &error_message),
+        "convert mixed NV12 and UYVY frame: " + error_message);
+  Check(converted.width == 4 && converted.height == 2,
+        "mixed converted frame dimensions");
+  Check(std::vector<uint8_t>(converted.data,
+                             converted.data + converted.data_size) ==
+            expected_i420,
+        "mixed converted frame bytes");
+}
+
 }  // 匿名命名空间
 
 int main() {
@@ -172,6 +210,7 @@ int main() {
   TestClosedSubscription();
   TestDualNv12Conversion();
   TestDualCudaConversionPipeline();
+  TestMixedNv12AndUyvyConversion();
   std::cout << "rtc_camera_dual_tests passed" << std::endl;
   return 0;
 }
