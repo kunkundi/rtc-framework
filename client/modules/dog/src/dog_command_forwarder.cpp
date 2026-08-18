@@ -92,6 +92,34 @@ std::string BuildRosbridgeVelocityMessage(float vx, float vy, float wz) {
   return message.dump();
 }
 
+// 将站立/趴下编码为 actionlib goal，发布到
+// /agent_skill/do_dog_behavior/execute/goal。goal_id 与 args 由调用方给定，
+// args 为内嵌的行为 JSON 字符串。stamp 用当前时间、header.seq 递增、
+// invoker 用 App-591，对齐板子上实测可用的键盘脚本。
+std::string BuildRosbridgeDogBehaviorGoalMessage(const char* goal_id,
+                                                 const char* args,
+                                                 uint64_t header_seq,
+                                                 int64_t stamp_secs) {
+  nlohmann::json message = {
+      {"op", "publish"},
+      {"topic", "/agent_skill/do_dog_behavior/execute/goal"},
+      {"msg",
+       {{"header",
+         {{"seq", header_seq},
+          {"stamp", {{"secs", stamp_secs}, {"nsecs", 0}}},
+          {"frame_id", ""}}},
+        {"goal_id",
+         {{"stamp", {{"secs", stamp_secs}, {"nsecs", 0}}},
+          {"id", goal_id ? goal_id : ""}}},
+        {"goal",
+         {{"invoker", "App-591"},
+          {"invoke_priority", 15},
+          {"hold_time", 5.0},
+          {"args", args ? args : ""}}}}},
+  };
+  return message.dump();
+}
+
 std::mt19937& RandomGenerator() {
   thread_local std::mt19937 generator(std::random_device{}());
   return generator;
@@ -100,6 +128,19 @@ std::mt19937& RandomGenerator() {
 uint8_t RandomByte() {
   std::uniform_int_distribution<unsigned int> distribution(0, 255);
   return static_cast<uint8_t>(distribution(RandomGenerator()));
+}
+
+// 当前 Unix 时间秒，用于 ROS stamp 与 goal_id 唯一化。
+int64_t NowUnixSeconds() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+
+// 生成 [minimum, maximum] 区间随机数，用于 goal_id 唯一化。
+uint32_t RandomRange(uint32_t minimum, uint32_t maximum) {
+  std::uniform_int_distribution<uint32_t> distribution(minimum, maximum);
+  return distribution(RandomGenerator());
 }
 
 std::string BuildWsFrame(const std::string& payload, uint8_t opcode = 0x1) {
@@ -349,6 +390,9 @@ struct DogCommandForwarder::Impl {
   float last_vy = 0.0f;
   float last_wz = 0.0f;
   std::chrono::steady_clock::time_point last_sent_at{};
+
+  // 行为指令 header.seq 的递增序号，对齐参考脚本的自增计数。
+  uint64_t behavior_seq = 0;
 
   explicit Impl(const Config& source_config)
       : config(source_config),
@@ -1017,6 +1061,53 @@ DogCommandForwarder::SendGearCommand(
   return result;
 }
 
+rtc_vehicle::VehicleCommandResult
+DogCommandForwarder::SendDogAction(
+    const vts_rtc::vehicle::DogAction& action) {
+  rtc_vehicle::VehicleCommandResult result;
+  result.accepted = false;
+  result.error_code = vts_rtc::vehicle::VehicleErrorCode::InvalidArgument;
+
+  const float lateral_speed = std::max(0.0f, action.speed) *
+                              impl_->config.max_lateral_speed;
+  bool forwarded = false;
+  switch (action.action) {
+    case vts_rtc::vehicle::DogActionType::LateralLeft:
+      forwarded = ForwardVelocity(0.0f, lateral_speed, 0.0f);
+      break;
+    case vts_rtc::vehicle::DogActionType::LateralRight:
+      forwarded = ForwardVelocity(0.0f, -lateral_speed, 0.0f);
+      break;
+    case vts_rtc::vehicle::DogActionType::LateralStop:
+      forwarded = ForwardVelocity(0.0f, 0.0f, 0.0f);
+      break;
+    case vts_rtc::vehicle::DogActionType::Stand:
+      forwarded = ForwardDogBehaviorGoal(
+          "cli_stand", "[{\"behavior\":\"force_recovery_balance_stand\"}]");
+      break;
+    case vts_rtc::vehicle::DogActionType::LieDown:
+      // 趴下是动作链：先强制平衡站立，再执行休息。
+      forwarded = ForwardDogBehaviorGoal(
+          "cli_rest",
+          "[{\"behavior\":\"force_recovery_balance_stand\"},{\"behavior\":\"rest\"}]");
+      break;
+    case vts_rtc::vehicle::DogActionType::Unknown:
+    default:
+      result.detail = "unknown dog action";
+      return result;
+  }
+
+  if (!forwarded) {
+    result.error_code = vts_rtc::vehicle::VehicleErrorCode::InvalidState;
+    result.detail = "rosbridge WebSocket is not connected";
+    return result;
+  }
+
+  result.accepted = true;
+  result.error_code = vts_rtc::vehicle::VehicleErrorCode::None;
+  return result;
+}
+
 void DogCommandForwarder::SendStop() {
   ForwardVelocity(0.0f, 0.0f, 0.0f);
 }
@@ -1050,6 +1141,33 @@ bool DogCommandForwarder::ForwardVelocity(float vx, float vy, float wz) {
     rtc_logging::LogInfo(
         "dog command forwarder: queued velocity command");
   }
+  return true;
+}
+
+bool DogCommandForwarder::ForwardDogBehaviorGoal(const char* goal_id,
+                                                 const char* args) {
+  if (!impl_->running.load(std::memory_order_acquire) ||
+      !impl_->connected.load(std::memory_order_acquire)) {
+    return false;
+  }
+
+  // 狗的动作服务器按 goal_id.id 去重，相邻同 id 的任务会被忽略，
+  // 因此在基名后追加时间戳+随机数，保证每次发送的 id 都不同。
+  const int64_t now_secs = NowUnixSeconds();
+  const uint64_t header_seq = ++impl_->behavior_seq;
+  const std::string unique_goal_id =
+      std::string(goal_id) + "_" + std::to_string(now_secs) + "_" +
+      std::to_string(RandomRange(1000, 9999));
+
+  const std::string frame = BuildWsFrame(
+      BuildRosbridgeDogBehaviorGoalMessage(unique_goal_id.c_str(), args,
+                                           header_seq, now_secs));
+  if (!impl_->EnqueueVelocityFrame(frame, false)) {
+    return false;
+  }
+  rtc_logging::LogInfo(
+      std::string("dog command forwarder: queued behavior goal ") +
+      unique_goal_id);
   return true;
 }
 

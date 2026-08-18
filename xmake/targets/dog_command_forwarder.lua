@@ -37,3 +37,6 @@ target("rtc_dog_command_forwarder_tests")
     add_packages("nlohmann_json")
     vtsrtc_add_simple_web_config()
     vtsrtc_add_openssl_config()
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    end

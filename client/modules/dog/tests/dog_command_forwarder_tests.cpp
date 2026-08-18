@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -245,6 +246,123 @@ class ReconnectingWebSocketServer {
   std::shared_ptr<SimpleWeb::asio::ip::tcp::socket> active_socket_;
 };
 
+// 单连接 WebSocket 服务端：完成握手后在同一连接上读取若干帧，用于
+// 校验站立/趴下 actionlib goal 的转发内容，避免依赖重连时序。
+class BehaviorGoalServer {
+ public:
+  BehaviorGoalServer()
+      : acceptor_(io_context_,
+                  SimpleWeb::asio::ip::tcp::endpoint(
+                      SimpleWeb::asio::ip::address_v4::loopback(), 0)) {
+    worker_ = std::thread([this]() { Run(); });
+  }
+
+  ~BehaviorGoalServer() {
+    Stop();
+  }
+
+  unsigned short port() const {
+    return acceptor_.local_endpoint().port();
+  }
+
+  bool WaitForPayloads(size_t count,
+                       std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return cv_.wait_for(lock, timeout,
+                        [this, count]() { return payloads_.size() >= count; });
+  }
+
+  std::string payload(size_t index) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return payloads_.at(index);
+  }
+
+ private:
+  void Stop() {
+    if (stopped_.exchange(true)) {
+      return;
+    }
+    SimpleWeb::error_code ignored;
+    acceptor_.close(ignored);
+    {
+      std::lock_guard<std::mutex> lock(socket_mutex_);
+      if (active_socket_) {
+        active_socket_->cancel(ignored);
+        active_socket_->close(ignored);
+      }
+    }
+    if (worker_.joinable()) {
+      worker_.join();
+    }
+  }
+
+  void Run() {
+    auto socket = std::make_shared<SimpleWeb::asio::ip::tcp::socket>(
+        io_context_);
+    {
+      std::lock_guard<std::mutex> lock(socket_mutex_);
+      active_socket_ = socket;
+    }
+
+    SimpleWeb::error_code error;
+    acceptor_.accept(*socket, error);
+    if (error || stopped_.load()) {
+      return;
+    }
+
+    SimpleWeb::asio::streambuf request_buffer;
+    SimpleWeb::asio::read_until(*socket, request_buffer, "\r\n\r\n", error);
+    if (error) {
+      return;
+    }
+    const std::string request(
+        SimpleWeb::asio::buffers_begin(request_buffer.data()),
+        SimpleWeb::asio::buffers_end(request_buffer.data()));
+    const std::string key = ExtractHeader(request, "Sec-WebSocket-Key");
+    const std::string accept = SimpleWeb::Crypto::Base64::encode(
+        SimpleWeb::Crypto::sha1(
+            key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"));
+    const std::string response =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: " +
+        accept + "\r\n\r\n";
+    SimpleWeb::asio::write(*socket, SimpleWeb::asio::buffer(response), error);
+    if (error) {
+      return;
+    }
+
+    // 首帧为建立连接时写入的零速度基线，后续为待校验的动作帧。
+    for (size_t frame_index = 0; frame_index < 4 && !stopped_.load();
+         ++frame_index) {
+      std::string payload;
+      if (!ReadClientFrame(socket.get(), &payload)) {
+        break;
+      }
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        payloads_.push_back(std::move(payload));
+      }
+      cv_.notify_all();
+    }
+
+    socket->shutdown(
+        SimpleWeb::asio::ip::tcp::socket::shutdown_both, error);
+    socket->close(error);
+  }
+
+  SimpleWeb::asio::io_context io_context_;
+  SimpleWeb::asio::ip::tcp::acceptor acceptor_;
+  std::thread worker_;
+  std::atomic<bool> stopped_{false};
+  mutable std::mutex mutex_;
+  std::condition_variable cv_;
+  std::vector<std::string> payloads_;
+  std::mutex socket_mutex_;
+  std::shared_ptr<SimpleWeb::asio::ip::tcp::socket> active_socket_;
+};
+
 class StalledHandshakeServer {
  public:
   StalledHandshakeServer()
@@ -386,6 +504,76 @@ void TestSendAndReconnect() {
         "shutdown sends zero velocity");
 }
 
+void TestDogBehaviorGoalForwarding() {
+  BehaviorGoalServer server;
+  rtc_dog::DogCommandForwarder::Config config;
+  config.rosbridge_url =
+      "ws://127.0.0.1:" + std::to_string(server.port()) + "/bridge";
+  config.connect_timeout_ms = 1000;
+  config.shutdown_timeout_ms = 100;
+  rtc_dog::DogCommandForwarder forwarder(config);
+
+  std::string error;
+  Check(forwarder.Open(&error), "connect for behavior goal test");
+  Check(server.WaitForPayloads(1, std::chrono::seconds(1)),
+        "initial connection establishes a zero-velocity baseline");
+
+  vts_rtc::vehicle::DogAction stand;
+  stand.request_id = 100;
+  stand.action = vts_rtc::vehicle::DogActionType::Stand;
+  Check(forwarder.SendDogAction(stand).accepted,
+        "accept stand while rosbridge is connected");
+  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
+        "server receives stand goal frame");
+  const nlohmann::json stand_goal =
+      nlohmann::json::parse(server.payload(1));
+  Check(stand_goal.at("topic") ==
+            "/agent_skill/do_dog_behavior/execute/goal",
+        "publish stand to dog behavior goal topic");
+  const std::string stand_id =
+      stand_goal.at("msg").at("goal_id").at("id");
+  Check(stand_id.compare(0, 10, "cli_stand_") == 0,
+        "stand goal id uses cli_stand_ prefix");
+  Check(stand_goal.at("msg").at("goal").at("invoker") == "App-591",
+        "stand goal uses App-591 invoker");
+  const std::string stand_args =
+      stand_goal.at("msg").at("goal").at("args");
+  Check(stand_args == "[{\"behavior\":\"force_recovery_balance_stand\"}]",
+        "stand args match expected behavior json");
+  Check(stand_goal.at("msg").at("goal_id").at("stamp").at("secs").get<int64_t>() >
+            0,
+        "goal stamp secs uses current time");
+  const uint64_t stand_seq =
+      stand_goal.at("msg").at("header").at("seq").get<uint64_t>();
+  Check(stand_seq > 0, "header seq is positive");
+
+  vts_rtc::vehicle::DogAction rest;
+  rest.request_id = 101;
+  rest.action = vts_rtc::vehicle::DogActionType::LieDown;
+  Check(forwarder.SendDogAction(rest).accepted,
+        "accept lie_down while rosbridge is connected");
+  Check(server.WaitForPayloads(3, std::chrono::seconds(1)),
+        "server receives lie_down goal frame");
+  const nlohmann::json rest_goal =
+      nlohmann::json::parse(server.payload(2));
+  const std::string rest_id =
+      rest_goal.at("msg").at("goal_id").at("id");
+  Check(rest_id.compare(0, 9, "cli_rest_") == 0,
+        "lie_down goal id uses cli_rest_ prefix");
+  Check(stand_id != rest_id,
+        "adjacent dog actions use distinct goal ids");
+  const std::string rest_args =
+      rest_goal.at("msg").at("goal").at("args");
+  Check(rest_args ==
+            "[{\"behavior\":\"force_recovery_balance_stand\"},{\"behavior\":\"rest\"}]",
+        "lie_down args match expected behavior json");
+  const uint64_t rest_seq =
+      rest_goal.at("msg").at("header").at("seq").get<uint64_t>();
+  Check(rest_seq > stand_seq, "header seq is monotonically increasing");
+
+  forwarder.Close();
+}
+
 void TestHandshakeTimeoutDoesNotHang() {
   StalledHandshakeServer server;
   rtc_dog::DogCommandForwarder::Config config;
@@ -418,6 +606,7 @@ void TestInvalidSpeedLimitIsRejected() {
 
 int main() {
   TestSendAndReconnect();
+  TestDogBehaviorGoalForwarding();
   TestHandshakeTimeoutDoesNotHang();
   TestInvalidSpeedLimitIsRejected();
   std::cout << "rtc_dog_command_forwarder_tests passed" << std::endl;
