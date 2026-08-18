@@ -15,7 +15,8 @@ typedef enum _vtsrtc_vehicle_v1_VehicleMessageType {
     vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DRIVE_COMMAND = 1,
     vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_SET_GEAR = 2,
     vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_EVENT_ACK = 3,
-    vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE = 4
+    vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE = 4,
+    vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DOG_ACTION = 5
 } vtsrtc_vehicle_v1_VehicleMessageType;
 
 typedef enum _vtsrtc_vehicle_v1_DriveDirection {
@@ -43,6 +44,15 @@ typedef enum _vtsrtc_vehicle_v1_VehicleErrorCode {
     vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL = 3
 } vtsrtc_vehicle_v1_VehicleErrorCode;
 
+typedef enum _vtsrtc_vehicle_v1_DogActionType {
+    vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_UNKNOWN = 0,
+    vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_LEFT = 1,
+    vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_RIGHT = 2,
+    vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_STOP = 3,
+    vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_STAND = 4,
+    vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LIE_DOWN = 5
+} vtsrtc_vehicle_v1_DogActionType;
+
 /* Struct definitions */
 /* 驾驶过程中通过 vehicle.control.v1 以 50 Hz 发送。若本地看门狗周期内没有收到有效帧，
  车辆控制器必须停车。 */
@@ -65,6 +75,16 @@ typedef struct _vtsrtc_vehicle_v1_SetGear {
     bool has_gear;
     vtsrtc_vehicle_v1_VehicleGear gear;
 } vtsrtc_vehicle_v1_SetGear;
+
+typedef struct _vtsrtc_vehicle_v1_DogAction {
+    bool has_request_id;
+    uint64_t request_id;
+    bool has_action;
+    vtsrtc_vehicle_v1_DogActionType action;
+    /* Normalized [0.0, 1.0]. Lateral actions use it as side-step speed. */
+    bool has_speed;
+    float speed;
+} vtsrtc_vehicle_v1_DogAction;
 
 typedef struct _vtsrtc_vehicle_v1_EventAck {
     bool has_request_id;
@@ -106,6 +126,7 @@ typedef struct _vtsrtc_vehicle_v1_VehicleControlEnvelope {
         vtsrtc_vehicle_v1_SetGear set_gear;
         vtsrtc_vehicle_v1_EventAck event_ack;
         vtsrtc_vehicle_v1_VehicleState vehicle_state;
+        vtsrtc_vehicle_v1_DogAction dog_action;
     } payload;
 } vtsrtc_vehicle_v1_VehicleControlEnvelope;
 
@@ -116,8 +137,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _vtsrtc_vehicle_v1_VehicleMessageType_MIN vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_UNKNOWN
-#define _vtsrtc_vehicle_v1_VehicleMessageType_MAX vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE
-#define _vtsrtc_vehicle_v1_VehicleMessageType_ARRAYSIZE ((vtsrtc_vehicle_v1_VehicleMessageType)(vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE+1))
+#define _vtsrtc_vehicle_v1_VehicleMessageType_MAX vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DOG_ACTION
+#define _vtsrtc_vehicle_v1_VehicleMessageType_ARRAYSIZE ((vtsrtc_vehicle_v1_VehicleMessageType)(vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DOG_ACTION+1))
 
 #define _vtsrtc_vehicle_v1_DriveDirection_MIN vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_STOP
 #define _vtsrtc_vehicle_v1_DriveDirection_MAX vtsrtc_vehicle_v1_DriveDirection_DRIVE_DIRECTION_REVERSE
@@ -135,12 +156,18 @@ extern "C" {
 #define _vtsrtc_vehicle_v1_VehicleErrorCode_MAX vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL
 #define _vtsrtc_vehicle_v1_VehicleErrorCode_ARRAYSIZE ((vtsrtc_vehicle_v1_VehicleErrorCode)(vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL+1))
 
+#define _vtsrtc_vehicle_v1_DogActionType_MIN vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_UNKNOWN
+#define _vtsrtc_vehicle_v1_DogActionType_MAX vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LIE_DOWN
+#define _vtsrtc_vehicle_v1_DogActionType_ARRAYSIZE ((vtsrtc_vehicle_v1_DogActionType)(vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LIE_DOWN+1))
+
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_type_ENUMTYPE vtsrtc_vehicle_v1_VehicleMessageType
 
 #define vtsrtc_vehicle_v1_DriveCommand_drive_direction_ENUMTYPE vtsrtc_vehicle_v1_DriveDirection
 #define vtsrtc_vehicle_v1_DriveCommand_steering_direction_ENUMTYPE vtsrtc_vehicle_v1_SteeringDirection
 
 #define vtsrtc_vehicle_v1_SetGear_gear_ENUMTYPE vtsrtc_vehicle_v1_VehicleGear
+
+#define vtsrtc_vehicle_v1_DogAction_action_ENUMTYPE vtsrtc_vehicle_v1_DogActionType
 
 #define vtsrtc_vehicle_v1_EventAck_error_code_ENUMTYPE vtsrtc_vehicle_v1_VehicleErrorCode
 #define vtsrtc_vehicle_v1_EventAck_active_gear_ENUMTYPE vtsrtc_vehicle_v1_VehicleGear
@@ -152,11 +179,13 @@ extern "C" {
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_init_default {false, 0, false, 0, false, 0, false, _vtsrtc_vehicle_v1_VehicleMessageType_MIN, false, 0, 0, {vtsrtc_vehicle_v1_DriveCommand_init_default}}
 #define vtsrtc_vehicle_v1_DriveCommand_init_default {false, _vtsrtc_vehicle_v1_DriveDirection_MIN, false, _vtsrtc_vehicle_v1_SteeringDirection_MIN, false, 0, false, 0}
 #define vtsrtc_vehicle_v1_SetGear_init_default   {false, 0, false, _vtsrtc_vehicle_v1_VehicleGear_MIN}
+#define vtsrtc_vehicle_v1_DogAction_init_default {false, 0, false, _vtsrtc_vehicle_v1_DogActionType_MIN, false, 0}
 #define vtsrtc_vehicle_v1_EventAck_init_default  {false, 0, false, 0, false, _vtsrtc_vehicle_v1_VehicleErrorCode_MIN, false, _vtsrtc_vehicle_v1_VehicleGear_MIN}
 #define vtsrtc_vehicle_v1_VehicleState_init_default {false, _vtsrtc_vehicle_v1_VehicleGear_MIN, false, 0, false, 0}
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero {false, 0, false, 0, false, 0, false, _vtsrtc_vehicle_v1_VehicleMessageType_MIN, false, 0, 0, {vtsrtc_vehicle_v1_DriveCommand_init_zero}}
 #define vtsrtc_vehicle_v1_DriveCommand_init_zero {false, _vtsrtc_vehicle_v1_DriveDirection_MIN, false, _vtsrtc_vehicle_v1_SteeringDirection_MIN, false, 0, false, 0}
 #define vtsrtc_vehicle_v1_SetGear_init_zero      {false, 0, false, _vtsrtc_vehicle_v1_VehicleGear_MIN}
+#define vtsrtc_vehicle_v1_DogAction_init_zero    {false, 0, false, _vtsrtc_vehicle_v1_DogActionType_MIN, false, 0}
 #define vtsrtc_vehicle_v1_EventAck_init_zero     {false, 0, false, 0, false, _vtsrtc_vehicle_v1_VehicleErrorCode_MIN, false, _vtsrtc_vehicle_v1_VehicleGear_MIN}
 #define vtsrtc_vehicle_v1_VehicleState_init_zero {false, _vtsrtc_vehicle_v1_VehicleGear_MIN, false, 0, false, 0}
 
@@ -167,6 +196,9 @@ extern "C" {
 #define vtsrtc_vehicle_v1_DriveCommand_brake_tag 4
 #define vtsrtc_vehicle_v1_SetGear_request_id_tag 1
 #define vtsrtc_vehicle_v1_SetGear_gear_tag       2
+#define vtsrtc_vehicle_v1_DogAction_request_id_tag 1
+#define vtsrtc_vehicle_v1_DogAction_action_tag   2
+#define vtsrtc_vehicle_v1_DogAction_speed_tag    3
 #define vtsrtc_vehicle_v1_EventAck_request_id_tag 1
 #define vtsrtc_vehicle_v1_EventAck_accepted_tag  2
 #define vtsrtc_vehicle_v1_EventAck_error_code_tag 3
@@ -183,6 +215,7 @@ extern "C" {
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_set_gear_tag 11
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_event_ack_tag 12
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_vehicle_state_tag 13
+#define vtsrtc_vehicle_v1_VehicleControlEnvelope_dog_action_tag 14
 
 /* Struct field encoding specification for nanopb */
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_FIELDLIST(X, a) \
@@ -194,13 +227,15 @@ X(a, STATIC,   OPTIONAL, UINT64,   seq,               5) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,drive_command,payload.drive_command),  10) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,set_gear,payload.set_gear),  11) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,event_ack,payload.event_ack),  12) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload,vehicle_state,payload.vehicle_state),  13)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,vehicle_state,payload.vehicle_state),  13) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,dog_action,payload.dog_action),  14)
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_CALLBACK NULL
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_DEFAULT NULL
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_payload_drive_command_MSGTYPE vtsrtc_vehicle_v1_DriveCommand
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_payload_set_gear_MSGTYPE vtsrtc_vehicle_v1_SetGear
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_payload_event_ack_MSGTYPE vtsrtc_vehicle_v1_EventAck
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_payload_vehicle_state_MSGTYPE vtsrtc_vehicle_v1_VehicleState
+#define vtsrtc_vehicle_v1_VehicleControlEnvelope_payload_dog_action_MSGTYPE vtsrtc_vehicle_v1_DogAction
 
 #define vtsrtc_vehicle_v1_DriveCommand_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UENUM,    drive_direction,   1) \
@@ -215,6 +250,13 @@ X(a, STATIC,   OPTIONAL, UINT64,   request_id,        1) \
 X(a, STATIC,   OPTIONAL, UENUM,    gear,              2)
 #define vtsrtc_vehicle_v1_SetGear_CALLBACK NULL
 #define vtsrtc_vehicle_v1_SetGear_DEFAULT NULL
+
+#define vtsrtc_vehicle_v1_DogAction_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, UINT64,   request_id,        1) \
+X(a, STATIC,   OPTIONAL, UENUM,    action,            2) \
+X(a, STATIC,   OPTIONAL, FLOAT,    speed,             3)
+#define vtsrtc_vehicle_v1_DogAction_CALLBACK NULL
+#define vtsrtc_vehicle_v1_DogAction_DEFAULT NULL
 
 #define vtsrtc_vehicle_v1_EventAck_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UINT64,   request_id,        1) \
@@ -234,6 +276,7 @@ X(a, STATIC,   OPTIONAL, BOOL,     watchdog_stopped,   3)
 extern const pb_msgdesc_t vtsrtc_vehicle_v1_VehicleControlEnvelope_msg;
 extern const pb_msgdesc_t vtsrtc_vehicle_v1_DriveCommand_msg;
 extern const pb_msgdesc_t vtsrtc_vehicle_v1_SetGear_msg;
+extern const pb_msgdesc_t vtsrtc_vehicle_v1_DogAction_msg;
 extern const pb_msgdesc_t vtsrtc_vehicle_v1_EventAck_msg;
 extern const pb_msgdesc_t vtsrtc_vehicle_v1_VehicleState_msg;
 
@@ -241,15 +284,17 @@ extern const pb_msgdesc_t vtsrtc_vehicle_v1_VehicleState_msg;
 #define vtsrtc_vehicle_v1_VehicleControlEnvelope_fields &vtsrtc_vehicle_v1_VehicleControlEnvelope_msg
 #define vtsrtc_vehicle_v1_DriveCommand_fields &vtsrtc_vehicle_v1_DriveCommand_msg
 #define vtsrtc_vehicle_v1_SetGear_fields &vtsrtc_vehicle_v1_SetGear_msg
+#define vtsrtc_vehicle_v1_DogAction_fields &vtsrtc_vehicle_v1_DogAction_msg
 #define vtsrtc_vehicle_v1_EventAck_fields &vtsrtc_vehicle_v1_EventAck_msg
 #define vtsrtc_vehicle_v1_VehicleState_fields &vtsrtc_vehicle_v1_VehicleState_msg
 
 /* Maximum encoded size of messages (where known) */
 #define VTSRTC_VEHICLE_V1_RTC_VEHICLE_PB_H_MAX_SIZE vtsrtc_vehicle_v1_VehicleControlEnvelope_size
+#define vtsrtc_vehicle_v1_DogAction_size         18
 #define vtsrtc_vehicle_v1_DriveCommand_size      14
 #define vtsrtc_vehicle_v1_EventAck_size          17
 #define vtsrtc_vehicle_v1_SetGear_size           13
-#define vtsrtc_vehicle_v1_VehicleControlEnvelope_size 50
+#define vtsrtc_vehicle_v1_VehicleControlEnvelope_size 51
 #define vtsrtc_vehicle_v1_VehicleState_size      15
 
 #ifdef __cplusplus

@@ -24,6 +24,8 @@ class VehicleControlInterface {
       const vts_rtc::vehicle::DriveCommand& command) = 0;
   virtual VehicleCommandResult SendGearCommand(
       vts_rtc::vehicle::VehicleGear gear) = 0;
+  virtual VehicleCommandResult SendDogAction(
+      const vts_rtc::vehicle::DogAction& action) = 0;
   virtual void SendStop() = 0;
 };
 
@@ -42,6 +44,8 @@ class PlaceholderVehicleControlInterface final
       const vts_rtc::vehicle::DriveCommand& command) override;
   VehicleCommandResult SendGearCommand(
       vts_rtc::vehicle::VehicleGear gear) override;
+  VehicleCommandResult SendDogAction(
+      const vts_rtc::vehicle::DogAction& action) override;
   void SendStop() override;
 
  private:

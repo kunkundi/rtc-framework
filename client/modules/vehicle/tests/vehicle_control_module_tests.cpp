@@ -8,6 +8,7 @@
 namespace {
 
 using vts_rtc::vehicle::DecodeEnvelope;
+using vts_rtc::vehicle::DogAction;
 using vts_rtc::vehicle::DriveCommand;
 using vts_rtc::vehicle::DriveDirection;
 using vts_rtc::vehicle::EncodeDriveCommand;
@@ -58,6 +59,13 @@ class FakeVehicleControl final
     return Accepted();
   }
 
+  rtc_vehicle::VehicleCommandResult SendDogAction(
+      const DogAction& action) override {
+    ++dog_action_count;
+    last_dog_action = action;
+    return Accepted();
+  }
+
   void SendStop() override { ++stop_count; }
 
   static rtc_vehicle::VehicleCommandResult Accepted() {
@@ -70,10 +78,12 @@ class FakeVehicleControl final
   bool opened = false;
   int drive_count = 0;
   int gear_count = 0;
+  int dog_action_count = 0;
   int stop_count = 0;
   bool reject_drive_as_unavailable = false;
   DriveCommand last_drive;
   VehicleGear last_gear = VehicleGear::Neutral;
+  DogAction last_dog_action;
 };
 
 struct SentPacket {

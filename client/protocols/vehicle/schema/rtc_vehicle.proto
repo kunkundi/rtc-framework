@@ -10,6 +10,7 @@ enum VehicleMessageType {
   VEHICLE_MESSAGE_TYPE_SET_GEAR = 2;
   VEHICLE_MESSAGE_TYPE_EVENT_ACK = 3;
   VEHICLE_MESSAGE_TYPE_VEHICLE_STATE = 4;
+  VEHICLE_MESSAGE_TYPE_DOG_ACTION = 5;
 }
 
 enum DriveDirection {
@@ -37,6 +38,15 @@ enum VehicleErrorCode {
   VEHICLE_ERROR_CODE_INTERNAL = 3;
 }
 
+enum DogActionType {
+  DOG_ACTION_TYPE_UNKNOWN = 0;
+  DOG_ACTION_TYPE_LATERAL_LEFT = 1;
+  DOG_ACTION_TYPE_LATERAL_RIGHT = 2;
+  DOG_ACTION_TYPE_LATERAL_STOP = 3;
+  DOG_ACTION_TYPE_STAND = 4;
+  DOG_ACTION_TYPE_LIE_DOWN = 5;
+}
+
 message VehicleControlEnvelope {
   // ASCII "VCL1" 对应的小端 uint32 值：0x314c4356。
   optional uint32 magic = 1;
@@ -51,6 +61,7 @@ message VehicleControlEnvelope {
     SetGear set_gear = 11;
     EventAck event_ack = 12;
     VehicleState vehicle_state = 13;
+    DogAction dog_action = 14;
   }
 }
 
@@ -68,6 +79,13 @@ message DriveCommand {
 message SetGear {
   optional uint64 request_id = 1;
   optional VehicleGear gear = 2;
+}
+
+message DogAction {
+  optional uint64 request_id = 1;
+  optional DogActionType action = 2;
+  // Normalized [0.0, 1.0]. Lateral actions use it as side-step speed.
+  optional float speed = 3;
 }
 
 message EventAck {

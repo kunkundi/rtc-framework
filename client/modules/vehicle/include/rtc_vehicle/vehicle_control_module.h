@@ -80,12 +80,17 @@ class VehicleControlModule {
                            uint64_t now_ms);
   void ProcessSetGear(RtcSessionId remote_sessionid,
                       const vts_rtc::vehicle::Envelope& envelope);
+  void ProcessDogAction(RtcSessionId remote_sessionid,
+                        const vts_rtc::vehicle::Envelope& envelope);
   void HandlePeerConnected(RtcSessionId remote_sessionid);
   void HandlePeerDisconnected(RtcSessionId remote_sessionid);
   void StopForRecoverableCondition(const std::string& reason);
   void StopForSafety(const std::string& reason);
   void SendEventAck(RtcSessionId remote_sessionid,
                     const vts_rtc::vehicle::SetGear& request,
+                    const VehicleCommandResult& result);
+  void SendEventAck(RtcSessionId remote_sessionid,
+                    const vts_rtc::vehicle::DogAction& request,
                     const VehicleCommandResult& result);
   void MaybeSendState(uint64_t now_ms);
   bool SendPayload(RtcSessionId remote_sessionid,

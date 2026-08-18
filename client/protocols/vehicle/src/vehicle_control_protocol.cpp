@@ -14,6 +14,8 @@ namespace {
 
 using PbDriveCommand = vtsrtc_vehicle_v1_DriveCommand;
 using PbDriveDirection = vtsrtc_vehicle_v1_DriveDirection;
+using PbDogAction = vtsrtc_vehicle_v1_DogAction;
+using PbDogActionType = vtsrtc_vehicle_v1_DogActionType;
 using PbEnvelope = vtsrtc_vehicle_v1_VehicleControlEnvelope;
 using PbErrorCode = vtsrtc_vehicle_v1_VehicleErrorCode;
 using PbEventAck = vtsrtc_vehicle_v1_EventAck;
@@ -48,6 +50,8 @@ PbMessageType ToPbMessageType(MessageType type) {
       return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_EVENT_ACK;
     case MessageType::VehicleState:
       return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE;
+    case MessageType::DogAction:
+      return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DOG_ACTION;
     case MessageType::Unknown:
     default:
       return vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_UNKNOWN;
@@ -64,6 +68,8 @@ MessageType FromPbMessageType(PbMessageType type) {
       return MessageType::EventAck;
     case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_VEHICLE_STATE:
       return MessageType::VehicleState;
+    case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_DOG_ACTION:
+      return MessageType::DogAction;
     case vtsrtc_vehicle_v1_VehicleMessageType_VEHICLE_MESSAGE_TYPE_UNKNOWN:
     default:
       return MessageType::Unknown;
@@ -170,9 +176,46 @@ VehicleErrorCode FromPbErrorCode(PbErrorCode code) {
   }
 }
 
+PbDogActionType ToPbDogActionType(DogActionType action) {
+  switch (action) {
+    case DogActionType::LateralLeft:
+      return vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_LEFT;
+    case DogActionType::LateralRight:
+      return vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_RIGHT;
+    case DogActionType::LateralStop:
+      return vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_STOP;
+    case DogActionType::Stand:
+      return vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_STAND;
+    case DogActionType::LieDown:
+      return vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LIE_DOWN;
+    case DogActionType::Unknown:
+    default:
+      return vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_UNKNOWN;
+  }
+}
+
+DogActionType FromPbDogActionType(PbDogActionType action) {
+  switch (action) {
+    case vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_LEFT:
+      return DogActionType::LateralLeft;
+    case vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_RIGHT:
+      return DogActionType::LateralRight;
+    case vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_STOP:
+      return DogActionType::LateralStop;
+    case vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_STAND:
+      return DogActionType::Stand;
+    case vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LIE_DOWN:
+      return DogActionType::LieDown;
+    case vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_UNKNOWN:
+    default:
+      return DogActionType::Unknown;
+  }
+}
+
 bool IsKnownMessageType(MessageType type) {
   return type == MessageType::DriveCommand || type == MessageType::SetGear ||
-         type == MessageType::EventAck || type == MessageType::VehicleState;
+         type == MessageType::EventAck || type == MessageType::VehicleState ||
+         type == MessageType::DogAction;
 }
 
 bool IsKnownDriveDirection(DriveDirection direction) {
@@ -220,6 +263,22 @@ bool IsKnownErrorCode(PbErrorCode code) {
          code == vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_ARGUMENT ||
          code == vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INVALID_STATE ||
          code == vtsrtc_vehicle_v1_VehicleErrorCode_VEHICLE_ERROR_CODE_INTERNAL;
+}
+
+bool IsKnownDogActionType(DogActionType action) {
+  return action == DogActionType::LateralLeft ||
+         action == DogActionType::LateralRight ||
+         action == DogActionType::LateralStop ||
+         action == DogActionType::Stand ||
+         action == DogActionType::LieDown;
+}
+
+bool IsKnownDogActionType(PbDogActionType action) {
+  return action == vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_LEFT ||
+         action == vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_RIGHT ||
+         action == vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LATERAL_STOP ||
+         action == vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_STAND ||
+         action == vtsrtc_vehicle_v1_DogActionType_DOG_ACTION_TYPE_LIE_DOWN;
 }
 
 void FillHeader(PbEnvelope* envelope, MessageType type, uint64_t seq) {
@@ -318,6 +377,24 @@ bool FillEventAck(const EventAck& source, PbEventAck* target,
   return true;
 }
 
+bool FillDogAction(const DogAction& source,
+                   PbDogAction* target,
+                   std::string* error) {
+  const ValidationResult validation = ValidateDogAction(source);
+  if (!validation) {
+    *error = validation.error_message;
+    return false;
+  }
+  Reset(target);
+  target->has_request_id = true;
+  target->request_id = source.request_id;
+  target->has_action = true;
+  target->action = ToPbDogActionType(source.action);
+  target->has_speed = true;
+  target->speed = source.speed;
+  return true;
+}
+
 bool FillVehicleState(const VehicleState& source, PbState* target,
                       std::string* error) {
   if (!IsKnownGear(source.active_gear)) {
@@ -364,6 +441,21 @@ ValidationResult ValidateSetGear(const SetGear& set_gear) {
   return {true, ""};
 }
 
+ValidationResult ValidateDogAction(const DogAction& dog_action) {
+  if (dog_action.request_id == 0) {
+    return {false, Error("dog_action.request_id", "must be non-zero")};
+  }
+  if (!IsKnownDogActionType(dog_action.action)) {
+    return {false, Error("dog_action.action", "is unknown")};
+  }
+  if (!IsFinite(dog_action.speed) || dog_action.speed < 0.0f ||
+      dog_action.speed > 1.0f) {
+    return {false,
+            Error("dog_action.speed", "must be finite and in range 0..1")};
+  }
+  return {true, ""};
+}
+
 EncodeResult EncodeDriveCommand(uint64_t seq, const DriveCommand& command) {
   PbEnvelope envelope = vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
   FillHeader(&envelope, MessageType::DriveCommand, seq);
@@ -381,6 +473,17 @@ EncodeResult EncodeSetGear(uint64_t seq, const SetGear& set_gear) {
   envelope.which_payload = vtsrtc_vehicle_v1_VehicleControlEnvelope_set_gear_tag;
   std::string error;
   if (!FillSetGear(set_gear, &envelope.payload.set_gear, &error)) {
+    return {{}, error};
+  }
+  return EncodePbEnvelope(envelope);
+}
+
+EncodeResult EncodeDogAction(uint64_t seq, const DogAction& dog_action) {
+  PbEnvelope envelope = vtsrtc_vehicle_v1_VehicleControlEnvelope_init_zero;
+  FillHeader(&envelope, MessageType::DogAction, seq);
+  envelope.which_payload = vtsrtc_vehicle_v1_VehicleControlEnvelope_dog_action_tag;
+  std::string error;
+  if (!FillDogAction(dog_action, &envelope.payload.dog_action, &error)) {
     return {{}, error};
   }
   return EncodePbEnvelope(envelope);
@@ -485,6 +588,28 @@ DecodeResult DecodeEnvelope(const uint8_t* data, size_t size) {
       result.envelope.set_gear.request_id = source.request_id;
       result.envelope.set_gear.gear = FromPbGear(source.gear);
       const ValidationResult validation = ValidateSetGear(result.envelope.set_gear);
+      if (!validation) {
+        return DecodeError(DecodeStatus::InvalidField, validation.error_message);
+      }
+      break;
+    }
+    case MessageType::DogAction: {
+      if (envelope.which_payload !=
+          vtsrtc_vehicle_v1_VehicleControlEnvelope_dog_action_tag) {
+        return DecodeError(DecodeStatus::UnexpectedPayload,
+                           "dog action payload is missing or mismatched");
+      }
+      const PbDogAction& source = envelope.payload.dog_action;
+      if (!source.has_request_id || !source.has_action || !source.has_speed ||
+          !IsKnownDogActionType(source.action)) {
+        return DecodeError(DecodeStatus::InvalidField,
+                           "dog action has missing or unknown fields");
+      }
+      result.envelope.dog_action.request_id = source.request_id;
+      result.envelope.dog_action.action = FromPbDogActionType(source.action);
+      result.envelope.dog_action.speed = source.speed;
+      const ValidationResult validation =
+          ValidateDogAction(result.envelope.dog_action);
       if (!validation) {
         return DecodeError(DecodeStatus::InvalidField, validation.error_message);
       }

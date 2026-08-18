@@ -224,12 +224,17 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
     return;
   }
 
-  if (decoded.envelope.type != vts_rtc::vehicle::MessageType::SetGear) {
-    StopForSafety(
-        "non-gear transaction received on reliable control channel");
+  if (decoded.envelope.type == vts_rtc::vehicle::MessageType::SetGear) {
+    ProcessSetGear(event.remote_sessionid, decoded.envelope);
     return;
   }
-  ProcessSetGear(event.remote_sessionid, decoded.envelope);
+  if (decoded.envelope.type == vts_rtc::vehicle::MessageType::DogAction) {
+    ProcessDogAction(event.remote_sessionid, decoded.envelope);
+    return;
+  }
+
+  StopForSafety(
+      "unsupported transaction received on reliable control channel");
 }
 
 void VehicleControlModule::ProcessDriveCommand(
@@ -307,6 +312,15 @@ void VehicleControlModule::ProcessSetGear(
   state_dirty_ = true;
 }
 
+void VehicleControlModule::ProcessDogAction(
+    RtcSessionId remote_sessionid,
+    const vts_rtc::vehicle::Envelope& envelope) {
+  const VehicleCommandResult result = NormalizeResult(
+      vehicle_control_->SendDogAction(envelope.dog_action));
+  SendEventAck(remote_sessionid, envelope.dog_action, result);
+  state_dirty_ = true;
+}
+
 void VehicleControlModule::HandlePeerConnected(RtcSessionId remote_sessionid) {
   if (has_active_session_) {
     if (active_sessionid_ != remote_sessionid && log_error_) {
@@ -374,6 +388,20 @@ void VehicleControlModule::StopForSafety(const std::string& reason) {
 void VehicleControlModule::SendEventAck(
     RtcSessionId remote_sessionid,
     const vts_rtc::vehicle::SetGear& request,
+    const VehicleCommandResult& source_result) {
+  const VehicleCommandResult result = NormalizeResult(source_result);
+  vts_rtc::vehicle::EventAck ack;
+  ack.request_id = request.request_id;
+  ack.accepted = result.accepted;
+  ack.error_code = result.error_code;
+  ack.active_gear = active_gear_;
+  SendPayload(remote_sessionid, vts_rtc::vehicle::kVehicleEventChannelLabel,
+              vts_rtc::vehicle::EncodeEventAck(outgoing_seq_++, ack));
+}
+
+void VehicleControlModule::SendEventAck(
+    RtcSessionId remote_sessionid,
+    const vts_rtc::vehicle::DogAction& request,
     const VehicleCommandResult& source_result) {
   const VehicleCommandResult result = NormalizeResult(source_result);
   vts_rtc::vehicle::EventAck ack;
