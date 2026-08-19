@@ -63,7 +63,6 @@ constexpr float kVehicleThrottleStep = 0.05f;
 constexpr float kGamepadAxisDeadzone = 0.25f;
 constexpr float kGamepadTriggerThreshold = 0.45f;
 constexpr uint64_t kGamepadThrottleRepeatMs = 160;
-constexpr uint64_t kGamepadDogLateralHeartbeatMs = 100;
 constexpr int kMainWindowWidth = 1060;
 constexpr int kMainWindowHeight = 910;
 constexpr float kPanelLeft = 16.0f;
@@ -1234,7 +1233,9 @@ class RtcConsoleApp {
     ImGui::TextDisabled("Vehicle target");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(220.0f);
-    if (vehicle_control_enabled_) {
+    const bool control_input_active =
+        vehicle_control_enabled_ || gamepad_dog_actions_.lateral_active();
+    if (control_input_active) {
       ImGui::BeginDisabled();
     }
     if (ImGui::BeginCombo("##vehicle_target_combo", preview.c_str())) {
@@ -1262,7 +1263,7 @@ class RtcConsoleApp {
       }
       ImGui::EndCombo();
     }
-    if (vehicle_control_enabled_) {
+    if (control_input_active) {
       ImGui::EndDisabled();
     }
   }
@@ -1508,12 +1509,22 @@ class RtcConsoleApp {
 
   void UpdateVehicleInputFromGamepad() {
     if (!EnsureGamepad()) {
+      const bool drive_was_active = vehicle_gamepad_active_;
+      const bool lateral_was_active = gamepad_dog_actions_.lateral_active();
+      const bool lateral_stopped = gamepad_dog_actions_.StopForDisconnect(
+          [this](vts_rtc::vehicle::DogActionType action, float speed,
+                 bool log_success) {
+            return SendVehicleDogAction(action, speed, log_success);
+          });
       if (vehicle_gamepad_active_) {
         vehicle_gamepad_input_ = rtc_console::VehicleControlInput();
         vehicle_gamepad_active_ = false;
         MergeVehicleInputs();
         SendVehicleDriveCommand(true);
         vehicle_control_enabled_ = vehicle_keyboard_active_;
+      }
+      if (drive_was_active ||
+          (lateral_was_active && lateral_stopped)) {
         AppendLog("Gamepad disconnected; gamepad input cleared");
       }
       return;
@@ -1557,7 +1568,12 @@ class RtcConsoleApp {
       last_gamepad_throttle_change_ms_ = now_ms;
     }
 
-    UpdateGamepadDogActions(dpad_left, dpad_right, stand, lie_down, now_ms);
+    gamepad_dog_actions_.Update(
+        dpad_left, dpad_right, stand, lie_down, vehicle_throttle_, now_ms,
+        [this](vts_rtc::vehicle::DogActionType action, float speed,
+               bool log_success) {
+          return SendVehicleDogAction(action, speed, log_success);
+        });
 
     const bool active =
         dpad_up || dpad_down || brake || rotation != 0.0f;
@@ -1580,40 +1596,6 @@ class RtcConsoleApp {
     vehicle_gamepad_input_.emergency_stop = brake;
     vehicle_gamepad_active_ = true;
     vehicle_control_enabled_ = true;
-  }
-
-  void UpdateGamepadDogActions(bool dpad_left,
-                               bool dpad_right,
-                               bool stand,
-                               bool lie_down,
-                               uint64_t now_ms) {
-    const int lateral = dpad_left == dpad_right ? 0 : (dpad_left ? -1 : 1);
-    const bool lateral_changed = lateral != last_gamepad_dog_lateral_;
-    const bool heartbeat_due =
-        lateral != 0 &&
-        now_ms - last_gamepad_dog_lateral_sent_ms_ >=
-            kGamepadDogLateralHeartbeatMs;
-    if (lateral_changed || heartbeat_due) {
-      vts_rtc::vehicle::DogActionType action =
-          vts_rtc::vehicle::DogActionType::LateralStop;
-      if (lateral < 0) {
-        action = vts_rtc::vehicle::DogActionType::LateralLeft;
-      } else if (lateral > 0) {
-        action = vts_rtc::vehicle::DogActionType::LateralRight;
-      }
-      SendVehicleDogAction(action, vehicle_throttle_, lateral_changed);
-      last_gamepad_dog_lateral_ = lateral;
-      last_gamepad_dog_lateral_sent_ms_ = now_ms;
-    }
-
-    if (stand && !last_gamepad_stand_) {
-      SendVehicleDogAction(vts_rtc::vehicle::DogActionType::Stand, 0.0f);
-    }
-    if (lie_down && !last_gamepad_lie_down_) {
-      SendVehicleDogAction(vts_rtc::vehicle::DogActionType::LieDown, 0.0f);
-    }
-    last_gamepad_stand_ = stand;
-    last_gamepad_lie_down_ = lie_down;
   }
 
   void MergeVehicleInputs() {
@@ -2821,6 +2803,7 @@ class RtcConsoleApp {
     }
     vehicle_control_enabled_ = false;
     ClearVehicleInput();
+    gamepad_dog_actions_.Reset();
     has_last_vehicle_command_ = false;
   }
 
@@ -3378,10 +3361,7 @@ class RtcConsoleApp {
   rtc_console::VehicleControlInput vehicle_input_;
   SDL_Gamepad* gamepad_ = nullptr;
   uint64_t last_gamepad_throttle_change_ms_ = 0;
-  int last_gamepad_dog_lateral_ = 0;
-  uint64_t last_gamepad_dog_lateral_sent_ms_ = 0;
-  bool last_gamepad_stand_ = false;
-  bool last_gamepad_lie_down_ = false;
+  rtc_console::GamepadDogActionState gamepad_dog_actions_;
   uint64_t vehicle_control_seq_ = 1;
   uint64_t vehicle_event_request_id_ = 1;
   uint64_t video_view_control_seq_ = 1;

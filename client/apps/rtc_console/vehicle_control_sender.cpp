@@ -44,6 +44,79 @@ vts_rtc::vehicle::DriveCommand MakeVehicleDriveCommand(
   return command;
 }
 
+GamepadDogActionState::GamepadDogActionState(
+    uint64_t lateral_heartbeat_ms)
+    : lateral_heartbeat_ms_(lateral_heartbeat_ms == 0
+                                ? 100
+                                : lateral_heartbeat_ms) {}
+
+void GamepadDogActionState::Update(bool dpad_left,
+                                   bool dpad_right,
+                                   bool stand,
+                                   bool lie_down,
+                                   float speed,
+                                   uint64_t now_ms,
+                                   const SendCallback& send) {
+  if (!send) {
+    return;
+  }
+
+  const int desired_lateral =
+      dpad_left == dpad_right ? 0 : (dpad_left ? -1 : 1);
+  const bool lateral_changed = desired_lateral != lateral_;
+  const bool heartbeat_due =
+      desired_lateral != 0 && now_ms >= last_lateral_sent_ms_ &&
+      now_ms - last_lateral_sent_ms_ >= lateral_heartbeat_ms_;
+  if (lateral_changed || heartbeat_due) {
+    vts_rtc::vehicle::DogActionType action =
+        vts_rtc::vehicle::DogActionType::LateralStop;
+    if (desired_lateral < 0) {
+      action = vts_rtc::vehicle::DogActionType::LateralLeft;
+    } else if (desired_lateral > 0) {
+      action = vts_rtc::vehicle::DogActionType::LateralRight;
+    }
+    if (send(action, speed, lateral_changed)) {
+      lateral_ = desired_lateral;
+      last_lateral_sent_ms_ = now_ms;
+    }
+  }
+
+  if (!stand) {
+    stand_ = false;
+  } else if (!stand_ &&
+             send(vts_rtc::vehicle::DogActionType::Stand, 0.0f, true)) {
+    stand_ = true;
+  }
+  if (!lie_down) {
+    lie_down_ = false;
+  } else if (!lie_down_ &&
+             send(vts_rtc::vehicle::DogActionType::LieDown, 0.0f, true)) {
+    lie_down_ = true;
+  }
+}
+
+bool GamepadDogActionState::StopForDisconnect(const SendCallback& send) {
+  stand_ = false;
+  lie_down_ = false;
+  if (lateral_ == 0) {
+    return true;
+  }
+  if (!send ||
+      !send(vts_rtc::vehicle::DogActionType::LateralStop, 0.0f, true)) {
+    return false;
+  }
+  lateral_ = 0;
+  last_lateral_sent_ms_ = 0;
+  return true;
+}
+
+void GamepadDogActionState::Reset() {
+  lateral_ = 0;
+  last_lateral_sent_ms_ = 0;
+  stand_ = false;
+  lie_down_ = false;
+}
+
 void VehicleControlTargetRegistry::Clear() {
   std::lock_guard<std::mutex> lock(mutex_);
   peers_.clear();
