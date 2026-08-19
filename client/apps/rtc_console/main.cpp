@@ -63,6 +63,7 @@ constexpr float kVehicleThrottleStep = 0.05f;
 constexpr float kGamepadAxisDeadzone = 0.25f;
 constexpr float kGamepadTriggerThreshold = 0.45f;
 constexpr uint64_t kGamepadThrottleRepeatMs = 160;
+constexpr uint64_t kGamepadDogLateralHeartbeatMs = 100;
 constexpr int kMainWindowWidth = 1060;
 constexpr int kMainWindowHeight = 910;
 constexpr float kPanelLeft = 16.0f;
@@ -1556,7 +1557,7 @@ class RtcConsoleApp {
       last_gamepad_throttle_change_ms_ = now_ms;
     }
 
-    UpdateGamepadDogActions(dpad_left, dpad_right, stand, lie_down);
+    UpdateGamepadDogActions(dpad_left, dpad_right, stand, lie_down, now_ms);
 
     const bool active =
         dpad_up || dpad_down || brake || rotation != 0.0f;
@@ -1584,9 +1585,15 @@ class RtcConsoleApp {
   void UpdateGamepadDogActions(bool dpad_left,
                                bool dpad_right,
                                bool stand,
-                               bool lie_down) {
+                               bool lie_down,
+                               uint64_t now_ms) {
     const int lateral = dpad_left == dpad_right ? 0 : (dpad_left ? -1 : 1);
-    if (lateral != last_gamepad_dog_lateral_) {
+    const bool lateral_changed = lateral != last_gamepad_dog_lateral_;
+    const bool heartbeat_due =
+        lateral != 0 &&
+        now_ms - last_gamepad_dog_lateral_sent_ms_ >=
+            kGamepadDogLateralHeartbeatMs;
+    if (lateral_changed || heartbeat_due) {
       vts_rtc::vehicle::DogActionType action =
           vts_rtc::vehicle::DogActionType::LateralStop;
       if (lateral < 0) {
@@ -1594,8 +1601,9 @@ class RtcConsoleApp {
       } else if (lateral > 0) {
         action = vts_rtc::vehicle::DogActionType::LateralRight;
       }
-      SendVehicleDogAction(action, vehicle_throttle_);
+      SendVehicleDogAction(action, vehicle_throttle_, lateral_changed);
       last_gamepad_dog_lateral_ = lateral;
+      last_gamepad_dog_lateral_sent_ms_ = now_ms;
     }
 
     if (stand && !last_gamepad_stand_) {
@@ -1706,7 +1714,8 @@ class RtcConsoleApp {
   }
 
   bool SendVehicleDogAction(vts_rtc::vehicle::DogActionType action,
-                            float speed) {
+                            float speed,
+                            bool log_success = true) {
     const RtcSessionId target =
         vehicle_control_targets_.selected_target();
     if (target == 0) {
@@ -1739,7 +1748,9 @@ class RtcConsoleApp {
       return false;
     }
 
-    AppendLog(std::string("Dog action sent: ") + DogActionText(action));
+    if (log_success) {
+      AppendLog(std::string("Dog action sent: ") + DogActionText(action));
+    }
     return true;
   }
 
@@ -3368,6 +3379,7 @@ class RtcConsoleApp {
   SDL_Gamepad* gamepad_ = nullptr;
   uint64_t last_gamepad_throttle_change_ms_ = 0;
   int last_gamepad_dog_lateral_ = 0;
+  uint64_t last_gamepad_dog_lateral_sent_ms_ = 0;
   bool last_gamepad_stand_ = false;
   bool last_gamepad_lie_down_ = false;
   uint64_t vehicle_control_seq_ = 1;

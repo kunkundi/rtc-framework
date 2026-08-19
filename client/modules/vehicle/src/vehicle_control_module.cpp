@@ -22,6 +22,11 @@ VehicleCommandResult NormalizeResult(
   return result;
 }
 
+bool IsDogLateralMotionAction(vts_rtc::vehicle::DogActionType action) {
+  return action == vts_rtc::vehicle::DogActionType::LateralLeft ||
+         action == vts_rtc::vehicle::DogActionType::LateralRight;
+}
+
 }  // 匿名命名空间
 
 VehicleControlModule::VehicleControlModule(
@@ -36,6 +41,9 @@ VehicleControlModule::VehicleControlModule(
       log_error_(log_error),
       options_(options),
       drive_gate_(options.watchdog_ms) {
+  if (options_.watchdog_ms == 0) {
+    options_.watchdog_ms = vts_rtc::vehicle::kDefaultDriveWatchdogMs;
+  }
   if (options_.state_interval_ms == 0) {
     options_.state_interval_ms = 50;
   }
@@ -162,6 +170,20 @@ void VehicleControlModule::Tick(uint64_t now_ms) {
       StopForSafety("drive command watchdog timeout");
     }
   }
+  if (has_active_session_ && dog_lateral_active_ &&
+      now_ms >= last_dog_lateral_ms_ &&
+      now_ms - last_dog_lateral_ms_ >= options_.watchdog_ms) {
+    dog_lateral_active_ = false;
+    dog_lateral_watchdog_stopped_ = true;
+    if (!stop_sent_ && vehicle_control_) {
+      vehicle_control_->SendStop();
+      stop_sent_ = true;
+    }
+    state_dirty_ = true;
+    if (log_error_) {
+      log_error_("Dog lateral watchdog timeout; stop command sent");
+    }
+  }
   MaybeSendState(now_ms);
 }
 
@@ -229,7 +251,7 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
     return;
   }
   if (decoded.envelope.type == vts_rtc::vehicle::MessageType::DogAction) {
-    ProcessDogAction(event.remote_sessionid, decoded.envelope);
+    ProcessDogAction(event.remote_sessionid, decoded.envelope, now_ms);
     return;
   }
 
@@ -288,6 +310,8 @@ void VehicleControlModule::ProcessDriveCommand(
     return;
   }
   stop_sent_ = false;
+  dog_lateral_active_ = false;
+  dog_lateral_watchdog_stopped_ = false;
   state_dirty_ = true;
 }
 
@@ -314,9 +338,23 @@ void VehicleControlModule::ProcessSetGear(
 
 void VehicleControlModule::ProcessDogAction(
     RtcSessionId remote_sessionid,
-    const vts_rtc::vehicle::Envelope& envelope) {
+    const vts_rtc::vehicle::Envelope& envelope,
+    uint64_t now_ms) {
   const VehicleCommandResult result = NormalizeResult(
       vehicle_control_->SendDogAction(envelope.dog_action));
+  if (result.accepted) {
+    if (IsDogLateralMotionAction(envelope.dog_action.action)) {
+      dog_lateral_active_ = true;
+      dog_lateral_watchdog_stopped_ = false;
+      last_dog_lateral_ms_ = now_ms;
+      stop_sent_ = false;
+    } else if (envelope.dog_action.action ==
+               vts_rtc::vehicle::DogActionType::LateralStop) {
+      dog_lateral_active_ = false;
+      dog_lateral_watchdog_stopped_ = false;
+      stop_sent_ = true;
+    }
+  }
   SendEventAck(remote_sessionid, envelope.dog_action, result);
   state_dirty_ = true;
 }
@@ -335,6 +373,8 @@ void VehicleControlModule::HandlePeerConnected(RtcSessionId remote_sessionid) {
   awaiting_first_drive_ = true;
   recoverable_stop_pending_ = false;
   safety_latched_ = false;
+  dog_lateral_active_ = false;
+  dog_lateral_watchdog_stopped_ = false;
   stop_sent_ = false;
   state_dirty_ = true;
   if (log_info_) {
@@ -360,6 +400,7 @@ void VehicleControlModule::StopForRecoverableCondition(
     stop_sent_ = true;
   }
   drive_gate_.Stop();
+  dog_lateral_active_ = false;
   awaiting_first_drive_ = true;
   recoverable_stop_pending_ = true;
   safety_latched_ = true;
@@ -372,6 +413,7 @@ void VehicleControlModule::StopForRecoverableCondition(
 void VehicleControlModule::StopForSafety(const std::string& reason) {
   const bool first_stop = drive_gate_.started() || !stop_sent_;
   drive_gate_.Stop();
+  dog_lateral_active_ = false;
   awaiting_first_drive_ = false;
   recoverable_stop_pending_ = false;
   safety_latched_ = true;
@@ -425,7 +467,8 @@ void VehicleControlModule::MaybeSendState(uint64_t now_ms) {
   vts_rtc::vehicle::VehicleState state;
   state.active_gear = active_gear_;
   state.last_received_drive_seq = drive_gate_.last_received_seq();
-  state.watchdog_stopped = safety_latched_;
+  state.watchdog_stopped =
+      safety_latched_ || dog_lateral_watchdog_stopped_;
   if (SendPayload(active_sessionid_,
                   vts_rtc::vehicle::kVehicleStateChannelLabel,
                   vts_rtc::vehicle::EncodeVehicleState(outgoing_seq_++,

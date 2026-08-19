@@ -9,8 +9,10 @@ namespace {
 
 using vts_rtc::vehicle::DecodeEnvelope;
 using vts_rtc::vehicle::DogAction;
+using vts_rtc::vehicle::DogActionType;
 using vts_rtc::vehicle::DriveCommand;
 using vts_rtc::vehicle::DriveDirection;
+using vts_rtc::vehicle::EncodeDogAction;
 using vts_rtc::vehicle::EncodeDriveCommand;
 using vts_rtc::vehicle::EncodeSetGear;
 using vts_rtc::vehicle::MessageType;
@@ -247,6 +249,69 @@ void TestWatchdogUpperBound() {
   Check(!vehicle.opened, "非法看门狗配置不得打开车辆控制接口");
 }
 
+void TestDogLateralWatchdog() {
+  FakeVehicleControl vehicle;
+  std::vector<SentPacket> sent_packets;
+  rtc_vehicle::VehicleControlModule module(
+      &vehicle,
+      [&sent_packets](RtcSessionId remote_sessionid, const char* label,
+                      const std::vector<uint8_t>& payload) {
+        sent_packets.push_back({remote_sessionid, label, payload});
+        return true;
+      },
+      [](const std::string&) {}, [](const std::string&) {});
+
+  std::string error;
+  Check(module.Start(&error), "启动机器狗横移看门狗测试模块");
+  module.EnqueueP2PState(14, P2PConnected);
+  module.Tick(8000);
+
+  DogAction lateral;
+  lateral.request_id = 1;
+  lateral.action = DogActionType::LateralLeft;
+  lateral.speed = 0.5f;
+  EnqueueEncoded(&module, 14,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(1, lateral));
+  module.Tick(8010);
+  Check(vehicle.dog_action_count == 1, "下发机器狗横移指令");
+
+  module.Tick(8309);
+  Check(vehicle.stop_count == 0, "横移看门狗期限内不停车");
+
+  lateral.request_id = 2;
+  EnqueueEncoded(&module, 14,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(2, lateral));
+  module.Tick(8309);
+  module.Tick(8608);
+  Check(vehicle.stop_count == 0, "横移心跳刷新看门狗期限");
+
+  module.Tick(8609);
+  Check(vehicle.stop_count == 1, "横移心跳超时后主动停车");
+  const auto stopped_state = DecodeEnvelope(sent_packets.back().payload);
+  Check(stopped_state &&
+            stopped_state.envelope.type == MessageType::VehicleState &&
+            stopped_state.envelope.vehicle_state.watchdog_stopped,
+        "横移超时后上报看门狗停车状态");
+
+  lateral.request_id = 3;
+  EnqueueEncoded(&module, 14,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(3, lateral));
+  module.Tick(8610);
+  Check(vehicle.dog_action_count == 3, "新横移心跳可恢复控制");
+  const auto recovered_state = DecodeEnvelope(sent_packets.back().payload);
+  Check(recovered_state &&
+            recovered_state.envelope.type == MessageType::VehicleState &&
+            !recovered_state.envelope.vehicle_state.watchdog_stopped,
+        "新横移心跳清除超时状态");
+
+  module.EnqueueP2PState(14, P2PDisconnected);
+  module.Tick(8620);
+  Check(vehicle.stop_count == 2, "恢复横移后断线再次停车");
+}
+
 void TestWatchdogRecoveryPreservesSequenceAndState() {
   FakeVehicleControl vehicle;
   std::vector<SentPacket> sent_packets;
@@ -425,6 +490,7 @@ int main() {
   TestInvalidPayloadBoundaryStopsVehicle();
   TestTransportDisconnectStopsVehicle();
   TestWatchdogUpperBound();
+  TestDogLateralWatchdog();
   TestWatchdogRecoveryPreservesSequenceAndState();
   TestInterfaceRecoveryRequiresNewSequence();
   std::cout << "rtc_vehicle_control_module_tests passed" << std::endl;

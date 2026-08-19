@@ -81,7 +81,8 @@ class VehicleControlModule {
   void ProcessSetGear(RtcSessionId remote_sessionid,
                       const vts_rtc::vehicle::Envelope& envelope);
   void ProcessDogAction(RtcSessionId remote_sessionid,
-                        const vts_rtc::vehicle::Envelope& envelope);
+                        const vts_rtc::vehicle::Envelope& envelope,
+                        uint64_t now_ms);
   void HandlePeerConnected(RtcSessionId remote_sessionid);
   void HandlePeerDisconnected(RtcSessionId remote_sessionid);
   void StopForRecoverableCondition(const std::string& reason);
@@ -109,12 +110,15 @@ class VehicleControlModule {
   bool awaiting_first_drive_ = false;
   bool recoverable_stop_pending_ = false;
   bool safety_latched_ = true;
+  bool dog_lateral_active_ = false;
+  bool dog_lateral_watchdog_stopped_ = false;
   bool state_dirty_ = false;
   RtcSessionId active_sessionid_ = 0;
   vts_rtc::vehicle::VehicleGear active_gear_ =
       vts_rtc::vehicle::VehicleGear::Neutral;
   uint64_t outgoing_seq_ = 1;
   uint64_t last_state_sent_ms_ = 0;
+  uint64_t last_dog_lateral_ms_ = 0;
   std::mutex pending_mutex_;
   std::deque<PendingEvent> pending_events_;
   bool pending_overflow_ = false;
