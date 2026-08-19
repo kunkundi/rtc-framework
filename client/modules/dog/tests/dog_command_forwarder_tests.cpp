@@ -210,7 +210,8 @@ class ReconnectingWebSocketServer {
       }
       cv_.notify_all();
 
-      const size_t frames_to_read = connection_index == 0 ? 2 : 3;
+      // 每次连接依次写入：零速度基线、开机 goal、随后业务帧；重连后多一帧关闭停车。
+      const size_t frames_to_read = connection_index == 0 ? 3 : 4;
       for (size_t frame_index = 0; frame_index < frames_to_read;
            ++frame_index) {
         std::string payload;
@@ -454,14 +455,23 @@ void TestSendAndReconnect() {
             initial_stop.at("msg").at("wz").get<float>() == 0.0f,
         "initial connection establishes a zero-velocity baseline");
 
+  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
+        "initial connection sends a boot up goal");
+  const nlohmann::json boot_up =
+      nlohmann::json::parse(server.payload(1));
+  Check(boot_up.at("topic") == "/alphadog_node/do_action/goal",
+        "publish boot up goal to do_action topic");
+  Check(boot_up.at("msg").at("goal").at("action_id").get<int>() == 0,
+        "boot up goal uses action_id 0");
+
   vts_rtc::vehicle::DriveCommand drive;
   drive.drive_direction = vts_rtc::vehicle::DriveDirection::Forward;
   drive.throttle = 0.5f;
   Check(forwarder.SendDriveCommand(drive).accepted,
         "accept command while rosbridge is connected");
-  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(3, std::chrono::seconds(1)),
         "server receives first velocity frame");
-  const nlohmann::json first = nlohmann::json::parse(server.payload(1));
+  const nlohmann::json first = nlohmann::json::parse(server.payload(2));
   Check(first.at("topic") == "/alphadog_node/set_velocity",
         "publish to dog velocity topic");
   Check(first.at("msg").at("vx").get<float>() == 0.75f,
@@ -482,10 +492,10 @@ void TestSendAndReconnect() {
   Check(WaitForConnectionState(&forwarder, true,
                                std::chrono::seconds(1)),
         "report reconnected state");
-  Check(server.WaitForPayloads(3, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(4, std::chrono::seconds(1)),
         "reconnect sends a stop frame before a fresh command");
   const nlohmann::json reconnect_stop =
-      nlohmann::json::parse(server.payload(2));
+      nlohmann::json::parse(server.payload(3));
   Check(reconnect_stop.at("msg").at("vx").get<float>() == 0.0f &&
             reconnect_stop.at("msg").at("wz").get<float>() == 0.0f,
         "reconnect restores a zero-velocity baseline");
@@ -493,12 +503,12 @@ void TestSendAndReconnect() {
       vts_rtc::vehicle::SteeringDirection::Left;
   Check(forwarder.SendDriveCommand(drive).accepted,
         "accept a fresh command after reconnect");
-  Check(server.WaitForPayloads(4, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(5, std::chrono::seconds(1)),
         "server receives command after reconnect");
   forwarder.Close();
-  Check(server.WaitForPayloads(5, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(6, std::chrono::seconds(1)),
         "server receives shutdown stop frame");
-  const nlohmann::json stopped = nlohmann::json::parse(server.payload(4));
+  const nlohmann::json stopped = nlohmann::json::parse(server.payload(6));
   Check(stopped.at("msg").at("vx").get<float>() == 0.0f &&
             stopped.at("msg").at("wz").get<float>() == 0.0f,
         "shutdown sends zero velocity");
@@ -517,16 +527,24 @@ void TestDogBehaviorGoalForwarding() {
   Check(forwarder.Open(&error), "connect for behavior goal test");
   Check(server.WaitForPayloads(1, std::chrono::seconds(1)),
         "initial connection establishes a zero-velocity baseline");
+  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
+        "initial connection sends a boot up goal");
+  const nlohmann::json boot_up =
+      nlohmann::json::parse(server.payload(1));
+  Check(boot_up.at("topic") == "/alphadog_node/do_action/goal",
+        "publish boot up goal to do_action topic");
+  Check(boot_up.at("msg").at("goal").at("action_id").get<int>() == 0,
+        "boot up goal uses action_id 0");
 
   vts_rtc::vehicle::DogAction stand;
   stand.request_id = 100;
   stand.action = vts_rtc::vehicle::DogActionType::Stand;
   Check(forwarder.SendDogAction(stand).accepted,
         "accept stand while rosbridge is connected");
-  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(3, std::chrono::seconds(1)),
         "server receives stand goal frame");
   const nlohmann::json stand_goal =
-      nlohmann::json::parse(server.payload(1));
+      nlohmann::json::parse(server.payload(2));
   Check(stand_goal.at("topic") ==
             "/agent_skill/do_dog_behavior/execute/goal",
         "publish stand to dog behavior goal topic");
@@ -552,10 +570,10 @@ void TestDogBehaviorGoalForwarding() {
   rest.action = vts_rtc::vehicle::DogActionType::LieDown;
   Check(forwarder.SendDogAction(rest).accepted,
         "accept lie_down while rosbridge is connected");
-  Check(server.WaitForPayloads(3, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(4, std::chrono::seconds(1)),
         "server receives lie_down goal frame");
   const nlohmann::json rest_goal =
-      nlohmann::json::parse(server.payload(2));
+      nlohmann::json::parse(server.payload(3));
   const std::string rest_id =
       rest_goal.at("msg").at("goal_id").at("id");
   Check(rest_id.compare(0, 9, "cli_rest_") == 0,

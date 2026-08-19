@@ -120,6 +120,19 @@ std::string BuildRosbridgeDogBehaviorGoalMessage(const char* goal_id,
   return message.dump();
 }
 
+// 构造开机 goal，发布到 /alphadog_node/do_action/goal，action_id 固定为 0。
+// 与板子上用 rostopic pub 实测成功的极简格式一致，msg 只含 goal.action_id。
+// 狗的开机流程约 1.5 秒，远端 RTC 连接建立的耗时可覆盖该缓冲，因此连接
+// rosbridge 成功后立即发一次，只要该帧写入 WebSocket 即可，不等回执。
+std::string BuildRosbridgeBootUpGoalMessage() {
+  nlohmann::json message = {
+      {"op", "publish"},
+      {"topic", "/alphadog_node/do_action/goal"},
+      {"msg", {{"goal", {{"action_id", 0}}}}},
+  };
+  return message.dump();
+}
+
 std::mt19937& RandomGenerator() {
   thread_local std::mt19937 generator(std::random_device{}());
   return generator;
@@ -655,8 +668,21 @@ struct DogCommandForwarder::Impl {
           rtc_logging::LogInfo(
               "dog command forwarder: connected to rosbridge at " +
               endpoint.host_header + endpoint.path);
+          SendBootUpGoal();
           BeginReadFrame(generation);
         });
+  }
+
+  // 连接成功后发一次开机 goal，触发狗的 boot up 流程。开机约 1.5 秒，
+  // 远端 RTC 连接建立的耗时可覆盖该缓冲；此处只需保证该帧入队发出，
+  // 不等回执、不阻塞后续指令。
+  void SendBootUpGoal() {
+    const std::string frame =
+        BuildWsFrame(BuildRosbridgeBootUpGoalMessage());
+    // 不冲掉刚发的零速度帧，走队尾顺序发送。
+    QueueFrameOnIo(frame, false, false, false);
+    rtc_logging::LogInfo(
+        "dog command forwarder: queued boot up goal");
   }
 
   void ArmOperationTimeout(uint64_t generation) {
