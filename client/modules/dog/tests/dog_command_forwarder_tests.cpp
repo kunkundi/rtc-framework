@@ -251,10 +251,11 @@ class ReconnectingWebSocketServer {
 // 校验站立/趴下 actionlib goal 的转发内容，避免依赖重连时序。
 class BehaviorGoalServer {
  public:
-  BehaviorGoalServer()
+  explicit BehaviorGoalServer(size_t frames_to_read = 4)
       : acceptor_(io_context_,
                   SimpleWeb::asio::ip::tcp::endpoint(
-                      SimpleWeb::asio::ip::address_v4::loopback(), 0)) {
+                      SimpleWeb::asio::ip::address_v4::loopback(), 0)),
+        frames_to_read_(frames_to_read) {
     worker_ = std::thread([this]() { Run(); });
   }
 
@@ -335,7 +336,8 @@ class BehaviorGoalServer {
     }
 
     // 首帧为建立连接时写入的零速度基线，后续为待校验的动作帧。
-    for (size_t frame_index = 0; frame_index < 4 && !stopped_.load();
+    for (size_t frame_index = 0;
+         frame_index < frames_to_read_ && !stopped_.load();
          ++frame_index) {
       std::string payload;
       if (!ReadClientFrame(socket.get(), &payload)) {
@@ -362,6 +364,7 @@ class BehaviorGoalServer {
   std::vector<std::string> payloads_;
   std::mutex socket_mutex_;
   std::shared_ptr<SimpleWeb::asio::ip::tcp::socket> active_socket_;
+  size_t frames_to_read_ = 4;
 };
 
 class StalledHandshakeServer {
@@ -592,6 +595,44 @@ void TestDogBehaviorGoalForwarding() {
   forwarder.Close();
 }
 
+void TestDogBehaviorGoalsAreNotCoalesced() {
+  constexpr size_t kActionCount = 16;
+  BehaviorGoalServer server(2 + kActionCount);
+  rtc_dog::DogCommandForwarder::Config config;
+  config.rosbridge_url =
+      "ws://127.0.0.1:" + std::to_string(server.port()) + "/bridge";
+  config.connect_timeout_ms = 1000;
+  config.shutdown_timeout_ms = 100;
+  rtc_dog::DogCommandForwarder forwarder(config);
+
+  std::string error;
+  Check(forwarder.Open(&error), "connect for behavior queue test");
+  Check(server.WaitForPayloads(2, std::chrono::seconds(1)),
+        "behavior queue test receives connection baseline");
+
+  for (size_t index = 0; index < kActionCount; ++index) {
+    vts_rtc::vehicle::DogAction action;
+    action.request_id = 1000 + index;
+    action.action = index % 2 == 0
+                        ? vts_rtc::vehicle::DogActionType::Stand
+                        : vts_rtc::vehicle::DogActionType::LieDown;
+    Check(forwarder.SendDogAction(action).accepted,
+          "accept burst behavior goal");
+  }
+
+  Check(server.WaitForPayloads(2 + kActionCount,
+                               std::chrono::seconds(2)),
+        "all burst behavior goals reach rosbridge");
+  for (size_t index = 0; index < kActionCount; ++index) {
+    const nlohmann::json goal =
+        nlohmann::json::parse(server.payload(2 + index));
+    Check(goal.at("topic") ==
+              "/agent_skill/do_dog_behavior/execute/goal",
+          "burst frame remains a behavior goal");
+  }
+  forwarder.Close();
+}
+
 void TestHandshakeTimeoutDoesNotHang() {
   StalledHandshakeServer server;
   rtc_dog::DogCommandForwarder::Config config;
@@ -625,6 +666,7 @@ void TestInvalidSpeedLimitIsRejected() {
 int main() {
   TestSendAndReconnect();
   TestDogBehaviorGoalForwarding();
+  TestDogBehaviorGoalsAreNotCoalesced();
   TestHandshakeTimeoutDoesNotHang();
   TestInvalidSpeedLimitIsRejected();
   std::cout << "rtc_dog_command_forwarder_tests passed" << std::endl;

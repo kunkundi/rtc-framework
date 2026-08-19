@@ -893,6 +893,22 @@ struct DogCommandForwarder::Impl {
     return true;
   }
 
+  bool EnqueueBehaviorFrame(std::string frame) {
+    if (!running.load(std::memory_order_acquire) ||
+        !connected.load(std::memory_order_acquire) || !io_context) {
+      return false;
+    }
+    io_context->post([this, frame = std::move(frame)]() mutable {
+      if (!running.load(std::memory_order_acquire) ||
+          !connected.load(std::memory_order_acquire) || stopping) {
+        return;
+      }
+      // 行为 goal 是可靠事务，必须按发送顺序完整保留，禁止与速度帧合并。
+      QueueFrameOnIo(std::move(frame), false, false, false);
+    });
+    return true;
+  }
+
   void QueueFrameOnIo(std::string frame,
                       bool replace_latest,
                       bool discard_pending,
@@ -1188,7 +1204,7 @@ bool DogCommandForwarder::ForwardDogBehaviorGoal(const char* goal_id,
   const std::string frame = BuildWsFrame(
       BuildRosbridgeDogBehaviorGoalMessage(unique_goal_id.c_str(), args,
                                            header_seq, now_secs));
-  if (!impl_->EnqueueVelocityFrame(frame, false)) {
+  if (!impl_->EnqueueBehaviorFrame(frame)) {
     return false;
   }
   rtc_logging::LogInfo(
