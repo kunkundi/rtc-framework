@@ -340,6 +340,18 @@ void VehicleControlModule::ProcessDogAction(
     RtcSessionId remote_sessionid,
     const vts_rtc::vehicle::Envelope& envelope,
     uint64_t now_ms) {
+  if (safety_latched_ &&
+      envelope.dog_action.action !=
+          vts_rtc::vehicle::DogActionType::LateralStop) {
+    VehicleCommandResult rejected;
+    rejected.accepted = false;
+    rejected.error_code =
+        vts_rtc::vehicle::VehicleErrorCode::InvalidState;
+    rejected.detail = "vehicle is safety-locked";
+    SendEventAck(remote_sessionid, envelope.dog_action, rejected);
+    state_dirty_ = true;
+    return;
+  }
   const VehicleCommandResult result = NormalizeResult(
       vehicle_control_->SendDogAction(envelope.dog_action));
   if (result.accepted) {

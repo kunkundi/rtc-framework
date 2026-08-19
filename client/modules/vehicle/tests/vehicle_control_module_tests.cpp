@@ -207,6 +207,41 @@ void TestControlFlow() {
   }
   Check(locked_ack_seen, "安全停车后返回拒绝换档回执");
 
+  DogAction locked_lateral;
+  locked_lateral.request_id = 101;
+  locked_lateral.action = DogActionType::LateralLeft;
+  locked_lateral.speed = 0.5f;
+  EnqueueEncoded(&module, 7,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(14, locked_lateral));
+  module.Tick(1726);
+  Check(vehicle.dog_action_count == 0,
+        "安全停车后拒绝机器狗运动动作");
+
+  bool locked_dog_ack_seen = false;
+  for (const SentPacket& packet : sent_packets) {
+    const auto decoded = DecodeEnvelope(packet.payload);
+    if (decoded && decoded.envelope.type == MessageType::EventAck &&
+        decoded.envelope.event_ack.request_id == 101) {
+      locked_dog_ack_seen = !decoded.envelope.event_ack.accepted &&
+                            decoded.envelope.event_ack.error_code ==
+                                VehicleErrorCode::InvalidState;
+    }
+  }
+  Check(locked_dog_ack_seen,
+        "安全停车后返回拒绝机器狗动作回执");
+
+  DogAction locked_stop;
+  locked_stop.request_id = 102;
+  locked_stop.action = DogActionType::LateralStop;
+  EnqueueEncoded(&module, 7,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(15, locked_stop));
+  module.Tick(1727);
+  Check(vehicle.dog_action_count == 1 &&
+            vehicle.last_dog_action.action == DogActionType::LateralStop,
+        "安全停车后仍允许重复发送横移停止");
+
   module.EnqueueP2PState(7, P2PDisconnected);
   module.Tick(1730);
   Check(!module.has_active_peer(), "断线后清除活动控制端");
