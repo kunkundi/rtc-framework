@@ -353,6 +353,22 @@ const char* DogActionText(vts_rtc::vehicle::DogActionType action) {
   }
 }
 
+const char* VehicleErrorCodeText(
+    vts_rtc::vehicle::VehicleErrorCode error_code) {
+  switch (error_code) {
+    case vts_rtc::vehicle::VehicleErrorCode::None:
+      return "none";
+    case vts_rtc::vehicle::VehicleErrorCode::InvalidArgument:
+      return "invalid_argument";
+    case vts_rtc::vehicle::VehicleErrorCode::InvalidState:
+      return "invalid_state";
+    case vts_rtc::vehicle::VehicleErrorCode::Internal:
+      return "internal";
+    default:
+      return "unknown";
+  }
+}
+
 uint64_t SteadyTimeMs() {
   return static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1731,8 +1747,10 @@ class RtcConsoleApp {
     }
 
     if (log_success) {
-      AppendLog(std::string("Dog action sent: ") + DogActionText(action));
+      AppendLog(std::string("Dog action queued: ") + DogActionText(action));
     }
+    vehicle_event_acks_.TrackDogAction(dog_action.request_id, action,
+                                       log_success);
     return true;
   }
 
@@ -2804,6 +2822,7 @@ class RtcConsoleApp {
     vehicle_control_enabled_ = false;
     ClearVehicleInput();
     gamepad_dog_actions_.Reset();
+    vehicle_event_acks_.Clear();
     has_last_vehicle_command_ = false;
   }
 
@@ -3097,6 +3116,11 @@ class RtcConsoleApp {
       return;
     }
     if (label &&
+        std::strcmp(label, vts_rtc::vehicle::kVehicleEventChannelLabel) == 0) {
+      instance_->HandleVehicleEventMessage(remote_sessionid, msg, msg_size);
+      return;
+    }
+    if (label &&
         std::strcmp(label, vts_rtc::vehicle::kVehicleStateChannelLabel) == 0) {
       instance_->HandleVehicleStateMessage(remote_sessionid, msg, msg_size);
       return;
@@ -3110,6 +3134,51 @@ class RtcConsoleApp {
       oss << " preview='" << std::string(msg, msg + preview) << "'";
     }
     instance_->AppendLog(oss.str());
+  }
+
+  void HandleVehicleEventMessage(RtcSessionId remote_sessionid,
+                                 const char* msg,
+                                 size_t msg_size) {
+    if (!msg || msg_size == 0) {
+      AppendLog("Vehicle event decode failed: empty payload");
+      return;
+    }
+    const vts_rtc::vehicle::DecodeResult decoded =
+        vts_rtc::vehicle::DecodeEnvelope(
+            reinterpret_cast<const uint8_t*>(msg), msg_size);
+    if (!decoded ||
+        decoded.envelope.type != vts_rtc::vehicle::MessageType::EventAck) {
+      std::ostringstream oss;
+      oss << "Vehicle event decode failed from " << remote_sessionid;
+      if (!decoded) {
+        oss << ": " << decoded.error_message;
+      } else {
+        oss << ": unexpected message type";
+      }
+      AppendLog(oss.str());
+      return;
+    }
+
+    const vts_rtc::vehicle::EventAck& ack = decoded.envelope.event_ack;
+    rtc_console::DogActionAckContext context;
+    if (vehicle_event_acks_.ResolveDogAction(ack.request_id, &context)) {
+      if (context.log_result || !ack.accepted) {
+        std::ostringstream oss;
+        oss << "Dog action result: action=" << DogActionText(context.action)
+            << " request_id=" << ack.request_id
+            << " accepted=" << (ack.accepted ? "true" : "false")
+            << " error=" << VehicleErrorCodeText(ack.error_code);
+        AppendLog(oss.str());
+      }
+      return;
+    }
+
+    std::ostringstream oss;
+    oss << "Vehicle event ack from " << remote_sessionid
+        << " request_id=" << ack.request_id
+        << " accepted=" << (ack.accepted ? "true" : "false")
+        << " error=" << VehicleErrorCodeText(ack.error_code);
+    AppendLog(oss.str());
   }
 
   void HandleVehicleStateMessage(RtcSessionId remote_sessionid,
@@ -3362,6 +3431,7 @@ class RtcConsoleApp {
   SDL_Gamepad* gamepad_ = nullptr;
   uint64_t last_gamepad_throttle_change_ms_ = 0;
   rtc_console::GamepadDogActionState gamepad_dog_actions_;
+  rtc_console::VehicleEventAckTracker vehicle_event_acks_;
   uint64_t vehicle_control_seq_ = 1;
   uint64_t vehicle_event_request_id_ = 1;
   uint64_t video_view_control_seq_ = 1;

@@ -32,6 +32,8 @@ constexpr auto kMinSendInterval = std::chrono::milliseconds(50);
 constexpr size_t kMaxIncomingFrameSize = 64 * 1024;
 constexpr const char* kWebSocketMagic =
     "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+constexpr const char* kDogBehaviorResultTopic =
+    "/agent_skill/do_dog_behavior/execute/result";
 
 struct DogVelocity {
   float vx = 0.0f;
@@ -129,6 +131,15 @@ std::string BuildRosbridgeBootUpGoalMessage() {
       {"op", "publish"},
       {"topic", "/alphadog_node/do_action/goal"},
       {"msg", {{"goal", {{"action_id", 0}}}}},
+  };
+  return message.dump();
+}
+
+std::string BuildRosbridgeBehaviorResultSubscriptionMessage() {
+  nlohmann::json message = {
+      {"op", "subscribe"},
+      {"id", "rtc_dog_behavior_result"},
+      {"topic", kDogBehaviorResultTopic},
   };
   return message.dump();
 }
@@ -370,6 +381,14 @@ struct DogCommandForwarder::Impl {
   using Socket = SimpleWeb::asio::ip::tcp::socket;
   using ReadCallback = std::function<void(
       const SimpleWeb::error_code&, std::vector<uint8_t>)>;
+  using DogActionCompletionCallback =
+      rtc_vehicle::VehicleControlInterface::DogActionCompletionCallback;
+  using VehicleCommandResult = rtc_vehicle::VehicleCommandResult;
+
+  struct PendingBehaviorGoal {
+    uint64_t request_id = 0;
+    std::shared_ptr<SimpleWeb::asio::steady_timer> timer;
+  };
 
   Config config;
   ParsedWsUrl endpoint;
@@ -406,6 +425,9 @@ struct DogCommandForwarder::Impl {
 
   // 行为指令 header.seq 的递增序号，对齐参考脚本的自增计数。
   uint64_t behavior_seq = 0;
+  std::map<std::string, PendingBehaviorGoal> pending_behavior_goals;
+  std::mutex completion_mutex;
+  DogActionCompletionCallback dog_action_completion;
 
   explicit Impl(const Config& source_config)
       : config(source_config),
@@ -423,7 +445,8 @@ struct DogCommandForwarder::Impl {
       return false;
     }
     if (config.reconnect_interval_ms <= 0 || config.connect_timeout_ms <= 0 ||
-        config.shutdown_timeout_ms <= 0) {
+        config.shutdown_timeout_ms <= 0 ||
+        config.behavior_result_timeout_ms <= 0) {
       if (error_message) {
         *error_message = "dog network timeouts must be positive";
       }
@@ -664,11 +687,12 @@ struct DogCommandForwarder::Impl {
 
           CancelOperationTimeout();
           connected.store(true, std::memory_order_release);
-          NotifyInitialConnection(true);
           rtc_logging::LogInfo(
               "dog command forwarder: connected to rosbridge at " +
               endpoint.host_header + endpoint.path);
+          SendBehaviorResultSubscription();
           SendBootUpGoal();
+          NotifyInitialConnection(true);
           BeginReadFrame(generation);
         });
   }
@@ -683,6 +707,12 @@ struct DogCommandForwarder::Impl {
     QueueFrameOnIo(frame, false, false, false);
     rtc_logging::LogInfo(
         "dog command forwarder: queued boot up goal");
+  }
+
+  void SendBehaviorResultSubscription() {
+    QueueFrameOnIo(
+        BuildWsFrame(BuildRosbridgeBehaviorResultSubscriptionMessage()),
+        false, false, false);
   }
 
   void ArmOperationTimeout(uint64_t generation) {
@@ -716,6 +746,9 @@ struct DogCommandForwarder::Impl {
     ++connection_generation;
     CancelOperationTimeout();
     connected.store(false, std::memory_order_release);
+    FailPendingBehaviorGoals(
+        vts_rtc::vehicle::VehicleErrorCode::InvalidState,
+        "rosbridge connection lost before dog action completed");
     CloseSocket();
     pending_writes.clear();
     active_write.reset();
@@ -872,6 +905,9 @@ struct DogCommandForwarder::Impl {
             const std::string ping_payload(payload.begin(), payload.end());
             QueueFrameOnIo(BuildWsFrame(ping_payload, 0xA), false, false,
                            true);
+          } else if (opcode == 0x1) {
+            HandleIncomingText(
+                std::string(payload.begin(), payload.end()));
           }
           BeginReadFrame(generation);
         });
@@ -893,16 +929,45 @@ struct DogCommandForwarder::Impl {
     return true;
   }
 
-  bool EnqueueBehaviorFrame(std::string frame) {
+  bool EnqueueBehaviorFrame(std::string frame,
+                            std::string goal_id,
+                            uint64_t request_id) {
     if (!running.load(std::memory_order_acquire) ||
         !connected.load(std::memory_order_acquire) || !io_context) {
       return false;
     }
-    io_context->post([this, frame = std::move(frame)]() mutable {
+    io_context->post([this, frame = std::move(frame),
+                      goal_id = std::move(goal_id), request_id]() mutable {
       if (!running.load(std::memory_order_acquire) ||
-          !connected.load(std::memory_order_acquire) || stopping) {
+          !connected.load(std::memory_order_acquire) || stopping || !socket ||
+          !socket->is_open()) {
+        VehicleCommandResult failed;
+        failed.accepted = false;
+        failed.error_code =
+            vts_rtc::vehicle::VehicleErrorCode::InvalidState;
+        failed.detail = "rosbridge WebSocket is not connected";
+        NotifyDogActionCompletion(request_id, failed);
         return;
       }
+      PendingBehaviorGoal pending;
+      pending.request_id = request_id;
+      pending.timer =
+          std::make_shared<SimpleWeb::asio::steady_timer>(*io_context);
+      pending.timer->expires_after(
+          std::chrono::milliseconds(config.behavior_result_timeout_ms));
+      pending.timer->async_wait(
+          [this, goal_id](const SimpleWeb::error_code& error) {
+            if (error) {
+              return;
+            }
+            VehicleCommandResult timed_out;
+            timed_out.accepted = false;
+            timed_out.error_code =
+                vts_rtc::vehicle::VehicleErrorCode::Internal;
+            timed_out.detail = "dog behavior result timed out";
+            CompleteBehaviorGoal(goal_id, timed_out);
+          });
+      pending_behavior_goals[goal_id] = std::move(pending);
       // 行为 goal 是可靠事务，必须按发送顺序完整保留，禁止与速度帧合并。
       QueueFrameOnIo(std::move(frame), false, false, false);
     });
@@ -1008,6 +1073,9 @@ struct DogCommandForwarder::Impl {
       shutdown_timer->cancel(ignored);
     }
     connected.store(false, std::memory_order_release);
+    FailPendingBehaviorGoals(
+        vts_rtc::vehicle::VehicleErrorCode::InvalidState,
+        "dog command forwarder stopped before action completed");
     CloseSocket();
     pending_writes.clear();
     active_write.reset();
@@ -1026,6 +1094,92 @@ struct DogCommandForwarder::Impl {
     socket->shutdown(Socket::shutdown_both, ignored);
     socket->close(ignored);
     socket.reset();
+  }
+
+  void SetDogActionCompletionCallback(
+      const DogActionCompletionCallback& callback) {
+    std::lock_guard<std::mutex> lock(completion_mutex);
+    dog_action_completion = callback;
+  }
+
+  void NotifyDogActionCompletion(uint64_t request_id,
+                                 const VehicleCommandResult& result) {
+    DogActionCompletionCallback callback;
+    {
+      std::lock_guard<std::mutex> lock(completion_mutex);
+      callback = dog_action_completion;
+    }
+    if (callback) {
+      callback(request_id, result);
+    }
+  }
+
+  void CompleteBehaviorGoal(const std::string& goal_id,
+                            const VehicleCommandResult& result) {
+    const auto pending = pending_behavior_goals.find(goal_id);
+    if (pending == pending_behavior_goals.end()) {
+      return;
+    }
+    const uint64_t request_id = pending->second.request_id;
+    if (pending->second.timer) {
+      SimpleWeb::error_code ignored;
+      pending->second.timer->cancel(ignored);
+    }
+    pending_behavior_goals.erase(pending);
+    NotifyDogActionCompletion(request_id, result);
+  }
+
+  void FailPendingBehaviorGoals(
+      vts_rtc::vehicle::VehicleErrorCode error_code,
+      const std::string& detail) {
+    std::vector<uint64_t> request_ids;
+    request_ids.reserve(pending_behavior_goals.size());
+    for (const auto& entry : pending_behavior_goals) {
+      request_ids.push_back(entry.second.request_id);
+      if (entry.second.timer) {
+        SimpleWeb::error_code ignored;
+        entry.second.timer->cancel(ignored);
+      }
+    }
+    pending_behavior_goals.clear();
+    for (uint64_t request_id : request_ids) {
+      VehicleCommandResult failed;
+      failed.accepted = false;
+      failed.error_code = error_code;
+      failed.detail = detail;
+      NotifyDogActionCompletion(request_id, failed);
+    }
+  }
+
+  void HandleIncomingText(const std::string& payload) {
+    try {
+      const nlohmann::json message = nlohmann::json::parse(payload);
+      if (message.value("op", "") != "publish" ||
+          message.value("topic", "") != kDogBehaviorResultTopic ||
+          !message.contains("msg")) {
+        return;
+      }
+      const nlohmann::json& status = message.at("msg").at("status");
+      const std::string goal_id =
+          status.at("goal_id").at("id").get<std::string>();
+      const int status_code = status.at("status").get<int>();
+      VehicleCommandResult result;
+      result.accepted = status_code == 3;
+      result.error_code =
+          result.accepted
+              ? vts_rtc::vehicle::VehicleErrorCode::None
+              : vts_rtc::vehicle::VehicleErrorCode::Internal;
+      if (!result.accepted) {
+        result.detail =
+            "dog behavior action failed with status " +
+            std::to_string(status_code);
+      }
+      CompleteBehaviorGoal(goal_id, result);
+    } catch (const std::exception& exception) {
+      rtc_logging::LogError(
+          std::string("dog command forwarder: invalid behavior result: ") +
+          exception.what());
+    }
   }
 };
 
@@ -1125,13 +1279,15 @@ DogCommandForwarder::SendDogAction(
       break;
     case vts_rtc::vehicle::DogActionType::Stand:
       forwarded = ForwardDogBehaviorGoal(
-          "cli_stand", "[{\"behavior\":\"force_recovery_balance_stand\"}]");
+          "cli_stand", "[{\"behavior\":\"force_recovery_balance_stand\"}]",
+          action.request_id);
       break;
     case vts_rtc::vehicle::DogActionType::LieDown:
       // 趴下是动作链：先强制平衡站立，再执行休息。
       forwarded = ForwardDogBehaviorGoal(
           "cli_rest",
-          "[{\"behavior\":\"force_recovery_balance_stand\"},{\"behavior\":\"rest\"}]");
+          "[{\"behavior\":\"force_recovery_balance_stand\"},{\"behavior\":\"rest\"}]",
+          action.request_id);
       break;
     case vts_rtc::vehicle::DogActionType::Unknown:
     default:
@@ -1146,6 +1302,9 @@ DogCommandForwarder::SendDogAction(
   }
 
   result.accepted = true;
+  result.completion_pending =
+      action.action == vts_rtc::vehicle::DogActionType::Stand ||
+      action.action == vts_rtc::vehicle::DogActionType::LieDown;
   result.error_code = vts_rtc::vehicle::VehicleErrorCode::None;
   return result;
 }
@@ -1187,7 +1346,8 @@ bool DogCommandForwarder::ForwardVelocity(float vx, float vy, float wz) {
 }
 
 bool DogCommandForwarder::ForwardDogBehaviorGoal(const char* goal_id,
-                                                 const char* args) {
+                                                 const char* args,
+                                                 uint64_t request_id) {
   if (!impl_->running.load(std::memory_order_acquire) ||
       !impl_->connected.load(std::memory_order_acquire)) {
     return false;
@@ -1204,13 +1364,18 @@ bool DogCommandForwarder::ForwardDogBehaviorGoal(const char* goal_id,
   const std::string frame = BuildWsFrame(
       BuildRosbridgeDogBehaviorGoalMessage(unique_goal_id.c_str(), args,
                                            header_seq, now_secs));
-  if (!impl_->EnqueueBehaviorFrame(frame)) {
+  if (!impl_->EnqueueBehaviorFrame(frame, unique_goal_id, request_id)) {
     return false;
   }
   rtc_logging::LogInfo(
       std::string("dog command forwarder: queued behavior goal ") +
       unique_goal_id);
   return true;
+}
+
+void DogCommandForwarder::SetDogActionCompletionCallback(
+    const DogActionCompletionCallback& callback) {
+  impl_->SetDogActionCompletionCallback(callback);
 }
 
 bool DogCommandForwarder::IsConnected() const {

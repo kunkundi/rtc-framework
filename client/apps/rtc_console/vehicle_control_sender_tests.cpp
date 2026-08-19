@@ -187,6 +187,31 @@ void TestGamepadDisconnectRetriesLateralStop() {
         "disconnect stop retries until successful");
 }
 
+void TestVehicleEventAckTracker() {
+  rtc_console::VehicleEventAckTracker tracker;
+  tracker.TrackDogAction(88,
+                         vts_rtc::vehicle::DogActionType::Stand,
+                         true);
+
+  rtc_console::DogActionAckContext context;
+  Check(!tracker.ResolveDogAction(99, &context),
+        "unknown event ack is not claimed");
+  Check(tracker.ResolveDogAction(88, &context),
+        "known dog action ack is correlated");
+  Check(context.action == vts_rtc::vehicle::DogActionType::Stand &&
+            context.log_result,
+        "dog action ack preserves pending context");
+  Check(!tracker.ResolveDogAction(88, &context),
+        "resolved dog action ack is removed");
+
+  tracker.TrackDogAction(89,
+                         vts_rtc::vehicle::DogActionType::LateralLeft,
+                         false);
+  tracker.Clear();
+  Check(!tracker.ResolveDogAction(89, &context),
+        "clearing session state removes pending event acks");
+}
+
 }  // namespace
 
 int main() {
@@ -197,6 +222,7 @@ int main() {
   TestVehicleControlTargetSelection();
   TestGamepadDogActionRetriesFailedTransitions();
   TestGamepadDisconnectRetriesLateralStop();
+  TestVehicleEventAckTracker();
   std::cout << "rtc_console_vehicle_control_sender_tests passed"
             << std::endl;
   return 0;

@@ -8,6 +8,7 @@
 
 #include <deque>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -63,6 +64,7 @@ class VehicleControlModule {
     PeerConnected,
     PeerDisconnected,
     TransportDisconnected,
+    DogActionCompleted,
   };
 
   struct PendingEvent {
@@ -71,6 +73,13 @@ class VehicleControlModule {
     std::string label;
     std::vector<uint8_t> payload;
     bool payload_invalid = false;
+    uint64_t request_id = 0;
+    VehicleCommandResult command_result;
+  };
+
+  struct PendingDogAction {
+    RtcSessionId remote_sessionid = 0;
+    uint64_t request_id = 0;
   };
 
   void Enqueue(PendingEvent event);
@@ -83,6 +92,10 @@ class VehicleControlModule {
   void ProcessDogAction(RtcSessionId remote_sessionid,
                         const vts_rtc::vehicle::Envelope& envelope,
                         uint64_t now_ms);
+  void EnqueueDogActionCompletion(
+      uint64_t completion_id, const VehicleCommandResult& result);
+  void ProcessDogActionCompletion(const PendingEvent& event);
+  uint64_t AllocateDogActionCompletionId();
   void HandlePeerConnected(RtcSessionId remote_sessionid);
   void HandlePeerDisconnected(RtcSessionId remote_sessionid);
   void StopForRecoverableCondition(const std::string& reason);
@@ -92,6 +105,9 @@ class VehicleControlModule {
                     const VehicleCommandResult& result);
   void SendEventAck(RtcSessionId remote_sessionid,
                     const vts_rtc::vehicle::DogAction& request,
+                    const VehicleCommandResult& result);
+  void SendEventAck(RtcSessionId remote_sessionid,
+                    uint64_t request_id,
                     const VehicleCommandResult& result);
   void MaybeSendState(uint64_t now_ms);
   bool SendPayload(RtcSessionId remote_sessionid,
@@ -119,6 +135,8 @@ class VehicleControlModule {
   uint64_t outgoing_seq_ = 1;
   uint64_t last_state_sent_ms_ = 0;
   uint64_t last_dog_lateral_ms_ = 0;
+  uint64_t next_dog_action_completion_id_ = 1;
+  std::map<uint64_t, PendingDogAction> pending_dog_actions_;
   std::mutex pending_mutex_;
   std::deque<PendingEvent> pending_events_;
   bool pending_overflow_ = false;

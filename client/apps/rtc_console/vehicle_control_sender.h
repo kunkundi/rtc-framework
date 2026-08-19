@@ -52,6 +52,25 @@ class GamepadDogActionState {
   bool lie_down_ = false;
 };
 
+struct DogActionAckContext {
+  vts_rtc::vehicle::DogActionType action =
+      vts_rtc::vehicle::DogActionType::Unknown;
+  bool log_result = true;
+};
+
+class VehicleEventAckTracker {
+ public:
+  void TrackDogAction(uint64_t request_id,
+                      vts_rtc::vehicle::DogActionType action,
+                      bool log_result);
+  bool ResolveDogAction(uint64_t request_id, DogActionAckContext* context);
+  void Clear();
+
+ private:
+  std::mutex mutex_;
+  std::map<uint64_t, DogActionAckContext> dog_actions_;
+};
+
 class VehicleControlTargetRegistry {
  public:
   void Clear();

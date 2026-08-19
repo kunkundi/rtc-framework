@@ -65,7 +65,14 @@ class FakeVehicleControl final
       const DogAction& action) override {
     ++dog_action_count;
     last_dog_action = action;
-    return Accepted();
+    rtc_vehicle::VehicleCommandResult result = Accepted();
+    result.completion_pending = complete_dog_actions_async;
+    return result;
+  }
+
+  void SetDogActionCompletionCallback(
+      const DogActionCompletionCallback& callback) override {
+    dog_action_completion = callback;
   }
 
   void SendStop() override { ++stop_count; }
@@ -77,12 +84,22 @@ class FakeVehicleControl final
     return result;
   }
 
+  void CompleteDogAction(
+      uint64_t request_id,
+      const rtc_vehicle::VehicleCommandResult& result) {
+    if (dog_action_completion) {
+      dog_action_completion(request_id, result);
+    }
+  }
+
   bool opened = false;
   int drive_count = 0;
   int gear_count = 0;
   int dog_action_count = 0;
   int stop_count = 0;
   bool reject_drive_as_unavailable = false;
+  bool complete_dog_actions_async = false;
+  DogActionCompletionCallback dog_action_completion;
   DriveCommand last_drive;
   VehicleGear last_gear = VehicleGear::Neutral;
   DogAction last_dog_action;
@@ -347,6 +364,127 @@ void TestDogLateralWatchdog() {
   Check(vehicle.stop_count == 2, "恢复横移后断线再次停车");
 }
 
+void TestDogActionAckWaitsForCompletion() {
+  FakeVehicleControl vehicle;
+  vehicle.complete_dog_actions_async = true;
+  std::vector<SentPacket> sent_packets;
+  rtc_vehicle::VehicleControlModule module(
+      &vehicle,
+      [&sent_packets](RtcSessionId remote_sessionid, const char* label,
+                      const std::vector<uint8_t>& payload) {
+        sent_packets.push_back({remote_sessionid, label, payload});
+        return true;
+      },
+      [](const std::string&) {}, [](const std::string&) {});
+
+  std::string error;
+  Check(module.Start(&error), "启动机器狗异步回执测试模块");
+  module.EnqueueP2PState(15, P2PConnected);
+  module.Tick(9000);
+  sent_packets.clear();
+
+  DogAction stand;
+  stand.request_id = 200;
+  stand.action = DogActionType::Stand;
+  EnqueueEncoded(&module, 15,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(1, stand));
+  module.Tick(9010);
+
+  bool early_ack_seen = false;
+  for (const SentPacket& packet : sent_packets) {
+    const auto decoded = DecodeEnvelope(packet.payload);
+    early_ack_seen = early_ack_seen ||
+                     (decoded &&
+                      decoded.envelope.type == MessageType::EventAck &&
+                      decoded.envelope.event_ack.request_id == 200);
+  }
+  Check(!early_ack_seen, "动作完成前不发送成功回执");
+
+  const uint64_t completion_id = vehicle.last_dog_action.request_id;
+  Check(completion_id != stand.request_id,
+        "底层完成标识与协议请求标识相互隔离");
+  vehicle.CompleteDogAction(completion_id, FakeVehicleControl::Accepted());
+  module.Tick(9020);
+  bool completed_ack_seen = false;
+  for (const SentPacket& packet : sent_packets) {
+    const auto decoded = DecodeEnvelope(packet.payload);
+    if (decoded && decoded.envelope.type == MessageType::EventAck &&
+        decoded.envelope.event_ack.request_id == 200) {
+      completed_ack_seen = decoded.envelope.event_ack.accepted;
+    }
+  }
+  Check(completed_ack_seen, "动作完成后发送成功回执");
+}
+
+void TestStaleDogActionCompletionDoesNotMatchNewSession() {
+  FakeVehicleControl vehicle;
+  vehicle.complete_dog_actions_async = true;
+  std::vector<SentPacket> sent_packets;
+  rtc_vehicle::VehicleControlModule module(
+      &vehicle,
+      [&sent_packets](RtcSessionId remote_sessionid, const char* label,
+                      const std::vector<uint8_t>& payload) {
+        sent_packets.push_back({remote_sessionid, label, payload});
+        return true;
+      },
+      [](const std::string&) {}, [](const std::string&) {});
+
+  std::string error;
+  Check(module.Start(&error), "启动机器狗陈旧回执测试模块");
+  module.EnqueueP2PState(21, P2PConnected);
+  module.Tick(10000);
+
+  DogAction first;
+  first.request_id = 300;
+  first.action = DogActionType::Stand;
+  EnqueueEncoded(&module, 21,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(1, first));
+  module.Tick(10010);
+  const uint64_t stale_completion_id = vehicle.last_dog_action.request_id;
+
+  module.EnqueueP2PState(21, P2PClosed);
+  module.Tick(10020);
+  module.EnqueueP2PState(22, P2PConnected);
+  module.Tick(10030);
+  EnqueueEncoded(&module, 22,
+                 vts_rtc::vehicle::kVehicleEventChannelLabel,
+                 EncodeDogAction(1, first));
+  module.Tick(10040);
+  const uint64_t current_completion_id = vehicle.last_dog_action.request_id;
+  Check(stale_completion_id != current_completion_id,
+        "重连后为相同 request_id 分配新的完成标识");
+  sent_packets.clear();
+
+  vehicle.CompleteDogAction(stale_completion_id,
+                            FakeVehicleControl::Accepted());
+  module.Tick(10050);
+  bool stale_ack_seen = false;
+  for (const SentPacket& packet : sent_packets) {
+    const auto decoded = DecodeEnvelope(packet.payload);
+    stale_ack_seen = stale_ack_seen ||
+                     (decoded &&
+                      decoded.envelope.type == MessageType::EventAck &&
+                      decoded.envelope.event_ack.request_id == 300);
+  }
+  Check(!stale_ack_seen, "旧会话动作结果不会确认新会话请求");
+
+  vehicle.CompleteDogAction(current_completion_id,
+                            FakeVehicleControl::Accepted());
+  module.Tick(10060);
+  bool current_ack_seen = false;
+  for (const SentPacket& packet : sent_packets) {
+    const auto decoded = DecodeEnvelope(packet.payload);
+    current_ack_seen = current_ack_seen ||
+                       (decoded &&
+                        decoded.envelope.type == MessageType::EventAck &&
+                        decoded.envelope.event_ack.request_id == 300 &&
+                        decoded.envelope.event_ack.accepted);
+  }
+  Check(current_ack_seen, "新会话动作结果确认当前请求");
+}
+
 void TestWatchdogRecoveryPreservesSequenceAndState() {
   FakeVehicleControl vehicle;
   std::vector<SentPacket> sent_packets;
@@ -526,6 +664,8 @@ int main() {
   TestTransportDisconnectStopsVehicle();
   TestWatchdogUpperBound();
   TestDogLateralWatchdog();
+  TestDogActionAckWaitsForCompletion();
+  TestStaleDogActionCompletionDoesNotMatchNewSession();
   TestWatchdogRecoveryPreservesSequenceAndState();
   TestInterfaceRecoveryRequiresNewSequence();
   std::cout << "rtc_vehicle_control_module_tests passed" << std::endl;

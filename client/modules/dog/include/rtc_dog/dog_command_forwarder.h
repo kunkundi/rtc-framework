@@ -49,6 +49,8 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
     int connect_timeout_ms = 3000;
     // 关闭时等待停车帧写出的最长时间，单位毫秒。
     int shutdown_timeout_ms = 250;
+    // 等待行为 action result 的最长时间，单位毫秒。
+    int behavior_result_timeout_ms = 15000;
   };
 
   explicit DogCommandForwarder(const Config& config);
@@ -73,6 +75,8 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
       vts_rtc::vehicle::VehicleGear gear) override;
   rtc_vehicle::VehicleCommandResult SendDogAction(
       const vts_rtc::vehicle::DogAction& action) override;
+  void SetDogActionCompletionCallback(
+      const DogActionCompletionCallback& callback) override;
 
   // 紧急停车，发送零速度到狗。
   // 调用者线程：VehicleControlModule::Tick 线程。
@@ -98,7 +102,9 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
   // /agent_skill/do_dog_behavior/execute/goal。goal_id 追加时间戳+随机数
   // 保证每次唯一，stamp 用当前时间、header.seq 递增，与实测可用的
   // 键盘控制脚本一致。
-  bool ForwardDogBehaviorGoal(const char* goal_id, const char* args);
+  bool ForwardDogBehaviorGoal(const char* goal_id,
+                              const char* args,
+                              uint64_t request_id);
 
   // PIMPL：隐藏所有 asio/WebSocket 实现细节，避免头文件污染。
   struct Impl;

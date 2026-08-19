@@ -117,6 +117,37 @@ void GamepadDogActionState::Reset() {
   lie_down_ = false;
 }
 
+void VehicleEventAckTracker::TrackDogAction(
+    uint64_t request_id,
+    vts_rtc::vehicle::DogActionType action,
+    bool log_result) {
+  if (request_id == 0) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  dog_actions_[request_id] = {action, log_result};
+}
+
+bool VehicleEventAckTracker::ResolveDogAction(
+    uint64_t request_id,
+    DogActionAckContext* context) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto pending = dog_actions_.find(request_id);
+  if (pending == dog_actions_.end()) {
+    return false;
+  }
+  if (context) {
+    *context = pending->second;
+  }
+  dog_actions_.erase(pending);
+  return true;
+}
+
+void VehicleEventAckTracker::Clear() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  dog_actions_.clear();
+}
+
 void VehicleControlTargetRegistry::Clear() {
   std::lock_guard<std::mutex> lock(mutex_);
   peers_.clear();
