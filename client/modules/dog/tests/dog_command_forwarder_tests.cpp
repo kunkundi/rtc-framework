@@ -506,10 +506,10 @@ void TestSendAndReconnect() {
       vts_rtc::vehicle::SteeringDirection::Left;
   Check(forwarder.SendDriveCommand(drive).accepted,
         "accept a fresh command after reconnect");
-  Check(server.WaitForPayloads(5, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(6, std::chrono::seconds(1)),
         "server receives command after reconnect");
   forwarder.Close();
-  Check(server.WaitForPayloads(6, std::chrono::seconds(1)),
+  Check(server.WaitForPayloads(7, std::chrono::seconds(1)),
         "server receives shutdown stop frame");
   const nlohmann::json stopped = nlohmann::json::parse(server.payload(6));
   Check(stopped.at("msg").at("vx").get<float>() == 0.0f &&
