@@ -19,7 +19,15 @@ VehicleCommandResult NormalizeResult(
   } else if (result.error_code == vts_rtc::vehicle::VehicleErrorCode::None) {
     result.error_code = vts_rtc::vehicle::VehicleErrorCode::Internal;
   }
+  if (!result.accepted) {
+    result.completion_pending = false;
+  }
   return result;
+}
+
+bool IsDogLateralMotionAction(vts_rtc::vehicle::DogActionType action) {
+  return action == vts_rtc::vehicle::DogActionType::LateralLeft ||
+         action == vts_rtc::vehicle::DogActionType::LateralRight;
 }
 
 }  // 匿名命名空间
@@ -36,6 +44,9 @@ VehicleControlModule::VehicleControlModule(
       log_error_(log_error),
       options_(options),
       drive_gate_(options.watchdog_ms) {
+  if (options_.watchdog_ms == 0) {
+    options_.watchdog_ms = vts_rtc::vehicle::kDefaultDriveWatchdogMs;
+  }
   if (options_.state_interval_ms == 0) {
     options_.state_interval_ms = 50;
   }
@@ -65,7 +76,12 @@ bool VehicleControlModule::Start(std::string* error_message) {
     }
     return false;
   }
+  vehicle_control_->SetDogActionCompletionCallback(
+      [this](uint64_t completion_id, const VehicleCommandResult& result) {
+        EnqueueDogActionCompletion(completion_id, result);
+      });
   if (!vehicle_control_->Open(error_message)) {
+    vehicle_control_->SetDogActionCompletionCallback({});
     return false;
   }
   started_ = true;
@@ -76,6 +92,7 @@ void VehicleControlModule::Shutdown() {
   if (!started_) {
     return;
   }
+  vehicle_control_->SetDogActionCompletionCallback({});
   StopForSafety("control module shutdown");
   vehicle_control_->Close();
   started_ = false;
@@ -84,6 +101,7 @@ void VehicleControlModule::Shutdown() {
   std::lock_guard<std::mutex> lock(pending_mutex_);
   pending_events_.clear();
   pending_overflow_ = false;
+  pending_dog_actions_.clear();
 }
 
 void VehicleControlModule::EnqueueMessage(RtcSessionId remote_sessionid,
@@ -162,6 +180,20 @@ void VehicleControlModule::Tick(uint64_t now_ms) {
       StopForSafety("drive command watchdog timeout");
     }
   }
+  if (has_active_session_ && dog_lateral_active_ &&
+      now_ms >= last_dog_lateral_ms_ &&
+      now_ms - last_dog_lateral_ms_ >= options_.watchdog_ms) {
+    dog_lateral_active_ = false;
+    dog_lateral_watchdog_stopped_ = true;
+    if (!stop_sent_ && vehicle_control_) {
+      vehicle_control_->SendStop();
+      stop_sent_ = true;
+    }
+    state_dirty_ = true;
+    if (log_error_) {
+      log_error_("Dog lateral watchdog timeout; stop command sent");
+    }
+  }
   MaybeSendState(now_ms);
 }
 
@@ -190,6 +222,9 @@ void VehicleControlModule::ProcessEvent(const PendingEvent& event,
       if (has_active_session_) {
         HandlePeerDisconnected(active_sessionid_);
       }
+      break;
+    case PendingEventType::DogActionCompleted:
+      ProcessDogActionCompletion(event);
       break;
   }
 }
@@ -224,12 +259,17 @@ void VehicleControlModule::ProcessMessage(const PendingEvent& event,
     return;
   }
 
-  if (decoded.envelope.type != vts_rtc::vehicle::MessageType::SetGear) {
-    StopForSafety(
-        "non-gear transaction received on reliable control channel");
+  if (decoded.envelope.type == vts_rtc::vehicle::MessageType::SetGear) {
+    ProcessSetGear(event.remote_sessionid, decoded.envelope);
     return;
   }
-  ProcessSetGear(event.remote_sessionid, decoded.envelope);
+  if (decoded.envelope.type == vts_rtc::vehicle::MessageType::DogAction) {
+    ProcessDogAction(event.remote_sessionid, decoded.envelope, now_ms);
+    return;
+  }
+
+  StopForSafety(
+      "unsupported transaction received on reliable control channel");
 }
 
 void VehicleControlModule::ProcessDriveCommand(
@@ -283,6 +323,8 @@ void VehicleControlModule::ProcessDriveCommand(
     return;
   }
   stop_sent_ = false;
+  dog_lateral_active_ = false;
+  dog_lateral_watchdog_stopped_ = false;
   state_dirty_ = true;
 }
 
@@ -307,6 +349,112 @@ void VehicleControlModule::ProcessSetGear(
   state_dirty_ = true;
 }
 
+void VehicleControlModule::ProcessDogAction(
+    RtcSessionId remote_sessionid,
+    const vts_rtc::vehicle::Envelope& envelope,
+    uint64_t now_ms) {
+  if (safety_latched_ &&
+      envelope.dog_action.action !=
+          vts_rtc::vehicle::DogActionType::LateralStop) {
+    VehicleCommandResult rejected;
+    rejected.accepted = false;
+    rejected.error_code =
+        vts_rtc::vehicle::VehicleErrorCode::InvalidState;
+    rejected.detail = "vehicle is safety-locked";
+    SendEventAck(remote_sessionid, envelope.dog_action, rejected);
+    state_dirty_ = true;
+    return;
+  }
+  for (const auto& pending : pending_dog_actions_) {
+    if (pending.second.remote_sessionid == remote_sessionid &&
+        pending.second.request_id == envelope.dog_action.request_id) {
+      VehicleCommandResult rejected;
+      rejected.accepted = false;
+      rejected.error_code =
+          vts_rtc::vehicle::VehicleErrorCode::InvalidState;
+      rejected.detail = "dog action request is already pending";
+      SendEventAck(remote_sessionid, envelope.dog_action, rejected);
+      return;
+    }
+  }
+  if (pending_dog_actions_.size() >= options_.max_pending_events) {
+    VehicleCommandResult rejected;
+    rejected.accepted = false;
+    rejected.error_code =
+        vts_rtc::vehicle::VehicleErrorCode::InvalidState;
+    rejected.detail = "too many pending dog actions";
+    SendEventAck(remote_sessionid, envelope.dog_action, rejected);
+    return;
+  }
+
+  const uint64_t completion_id = AllocateDogActionCompletionId();
+  vts_rtc::vehicle::DogAction forwarded_action = envelope.dog_action;
+  // 底层异步完成标识独立于对端 request_id，避免旧会话结果误匹配新会话。
+  forwarded_action.request_id = completion_id;
+  const VehicleCommandResult result = NormalizeResult(
+      vehicle_control_->SendDogAction(forwarded_action));
+  if (result.accepted) {
+    if (IsDogLateralMotionAction(envelope.dog_action.action)) {
+      dog_lateral_active_ = true;
+      dog_lateral_watchdog_stopped_ = false;
+      last_dog_lateral_ms_ = now_ms;
+      stop_sent_ = false;
+    } else if (envelope.dog_action.action ==
+               vts_rtc::vehicle::DogActionType::LateralStop) {
+      dog_lateral_active_ = false;
+      dog_lateral_watchdog_stopped_ = false;
+      stop_sent_ = true;
+    }
+  }
+  if (result.completion_pending) {
+    pending_dog_actions_[completion_id] =
+        {remote_sessionid, envelope.dog_action.request_id};
+  } else {
+    SendEventAck(remote_sessionid, envelope.dog_action, result);
+  }
+  state_dirty_ = true;
+}
+
+void VehicleControlModule::EnqueueDogActionCompletion(
+    uint64_t completion_id,
+    const VehicleCommandResult& result) {
+  PendingEvent event;
+  event.type = PendingEventType::DogActionCompleted;
+  event.request_id = completion_id;
+  event.command_result = result;
+  Enqueue(std::move(event));
+}
+
+void VehicleControlModule::ProcessDogActionCompletion(
+    const PendingEvent& event) {
+  const auto pending = pending_dog_actions_.find(event.request_id);
+  if (pending == pending_dog_actions_.end()) {
+    if (log_error_) {
+      log_error_("Ignoring completion for unknown dog action request");
+    }
+    return;
+  }
+  const PendingDogAction action = pending->second;
+  pending_dog_actions_.erase(pending);
+  if (!has_active_session_ ||
+      active_sessionid_ != action.remote_sessionid) {
+    return;
+  }
+  SendEventAck(action.remote_sessionid, action.request_id,
+               event.command_result);
+  state_dirty_ = true;
+}
+
+uint64_t VehicleControlModule::AllocateDogActionCompletionId() {
+  while (next_dog_action_completion_id_ == 0 ||
+         pending_dog_actions_.find(next_dog_action_completion_id_) !=
+             pending_dog_actions_.end()) {
+    ++next_dog_action_completion_id_;
+  }
+  const uint64_t completion_id = next_dog_action_completion_id_++;
+  return completion_id;
+}
+
 void VehicleControlModule::HandlePeerConnected(RtcSessionId remote_sessionid) {
   if (has_active_session_) {
     if (active_sessionid_ != remote_sessionid && log_error_) {
@@ -321,6 +469,8 @@ void VehicleControlModule::HandlePeerConnected(RtcSessionId remote_sessionid) {
   awaiting_first_drive_ = true;
   recoverable_stop_pending_ = false;
   safety_latched_ = false;
+  dog_lateral_active_ = false;
+  dog_lateral_watchdog_stopped_ = false;
   stop_sent_ = false;
   state_dirty_ = true;
   if (log_info_) {
@@ -334,6 +484,7 @@ void VehicleControlModule::HandlePeerDisconnected(
     return;
   }
   StopForSafety("vehicle control peer disconnected");
+  pending_dog_actions_.clear();
   has_active_session_ = false;
   active_sessionid_ = 0;
   state_dirty_ = false;
@@ -346,6 +497,7 @@ void VehicleControlModule::StopForRecoverableCondition(
     stop_sent_ = true;
   }
   drive_gate_.Stop();
+  dog_lateral_active_ = false;
   awaiting_first_drive_ = true;
   recoverable_stop_pending_ = true;
   safety_latched_ = true;
@@ -358,6 +510,7 @@ void VehicleControlModule::StopForRecoverableCondition(
 void VehicleControlModule::StopForSafety(const std::string& reason) {
   const bool first_stop = drive_gate_.started() || !stop_sent_;
   drive_gate_.Stop();
+  dog_lateral_active_ = false;
   awaiting_first_drive_ = false;
   recoverable_stop_pending_ = false;
   safety_latched_ = true;
@@ -385,6 +538,27 @@ void VehicleControlModule::SendEventAck(
               vts_rtc::vehicle::EncodeEventAck(outgoing_seq_++, ack));
 }
 
+void VehicleControlModule::SendEventAck(
+    RtcSessionId remote_sessionid,
+    const vts_rtc::vehicle::DogAction& request,
+    const VehicleCommandResult& source_result) {
+  SendEventAck(remote_sessionid, request.request_id, source_result);
+}
+
+void VehicleControlModule::SendEventAck(
+    RtcSessionId remote_sessionid,
+    uint64_t request_id,
+    const VehicleCommandResult& source_result) {
+  const VehicleCommandResult result = NormalizeResult(source_result);
+  vts_rtc::vehicle::EventAck ack;
+  ack.request_id = request_id;
+  ack.accepted = result.accepted;
+  ack.error_code = result.error_code;
+  ack.active_gear = active_gear_;
+  SendPayload(remote_sessionid, vts_rtc::vehicle::kVehicleEventChannelLabel,
+              vts_rtc::vehicle::EncodeEventAck(outgoing_seq_++, ack));
+}
+
 void VehicleControlModule::MaybeSendState(uint64_t now_ms) {
   if (!has_active_session_) {
     return;
@@ -397,7 +571,8 @@ void VehicleControlModule::MaybeSendState(uint64_t now_ms) {
   vts_rtc::vehicle::VehicleState state;
   state.active_gear = active_gear_;
   state.last_received_drive_seq = drive_gate_.last_received_seq();
-  state.watchdog_stopped = safety_latched_;
+  state.watchdog_stopped =
+      safety_latched_ || dog_lateral_watchdog_stopped_;
   if (SendPayload(active_sessionid_,
                   vts_rtc::vehicle::kVehicleStateChannelLabel,
                   vts_rtc::vehicle::EncodeVehicleState(outgoing_seq_++,

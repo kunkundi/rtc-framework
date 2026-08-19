@@ -23,6 +23,7 @@ enum class MessageType : uint32_t {
   SetGear = 2,
   EventAck = 3,
   VehicleState = 4,
+  DogAction = 5,
 };
 
 enum class DriveDirection : uint32_t {
@@ -50,6 +51,15 @@ enum class VehicleErrorCode : uint32_t {
   Internal = 3,
 };
 
+enum class DogActionType : uint32_t {
+  Unknown = 0,
+  LateralLeft = 1,
+  LateralRight = 2,
+  LateralStop = 3,
+  Stand = 4,
+  LieDown = 5,
+};
+
 enum class DecodeStatus {
   Ok,
   EmptyPayload,
@@ -72,6 +82,12 @@ struct SetGear {
   VehicleGear gear = VehicleGear::Neutral;
 };
 
+struct DogAction {
+  uint64_t request_id = 0;
+  DogActionType action = DogActionType::Unknown;
+  float speed = 0.0f;
+};
+
 struct EventAck {
   uint64_t request_id = 0;
   bool accepted = false;
@@ -90,6 +106,7 @@ struct Envelope {
   MessageType type = MessageType::Unknown;
   DriveCommand drive_command;
   SetGear set_gear;
+  DogAction dog_action;
   EventAck event_ack;
   VehicleState vehicle_state;
 };
@@ -118,6 +135,7 @@ struct ValidationResult {
 
 EncodeResult EncodeDriveCommand(uint64_t seq, const DriveCommand& command);
 EncodeResult EncodeSetGear(uint64_t seq, const SetGear& set_gear);
+EncodeResult EncodeDogAction(uint64_t seq, const DogAction& dog_action);
 EncodeResult EncodeEventAck(uint64_t seq, const EventAck& event_ack);
 EncodeResult EncodeVehicleState(uint64_t seq, const VehicleState& state);
 DecodeResult DecodeEnvelope(const uint8_t* data, size_t size);
@@ -128,6 +146,7 @@ inline DecodeResult DecodeEnvelope(const std::vector<uint8_t>& payload) {
 
 ValidationResult ValidateDriveCommand(const DriveCommand& command);
 ValidationResult ValidateSetGear(const SetGear& set_gear);
+ValidationResult ValidateDogAction(const DogAction& dog_action);
 
 enum class DriveReceiveStatus {
   Accepted,

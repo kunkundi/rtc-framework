@@ -49,6 +49,13 @@ PlaceholderVehicleControlInterface::SendGearCommand(
   return NotConnectedResult();
 }
 
+VehicleCommandResult
+PlaceholderVehicleControlInterface::SendDogAction(
+    const vts_rtc::vehicle::DogAction&) {
+  LogOnce();
+  return NotConnectedResult();
+}
+
 void PlaceholderVehicleControlInterface::SendStop() {
   if (opened_ && logger_) {
     logger_("Placeholder vehicle control interface received a stop request");

@@ -15,6 +15,9 @@ PB_BIND(vtsrtc_vehicle_v1_DriveCommand, vtsrtc_vehicle_v1_DriveCommand, AUTO)
 PB_BIND(vtsrtc_vehicle_v1_SetGear, vtsrtc_vehicle_v1_SetGear, AUTO)
 
 
+PB_BIND(vtsrtc_vehicle_v1_DogAction, vtsrtc_vehicle_v1_DogAction, AUTO)
+
+
 PB_BIND(vtsrtc_vehicle_v1_EventAck, vtsrtc_vehicle_v1_EventAck, AUTO)
 
 

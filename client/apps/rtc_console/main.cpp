@@ -60,6 +60,9 @@ constexpr int kAutoOpenRetryMs = 3000;
 constexpr int kNoRenderStatusIntervalMs = 5000;
 constexpr uint64_t kVehicleDriveIntervalMs = 20;
 constexpr float kVehicleThrottleStep = 0.05f;
+constexpr float kGamepadAxisDeadzone = 0.25f;
+constexpr float kGamepadTriggerThreshold = 0.45f;
+constexpr uint64_t kGamepadThrottleRepeatMs = 160;
 constexpr int kMainWindowWidth = 1060;
 constexpr int kMainWindowHeight = 910;
 constexpr float kPanelLeft = 16.0f;
@@ -332,6 +335,40 @@ const char* SteeringDirectionText(
   }
 }
 
+const char* DogActionText(vts_rtc::vehicle::DogActionType action) {
+  switch (action) {
+    case vts_rtc::vehicle::DogActionType::LateralLeft:
+      return "lateral_left";
+    case vts_rtc::vehicle::DogActionType::LateralRight:
+      return "lateral_right";
+    case vts_rtc::vehicle::DogActionType::LateralStop:
+      return "lateral_stop";
+    case vts_rtc::vehicle::DogActionType::Stand:
+      return "stand";
+    case vts_rtc::vehicle::DogActionType::LieDown:
+      return "lie_down";
+    case vts_rtc::vehicle::DogActionType::Unknown:
+    default:
+      return "Unknown";
+  }
+}
+
+const char* VehicleErrorCodeText(
+    vts_rtc::vehicle::VehicleErrorCode error_code) {
+  switch (error_code) {
+    case vts_rtc::vehicle::VehicleErrorCode::None:
+      return "none";
+    case vts_rtc::vehicle::VehicleErrorCode::InvalidArgument:
+      return "invalid_argument";
+    case vts_rtc::vehicle::VehicleErrorCode::InvalidState:
+      return "invalid_state";
+    case vts_rtc::vehicle::VehicleErrorCode::Internal:
+      return "internal";
+    default:
+      return "unknown";
+  }
+}
+
 uint64_t SteadyTimeMs() {
   return static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -589,7 +626,7 @@ class RtcAudioPlayer {
 class SDLOpenGLWindow {
  public:
   bool Init(const char* title, int width, int height) {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
       return false;
     }
     initialized_ = true;
@@ -802,6 +839,7 @@ class RtcConsoleApp {
 
     ReleaseVideoTextures();
     ui_window_ = nullptr;
+    CloseGamepad();
     ImGui_ImplSDL3_Shutdown();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
@@ -1023,6 +1061,8 @@ class RtcConsoleApp {
   void DrawUi() {
     ApplyPendingUiActions();
     UpdateVehicleInputFromKeyboard();
+    UpdateVehicleInputFromGamepad();
+    MergeVehicleInputs();
     DrawControlPanel();
     DrawVideoPanel();
     if (show_netstats_) {
@@ -1209,7 +1249,9 @@ class RtcConsoleApp {
     ImGui::TextDisabled("Vehicle target");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(220.0f);
-    if (vehicle_control_enabled_) {
+    const bool control_input_active =
+        vehicle_control_enabled_ || gamepad_dog_actions_.lateral_active();
+    if (control_input_active) {
       ImGui::BeginDisabled();
     }
     if (ImGui::BeginCombo("##vehicle_target_combo", preview.c_str())) {
@@ -1237,7 +1279,7 @@ class RtcConsoleApp {
       }
       ImGui::EndCombo();
     }
-    if (vehicle_control_enabled_) {
+    if (control_input_active) {
       ImGui::EndDisabled();
     }
   }
@@ -1350,13 +1392,20 @@ class RtcConsoleApp {
   }
 
   void ClearVehicleInput() {
+    vehicle_keyboard_input_ = rtc_console::VehicleControlInput();
+    vehicle_gamepad_input_ = rtc_console::VehicleControlInput();
     vehicle_input_ = rtc_console::VehicleControlInput();
     vehicle_keyboard_active_ = false;
+    vehicle_gamepad_active_ = false;
   }
 
   void SetVehicleEmergencyStop() {
+    vehicle_keyboard_input_ = rtc_console::VehicleControlInput();
+    vehicle_gamepad_input_ = rtc_console::VehicleControlInput();
     vehicle_input_ = rtc_console::VehicleControlInput();
     vehicle_input_.emergency_stop = true;
+    vehicle_keyboard_active_ = false;
+    vehicle_gamepad_active_ = false;
   }
 
   void AdjustVehicleThrottle(float delta) {
@@ -1405,20 +1454,176 @@ class RtcConsoleApp {
         forward || reverse || left || right || emergency_stop;
     if (!any_key) {
       if (vehicle_keyboard_active_) {
-        ClearVehicleInput();
+        vehicle_keyboard_input_ = rtc_console::VehicleControlInput();
+        vehicle_keyboard_active_ = false;
+        MergeVehicleInputs();
         SendVehicleDriveCommand(true);
-        vehicle_control_enabled_ = false;
+        vehicle_control_enabled_ = vehicle_gamepad_active_;
       }
       return;
     }
 
-    vehicle_input_.forward = forward;
-    vehicle_input_.reverse = reverse;
-    vehicle_input_.left = left;
-    vehicle_input_.right = right;
-    vehicle_input_.emergency_stop = emergency_stop;
+    vehicle_keyboard_input_.forward = forward;
+    vehicle_keyboard_input_.reverse = reverse;
+    vehicle_keyboard_input_.left = left;
+    vehicle_keyboard_input_.right = right;
+    vehicle_keyboard_input_.emergency_stop = emergency_stop;
     vehicle_keyboard_active_ = true;
     vehicle_control_enabled_ = true;
+  }
+
+  float NormalizeGamepadAxis(Sint16 value) const {
+    const float normalized =
+        value < 0 ? static_cast<float>(value) / 32768.0f
+                  : static_cast<float>(value) / 32767.0f;
+    return std::fabs(normalized) < kGamepadAxisDeadzone ? 0.0f : normalized;
+  }
+
+  float NormalizeGamepadTrigger(Sint16 value) const {
+    const float normalized =
+        value <= 0 ? 0.0f : static_cast<float>(value) / 32767.0f;
+    return normalized < kGamepadTriggerThreshold ? 0.0f : normalized;
+  }
+
+  void CloseGamepad() {
+    if (gamepad_) {
+      SDL_CloseGamepad(gamepad_);
+      gamepad_ = nullptr;
+    }
+  }
+
+  bool EnsureGamepad() {
+    if (gamepad_ && SDL_GamepadConnected(gamepad_)) {
+      return true;
+    }
+    CloseGamepad();
+
+    int count = 0;
+    SDL_JoystickID* gamepads = SDL_GetGamepads(&count);
+    if (!gamepads || count <= 0) {
+      if (gamepads) {
+        SDL_free(gamepads);
+      }
+      return false;
+    }
+
+    gamepad_ = SDL_OpenGamepad(gamepads[0]);
+    SDL_free(gamepads);
+    if (!gamepad_) {
+      return false;
+    }
+
+    const char* name = SDL_GetGamepadName(gamepad_);
+    AppendLog(std::string("Gamepad connected: ") +
+              (name ? name : "unknown"));
+    return true;
+  }
+
+  bool IsGamepadButtonDown(SDL_GamepadButton button) const {
+    return gamepad_ && SDL_GetGamepadButton(gamepad_, button);
+  }
+
+  void UpdateVehicleInputFromGamepad() {
+    if (!EnsureGamepad()) {
+      const bool drive_was_active = vehicle_gamepad_active_;
+      const bool lateral_was_active = gamepad_dog_actions_.lateral_active();
+      const bool lateral_stopped = gamepad_dog_actions_.StopForDisconnect(
+          [this](vts_rtc::vehicle::DogActionType action, float speed,
+                 bool log_success) {
+            return SendVehicleDogAction(action, speed, log_success);
+          });
+      if (vehicle_gamepad_active_) {
+        vehicle_gamepad_input_ = rtc_console::VehicleControlInput();
+        vehicle_gamepad_active_ = false;
+        MergeVehicleInputs();
+        SendVehicleDriveCommand(true);
+        vehicle_control_enabled_ = vehicle_keyboard_active_;
+      }
+      if (drive_was_active ||
+          (lateral_was_active && lateral_stopped)) {
+        AppendLog("Gamepad disconnected; gamepad input cleared");
+      }
+      return;
+    }
+
+    const bool dpad_up =
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_DPAD_UP);
+    const bool dpad_down =
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_DPAD_DOWN);
+    const bool dpad_left =
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_DPAD_LEFT);
+    const bool dpad_right =
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+    const bool stand =
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_NORTH);
+    const bool lie_down =
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_SOUTH);
+    const bool brake =
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ||
+        IsGamepadButtonDown(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+    const float rotation =
+        NormalizeGamepadAxis(SDL_GetGamepadAxis(gamepad_,
+                                                SDL_GAMEPAD_AXIS_RIGHTX));
+    const float speed_up =
+        NormalizeGamepadTrigger(SDL_GetGamepadAxis(gamepad_,
+                                                   SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+    const float speed_down =
+        NormalizeGamepadTrigger(SDL_GetGamepadAxis(gamepad_,
+                                                   SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
+    const uint64_t now_ms = SteadyTimeMs();
+    if (speed_up > 0.0f &&
+        now_ms - last_gamepad_throttle_change_ms_ >=
+            kGamepadThrottleRepeatMs) {
+      AdjustVehicleThrottle(kVehicleThrottleStep);
+      last_gamepad_throttle_change_ms_ = now_ms;
+    }
+    if (speed_down > 0.0f &&
+        now_ms - last_gamepad_throttle_change_ms_ >=
+            kGamepadThrottleRepeatMs) {
+      AdjustVehicleThrottle(-kVehicleThrottleStep);
+      last_gamepad_throttle_change_ms_ = now_ms;
+    }
+
+    gamepad_dog_actions_.Update(
+        dpad_left, dpad_right, stand, lie_down, vehicle_throttle_, now_ms,
+        [this](vts_rtc::vehicle::DogActionType action, float speed,
+               bool log_success) {
+          return SendVehicleDogAction(action, speed, log_success);
+        });
+
+    const bool active =
+        dpad_up || dpad_down || brake || rotation != 0.0f;
+    if (!active) {
+      if (vehicle_gamepad_active_) {
+        vehicle_gamepad_input_ = rtc_console::VehicleControlInput();
+        vehicle_gamepad_active_ = false;
+        MergeVehicleInputs();
+        SendVehicleDriveCommand(true);
+        vehicle_control_enabled_ = vehicle_keyboard_active_;
+      }
+      return;
+    }
+
+    vehicle_gamepad_input_ = rtc_console::VehicleControlInput();
+    vehicle_gamepad_input_.forward = dpad_up && !dpad_down;
+    vehicle_gamepad_input_.reverse = dpad_down && !dpad_up;
+    vehicle_gamepad_input_.left = rotation < 0.0f;
+    vehicle_gamepad_input_.right = rotation > 0.0f;
+    vehicle_gamepad_input_.emergency_stop = brake;
+    vehicle_gamepad_active_ = true;
+    vehicle_control_enabled_ = true;
+  }
+
+  void MergeVehicleInputs() {
+    if (vehicle_gamepad_active_) {
+      vehicle_input_ = vehicle_gamepad_input_;
+      return;
+    }
+    if (vehicle_keyboard_active_) {
+      vehicle_input_ = vehicle_keyboard_input_;
+      return;
+    }
+    vehicle_input_ = rtc_console::VehicleControlInput();
   }
 
   vts_rtc::vehicle::DriveCommand CurrentVehicleDriveCommand() const {
@@ -1503,6 +1708,49 @@ class RtcConsoleApp {
     }
     last_vehicle_command_ = command;
     has_last_vehicle_command_ = true;
+    return true;
+  }
+
+  bool SendVehicleDogAction(vts_rtc::vehicle::DogActionType action,
+                            float speed,
+                            bool log_success = true) {
+    const RtcSessionId target =
+        vehicle_control_targets_.selected_target();
+    if (target == 0) {
+      AppendLog("Dog action skipped: select a vehicle target");
+      return false;
+    }
+    if (!vehicle_control_targets_.selected_target_ready()) {
+      AppendLog("Dog action skipped: selected target is not ready");
+      return false;
+    }
+
+    vts_rtc::vehicle::DogAction dog_action;
+    dog_action.request_id = vehicle_event_request_id_++;
+    dog_action.action = action;
+    dog_action.speed = speed;
+    const vts_rtc::vehicle::EncodeResult encoded =
+        vts_rtc::vehicle::EncodeDogAction(vehicle_control_seq_++, dog_action);
+    if (!encoded) {
+      AppendLog(std::string("Dog action encode failed: ") +
+                encoded.error_message);
+      return false;
+    }
+
+    const RtcErrorCode code = RtcSendData(
+        target, vts_rtc::vehicle::kVehicleEventChannelLabel,
+        reinterpret_cast<const char*>(encoded.payload.data()),
+        encoded.payload.size());
+    if (code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcSendData(vehicle.event.v1 dog_action)", code);
+      return false;
+    }
+
+    if (log_success) {
+      AppendLog(std::string("Dog action queued: ") + DogActionText(action));
+    }
+    vehicle_event_acks_.TrackDogAction(dog_action.request_id, action,
+                                       log_success);
     return true;
   }
 
@@ -2573,6 +2821,8 @@ class RtcConsoleApp {
     }
     vehicle_control_enabled_ = false;
     ClearVehicleInput();
+    gamepad_dog_actions_.Reset();
+    vehicle_event_acks_.Clear();
     has_last_vehicle_command_ = false;
   }
 
@@ -2866,6 +3116,11 @@ class RtcConsoleApp {
       return;
     }
     if (label &&
+        std::strcmp(label, vts_rtc::vehicle::kVehicleEventChannelLabel) == 0) {
+      instance_->HandleVehicleEventMessage(remote_sessionid, msg, msg_size);
+      return;
+    }
+    if (label &&
         std::strcmp(label, vts_rtc::vehicle::kVehicleStateChannelLabel) == 0) {
       instance_->HandleVehicleStateMessage(remote_sessionid, msg, msg_size);
       return;
@@ -2879,6 +3134,51 @@ class RtcConsoleApp {
       oss << " preview='" << std::string(msg, msg + preview) << "'";
     }
     instance_->AppendLog(oss.str());
+  }
+
+  void HandleVehicleEventMessage(RtcSessionId remote_sessionid,
+                                 const char* msg,
+                                 size_t msg_size) {
+    if (!msg || msg_size == 0) {
+      AppendLog("Vehicle event decode failed: empty payload");
+      return;
+    }
+    const vts_rtc::vehicle::DecodeResult decoded =
+        vts_rtc::vehicle::DecodeEnvelope(
+            reinterpret_cast<const uint8_t*>(msg), msg_size);
+    if (!decoded ||
+        decoded.envelope.type != vts_rtc::vehicle::MessageType::EventAck) {
+      std::ostringstream oss;
+      oss << "Vehicle event decode failed from " << remote_sessionid;
+      if (!decoded) {
+        oss << ": " << decoded.error_message;
+      } else {
+        oss << ": unexpected message type";
+      }
+      AppendLog(oss.str());
+      return;
+    }
+
+    const vts_rtc::vehicle::EventAck& ack = decoded.envelope.event_ack;
+    rtc_console::DogActionAckContext context;
+    if (vehicle_event_acks_.ResolveDogAction(ack.request_id, &context)) {
+      if (context.log_result || !ack.accepted) {
+        std::ostringstream oss;
+        oss << "Dog action result: action=" << DogActionText(context.action)
+            << " request_id=" << ack.request_id
+            << " accepted=" << (ack.accepted ? "true" : "false")
+            << " error=" << VehicleErrorCodeText(ack.error_code);
+        AppendLog(oss.str());
+      }
+      return;
+    }
+
+    std::ostringstream oss;
+    oss << "Vehicle event ack from " << remote_sessionid
+        << " request_id=" << ack.request_id
+        << " accepted=" << (ack.accepted ? "true" : "false")
+        << " error=" << VehicleErrorCodeText(ack.error_code);
+    AppendLog(oss.str());
   }
 
   void HandleVehicleStateMessage(RtcSessionId remote_sessionid,
@@ -3123,9 +3423,17 @@ class RtcConsoleApp {
   bool focus_eventlog_hint_ = false;
   bool vehicle_control_enabled_ = false;
   bool vehicle_keyboard_active_ = false;
+  bool vehicle_gamepad_active_ = false;
   float vehicle_throttle_ = 0.5f;
+  rtc_console::VehicleControlInput vehicle_keyboard_input_;
+  rtc_console::VehicleControlInput vehicle_gamepad_input_;
   rtc_console::VehicleControlInput vehicle_input_;
+  SDL_Gamepad* gamepad_ = nullptr;
+  uint64_t last_gamepad_throttle_change_ms_ = 0;
+  rtc_console::GamepadDogActionState gamepad_dog_actions_;
+  rtc_console::VehicleEventAckTracker vehicle_event_acks_;
   uint64_t vehicle_control_seq_ = 1;
+  uint64_t vehicle_event_request_id_ = 1;
   uint64_t video_view_control_seq_ = 1;
   uint64_t last_vehicle_control_sent_ms_ = 0;
   uint64_t last_vehicle_send_error_log_ms_ = 0;

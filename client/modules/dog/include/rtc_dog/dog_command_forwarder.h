@@ -44,10 +44,13 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
     float max_forward_speed = 1.0f;
     // 方向盘最大转角对应的狗旋转速度，单位 rad/s。
     float max_angular_speed = 1.0f;
+    float max_lateral_speed = 0.5f;
     // 首次连接和单次网络操作的超时时间，单位毫秒。
     int connect_timeout_ms = 3000;
     // 关闭时等待停车帧写出的最长时间，单位毫秒。
     int shutdown_timeout_ms = 250;
+    // 等待行为 action result 的最长时间，单位毫秒。
+    int behavior_result_timeout_ms = 15000;
   };
 
   explicit DogCommandForwarder(const Config& config);
@@ -70,6 +73,10 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
   // 调用者线程：VehicleControlModule::Tick 线程。
   rtc_vehicle::VehicleCommandResult SendGearCommand(
       vts_rtc::vehicle::VehicleGear gear) override;
+  rtc_vehicle::VehicleCommandResult SendDogAction(
+      const vts_rtc::vehicle::DogAction& action) override;
+  void SetDogActionCompletionCallback(
+      const DogActionCompletionCallback& callback) override;
 
   // 紧急停车，发送零速度到狗。
   // 调用者线程：VehicleControlModule::Tick 线程。
@@ -90,6 +97,14 @@ class DogCommandForwarder : public rtc_vehicle::VehicleControlInterface {
   // 将解码后的车辆指令编码为 rosbridge JSON 并通过 WebSocket 发送。
   // 内置节流：相同速度指令 50ms 内不重复发送，stop 始终立即转发。
   bool ForwardVelocity(float vx, float vy, float wz);
+
+  // 将站立/趴下编码为 actionlib goal，通过 WebSocket 发布到
+  // /agent_skill/do_dog_behavior/execute/goal。goal_id 追加时间戳+随机数
+  // 保证每次唯一，stamp 用当前时间、header.seq 递增，与实测可用的
+  // 键盘控制脚本一致。
+  bool ForwardDogBehaviorGoal(const char* goal_id,
+                              const char* args,
+                              uint64_t request_id);
 
   // PIMPL：隐藏所有 asio/WebSocket 实现细节，避免头文件污染。
   struct Impl;

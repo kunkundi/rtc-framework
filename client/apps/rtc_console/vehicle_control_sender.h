@@ -3,6 +3,7 @@
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <vector>
@@ -21,6 +22,54 @@ struct VehicleControlInput {
 float ClampVehicleThrottle(float throttle);
 vts_rtc::vehicle::DriveCommand MakeVehicleDriveCommand(
     const VehicleControlInput& input);
+
+// 跟踪手柄机器狗动作，仅在发送成功后推进边沿状态。
+class GamepadDogActionState {
+ public:
+  using SendCallback = std::function<bool(
+      vts_rtc::vehicle::DogActionType, float, bool)>;
+
+  explicit GamepadDogActionState(uint64_t lateral_heartbeat_ms = 100);
+
+  void Update(bool dpad_left,
+              bool dpad_right,
+              bool stand,
+              bool lie_down,
+              float speed,
+              uint64_t now_ms,
+              const SendCallback& send);
+  // 手柄断开时重复调用，直到横移停止成功发送。
+  bool StopForDisconnect(const SendCallback& send);
+  void Reset();
+
+  bool lateral_active() const { return lateral_ != 0; }
+
+ private:
+  uint64_t lateral_heartbeat_ms_ = 100;
+  int lateral_ = 0;
+  uint64_t last_lateral_sent_ms_ = 0;
+  bool stand_ = false;
+  bool lie_down_ = false;
+};
+
+struct DogActionAckContext {
+  vts_rtc::vehicle::DogActionType action =
+      vts_rtc::vehicle::DogActionType::Unknown;
+  bool log_result = true;
+};
+
+class VehicleEventAckTracker {
+ public:
+  void TrackDogAction(uint64_t request_id,
+                      vts_rtc::vehicle::DogActionType action,
+                      bool log_result);
+  bool ResolveDogAction(uint64_t request_id, DogActionAckContext* context);
+  void Clear();
+
+ private:
+  std::mutex mutex_;
+  std::map<uint64_t, DogActionAckContext> dog_actions_;
+};
 
 class VehicleControlTargetRegistry {
  public:

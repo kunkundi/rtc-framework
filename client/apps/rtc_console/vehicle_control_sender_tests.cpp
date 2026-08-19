@@ -4,6 +4,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -113,6 +114,104 @@ void TestVehicleControlTargetSelection() {
   Check(!targets.SelectTarget(8), "closed channel cannot be selected");
 }
 
+struct SentDogAction {
+  vts_rtc::vehicle::DogActionType action =
+      vts_rtc::vehicle::DogActionType::Unknown;
+  bool log_success = false;
+};
+
+void TestGamepadDogActionRetriesFailedTransitions() {
+  rtc_console::GamepadDogActionState state(100);
+  std::vector<SentDogAction> sent;
+  bool accept = false;
+  const auto send = [&sent, &accept](
+                        vts_rtc::vehicle::DogActionType action,
+                        float,
+                        bool log_success) {
+    sent.push_back({action, log_success});
+    return accept;
+  };
+
+  state.Update(true, false, false, false, 0.5f, 1000, send);
+  Check(!state.lateral_active(), "failed lateral start keeps retry state");
+  state.Update(true, false, false, false, 0.5f, 1010, send);
+  Check(sent.size() == 2, "failed lateral start retries on next update");
+
+  accept = true;
+  state.Update(true, false, false, false, 0.5f, 1020, send);
+  Check(state.lateral_active(), "successful lateral start commits state");
+  state.Update(true, false, false, false, 0.5f, 1119, send);
+  Check(sent.size() == 3, "lateral heartbeat waits for interval");
+  state.Update(true, false, false, false, 0.5f, 1120, send);
+  Check(sent.size() == 4 && !sent.back().log_success,
+        "lateral heartbeat is sent without duplicate success log");
+
+  accept = false;
+  state.Update(false, false, false, false, 0.5f, 1130, send);
+  Check(state.lateral_active(), "failed lateral stop preserves active state");
+  state.Update(false, false, false, false, 0.5f, 1140, send);
+  Check(sent.size() == 6, "failed lateral stop retries on next update");
+
+  accept = true;
+  state.Update(false, false, false, false, 0.5f, 1150, send);
+  Check(!state.lateral_active(), "successful lateral stop clears state");
+}
+
+void TestGamepadDisconnectRetriesLateralStop() {
+  rtc_console::GamepadDogActionState state(100);
+  bool accept = true;
+  int stop_attempts = 0;
+  const auto send = [&accept, &stop_attempts](
+                        vts_rtc::vehicle::DogActionType action,
+                        float,
+                        bool) {
+    if (action == vts_rtc::vehicle::DogActionType::LateralStop) {
+      ++stop_attempts;
+    }
+    return accept;
+  };
+
+  state.Update(false, true, false, false, 0.5f, 2000, send);
+  Check(state.lateral_active(), "prepare active lateral state");
+
+  accept = false;
+  Check(!state.StopForDisconnect(send),
+        "failed disconnect stop reports pending state");
+  Check(state.lateral_active(),
+        "failed disconnect stop keeps lateral state for retry");
+
+  accept = true;
+  Check(state.StopForDisconnect(send),
+        "disconnect stop succeeds after transport recovers");
+  Check(!state.lateral_active() && stop_attempts == 2,
+        "disconnect stop retries until successful");
+}
+
+void TestVehicleEventAckTracker() {
+  rtc_console::VehicleEventAckTracker tracker;
+  tracker.TrackDogAction(88,
+                         vts_rtc::vehicle::DogActionType::Stand,
+                         true);
+
+  rtc_console::DogActionAckContext context;
+  Check(!tracker.ResolveDogAction(99, &context),
+        "unknown event ack is not claimed");
+  Check(tracker.ResolveDogAction(88, &context),
+        "known dog action ack is correlated");
+  Check(context.action == vts_rtc::vehicle::DogActionType::Stand &&
+            context.log_result,
+        "dog action ack preserves pending context");
+  Check(!tracker.ResolveDogAction(88, &context),
+        "resolved dog action ack is removed");
+
+  tracker.TrackDogAction(89,
+                         vts_rtc::vehicle::DogActionType::LateralLeft,
+                         false);
+  tracker.Clear();
+  Check(!tracker.ResolveDogAction(89, &context),
+        "clearing session state removes pending event acks");
+}
+
 }  // namespace
 
 int main() {
@@ -121,6 +220,9 @@ int main() {
   TestThrottleClamp();
   TestEmergencyStop();
   TestVehicleControlTargetSelection();
+  TestGamepadDogActionRetriesFailedTransitions();
+  TestGamepadDisconnectRetriesLateralStop();
+  TestVehicleEventAckTracker();
   std::cout << "rtc_console_vehicle_control_sender_tests passed"
             << std::endl;
   return 0;

@@ -9,6 +9,8 @@ namespace rtc_vehicle {
 
 struct VehicleCommandResult {
   bool accepted = false;
+  // 为 true 时最终结果将通过 DogActionCompletionCallback 异步返回。
+  bool completion_pending = false;
   vts_rtc::vehicle::VehicleErrorCode error_code =
       vts_rtc::vehicle::VehicleErrorCode::InvalidState;
   std::string detail;
@@ -16,6 +18,9 @@ struct VehicleCommandResult {
 
 class VehicleControlInterface {
  public:
+  using DogActionCompletionCallback = std::function<void(
+      uint64_t, const VehicleCommandResult&)>;
+
   virtual ~VehicleControlInterface() = default;
 
   virtual bool Open(std::string* error_message) = 0;
@@ -24,6 +29,10 @@ class VehicleControlInterface {
       const vts_rtc::vehicle::DriveCommand& command) = 0;
   virtual VehicleCommandResult SendGearCommand(
       vts_rtc::vehicle::VehicleGear gear) = 0;
+  virtual VehicleCommandResult SendDogAction(
+      const vts_rtc::vehicle::DogAction& action) = 0;
+  virtual void SetDogActionCompletionCallback(
+      const DogActionCompletionCallback&) {}
   virtual void SendStop() = 0;
 };
 
@@ -42,6 +51,8 @@ class PlaceholderVehicleControlInterface final
       const vts_rtc::vehicle::DriveCommand& command) override;
   VehicleCommandResult SendGearCommand(
       vts_rtc::vehicle::VehicleGear gear) override;
+  VehicleCommandResult SendDogAction(
+      const vts_rtc::vehicle::DogAction& action) override;
   void SendStop() override;
 
  private:
