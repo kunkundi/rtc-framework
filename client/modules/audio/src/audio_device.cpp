@@ -14,8 +14,8 @@
 namespace rtc_audio {
 namespace {
 
-constexpr size_t kMaxCaptureQueuedMs = 60;
-constexpr size_t kMaxPlaybackQueuedMs = 80;
+constexpr size_t kMaxCaptureQueuedMs = 20;
+constexpr size_t kMaxPlaybackQueuedMs = 30;
 
 bool InitializeAudioSubsystem(std::string* error_message) {
   if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
