@@ -176,17 +176,18 @@ class RtcExternalAudioDeviceModule
     }
 
     uint32_t new_mic_level = 0;
+    const size_t bytes_per_frame =
+        pcm_data.bits_per_sample / 8 * pcm_data.number_of_channels;
     return audio_callback_->RecordedDataIsAvailable(
                pcm_data.buffer, pcm_data.number_of_frames,
-               pcm_data.bits_per_sample / 8, pcm_data.number_of_channels,
+               bytes_per_frame, pcm_data.number_of_channels,
                static_cast<uint32_t>(pcm_data.sample_rate), 0, 0, 0, false,
                new_mic_level) == 0;
   }
 
  private:
   void PlayoutLoop() {
-    // 即使应用通过 AudioTrackSink 播放，也必须持续拉取混音数据，才能驱动
-    // WebRTC 抖动缓冲区解码并向各音频 sink 输出 PCM。
+    // 持续拉取混音数据以驱动远端音频解码器
     const size_t samples_per_channel = kPlayoutSampleRate / 100;
     std::vector<int16_t> samples(samples_per_channel * kPlayoutChannels);
     auto next_frame_time = std::chrono::steady_clock::now();
@@ -203,7 +204,8 @@ class RtcExternalAudioDeviceModule
         int64_t ntp_time_ms = -1;
         if (audio_callback_ != nullptr) {
           audio_callback_->NeedMorePlayData(
-              samples_per_channel, sizeof(int16_t), kPlayoutChannels,
+              samples_per_channel, sizeof(int16_t) * kPlayoutChannels,
+              kPlayoutChannels,
               kPlayoutSampleRate, samples.data(), samples_out,
               &elapsed_time_ms, &ntp_time_ms);
         }

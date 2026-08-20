@@ -57,8 +57,7 @@ class FakeAudioTransport : public webrtc::AudioTransport {
                            int64_t* elapsed_time_ms,
                            int64_t* ntp_time_ms) override {
     if (audio_samples != nullptr) {
-      std::memset(audio_samples, 0,
-                  sample_count * bytes_per_sample * channel_count);
+      std::memset(audio_samples, 0, sample_count * bytes_per_sample);
     }
     samples_out = sample_count;
     if (elapsed_time_ms != nullptr) {
@@ -108,12 +107,13 @@ class FakeAudioTransport : public webrtc::AudioTransport {
     return playout_calls_;
   }
 
-  void CheckRecordedFormat() const {
+  void CheckRecordedFormat(size_t channel_count) const {
     std::lock_guard<std::mutex> lock(mutex_);
     Check(recorded_sample_count_ == 480, "recorded sample count");
-    Check(recorded_bytes_per_sample_ == sizeof(int16_t),
+    Check(recorded_bytes_per_sample_ == sizeof(int16_t) * channel_count,
           "recorded bytes per sample");
-    Check(recorded_channel_count_ == 1, "recorded channel count");
+    Check(recorded_channel_count_ == channel_count,
+          "recorded channel count");
     Check(recorded_sample_rate_ == 48000, "recorded sample rate");
     Check(recorded_first_sample_ == 1234, "recorded PCM data");
   }
@@ -121,7 +121,7 @@ class FakeAudioTransport : public webrtc::AudioTransport {
   void CheckPlayoutFormat() const {
     std::lock_guard<std::mutex> lock(mutex_);
     Check(playout_sample_count_ == 480, "playout sample count");
-    Check(playout_bytes_per_sample_ == sizeof(int16_t),
+    Check(playout_bytes_per_sample_ == sizeof(int16_t) * 2,
           "playout bytes per sample");
     Check(playout_channel_count_ == 2, "playout channel count");
     Check(playout_sample_rate_ == 48000, "playout sample rate");
@@ -143,12 +143,13 @@ class FakeAudioTransport : public webrtc::AudioTransport {
   uint32_t playout_sample_rate_ = 0;
 };
 
-vts_rtc::PCMData MakePcmData(std::vector<int16_t>* samples) {
+vts_rtc::PCMData MakePcmData(std::vector<int16_t>* samples,
+                             size_t channel_count = 1) {
   vts_rtc::PCMData pcm_data;
   pcm_data.bits_per_sample = 16;
   pcm_data.sample_rate = 48000;
-  pcm_data.number_of_channels = 1;
-  pcm_data.number_of_frames = samples->size();
+  pcm_data.number_of_channels = channel_count;
+  pcm_data.number_of_frames = samples->size() / channel_count;
   pcm_data.buffer = samples->data();
   pcm_data.sz_buffer = samples->size() * sizeof((*samples)[0]);
   return pcm_data;
@@ -184,7 +185,14 @@ void TestRecordingAndPlayout() {
   Check(module->StartRecording() == 0, "start recording");
   Check(module->PushRecordedData(pcm_data), "push valid PCM frame");
   Check(transport.recorded_calls() == 1, "recording callback count");
-  transport.CheckRecordedFormat();
+  transport.CheckRecordedFormat(1);
+
+  std::vector<int16_t> stereo_samples(480 * 2, 1234);
+  vts_rtc::PCMData stereo_pcm_data = MakePcmData(&stereo_samples, 2);
+  Check(module->PushRecordedData(stereo_pcm_data),
+        "push valid stereo PCM frame");
+  Check(transport.recorded_calls() == 2, "stereo recording callback count");
+  transport.CheckRecordedFormat(2);
   Check(module->StopRecording() == 0, "stop recording");
   Check(!module->PushRecordedData(pcm_data),
         "reject recording after stop");
