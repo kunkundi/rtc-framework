@@ -964,11 +964,15 @@ class RtcConsoleApp {
     const UiLayout layout = ComputeUiLayout(*ImGui::GetMainViewport());
     DrawControlPanel(layout);
     DrawVideoPanel(layout);
+    float netstats_hint_bottom = layout.control_pos.y + 58.0f;
     if (show_netstats_) {
-      DrawNetStatsHint(layout);
+      netstats_hint_bottom = DrawNetStatsHint(layout);
     }
     if (show_eventlog_) {
-      DrawEventLogHint(layout);
+      const float eventlog_minimum_y =
+          show_netstats_ ? netstats_hint_bottom + kPanelGap
+                         : layout.control_pos.y + 184.0f;
+      DrawEventLogHint(layout, eventlog_minimum_y);
     }
     DrawFullscreenVideoOverlay();
   }
@@ -2591,7 +2595,7 @@ class RtcConsoleApp {
     video_textures_.clear();
   }
 
-  void DrawNetStatsHint(const UiLayout& layout) {
+  float DrawNetStatsHint(const UiLayout& layout) {
     std::vector<NetStatsView> stats_snapshot;
     {
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -2602,19 +2606,27 @@ class RtcConsoleApp {
 
     const ImGuiWindowFlags hint_flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs;
+        ImGuiWindowFlags_NoSavedSettings;
     const float hint_width =
         std::min(392.0f, std::max(1.0f, layout.control_size.x - 40.0f));
-    const float hint_height =
-        std::min(118.0f, std::max(1.0f, layout.viewport_size.y - 32.0f));
     const float hint_x = layout.control_pos.x + layout.control_size.x -
                          hint_width - 20.0f;
     const float preferred_y = layout.control_pos.y + 58.0f;
     const float minimum_y = layout.viewport_pos.y + kPanelMargin;
-    const float maximum_y = layout.viewport_pos.y + layout.viewport_size.y -
-                            kPanelMargin - hint_height;
-    const float hint_y =
-        std::max(minimum_y, std::min(preferred_y, maximum_y));
+    const float viewport_bottom =
+        layout.viewport_pos.y + layout.viewport_size.y - kPanelMargin;
+    const float hint_y = std::max(minimum_y, preferred_y);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const size_t table_row_count = stats_snapshot.empty()
+                                       ? 1
+                                       : stats_snapshot.size() + 1;
+    const float desired_height =
+        style.WindowPadding.y * 2.0f + style.ItemSpacing.y +
+        ImGui::GetTextLineHeightWithSpacing() *
+            static_cast<float>(table_row_count + 1);
+    const float available_height = std::max(1.0f, viewport_bottom - hint_y);
+    const float hint_height =
+        std::min(std::max(70.0f, desired_height), available_height);
     ImGui::SetNextWindowBgAlpha(0.96f);
     ImGui::SetNextWindowPos(ImVec2(hint_x, hint_y), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(hint_width, hint_height),
@@ -2629,18 +2641,21 @@ class RtcConsoleApp {
     if (stats_snapshot.empty()) {
       ImGui::TextUnformatted("No stats yet");
       ImGui::End();
-      return;
+      return hint_y + hint_height;
     }
 
     if (ImGui::BeginTable("NetStatsHintTable", 5,
                           ImGuiTableFlags_SizingStretchProp |
-                              ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV,
-                          ImVec2(-FLT_MIN, 0.0f))) {
+                              ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_BordersInnerV |
+                              ImGuiTableFlags_ScrollY,
+                          ImVec2(-FLT_MIN, ImGui::GetContentRegionAvail().y))) {
       ImGui::TableSetupColumn("Source");
       ImGui::TableSetupColumn("Type");
       ImGui::TableSetupColumn("Bitrate");
       ImGui::TableSetupColumn("FPS");
       ImGui::TableSetupColumn("Delay");
+      ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableHeadersRow();
 
       for (const NetStatsView& s : stats_snapshot) {
@@ -2660,9 +2675,10 @@ class RtcConsoleApp {
     }
 
     ImGui::End();
+    return hint_y + hint_height;
   }
 
-  void DrawEventLogHint(const UiLayout& layout) {
+  void DrawEventLogHint(const UiLayout& layout, float requested_minimum_y) {
     const ImGuiWindowFlags hint_flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs;
@@ -2672,7 +2688,8 @@ class RtcConsoleApp {
         std::min(176.0f, std::max(1.0f, layout.viewport_size.y - 32.0f));
     const float hint_x = layout.control_pos.x + layout.control_size.x -
                          hint_width - 20.0f;
-    const float preferred_y = layout.control_pos.y + 184.0f;
+    const float preferred_y =
+        std::max(layout.control_pos.y + 184.0f, requested_minimum_y);
     const float minimum_y = layout.viewport_pos.y + kPanelMargin;
     const float maximum_y = layout.viewport_pos.y + layout.viewport_size.y -
                             kPanelMargin - hint_height;
