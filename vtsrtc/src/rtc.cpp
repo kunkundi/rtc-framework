@@ -568,11 +568,11 @@ bool RtcAgent::BroadcastData(const std::string& channel_label,
 		});
 }
 
-void RtcAgent::SendAudioFrame(const AudioSourceId& audio_sourceid,
+bool RtcAgent::SendAudioFrame(const AudioSourceId& audio_sourceid,
 	const PCMData& pcmdata) const {
-	return logic_thread_->Invoke<void>(RTC_FROM_HERE,
+	return logic_thread_->Invoke<bool>(RTC_FROM_HERE,
 		[this, &audio_sourceid, &pcmdata]() {
-			rtc_conn_manager_->SendAudioFrame(audio_sourceid, pcmdata);
+			return rtc_conn_manager_->SendAudioFrame(audio_sourceid, pcmdata);
 		});
 }
 

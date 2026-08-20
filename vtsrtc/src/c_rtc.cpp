@@ -603,8 +603,8 @@ RtcErrorCode RtcSendAudioFrame(RtcAudioSourceId audio_sourceid,
 		in_pcmdata->sz_buffer
 	};
 
-	rtc_agent->SendAudioFrame(std::string(audio_sourceid), pcmdata);
-	return RtcErrorCode::OK;
+	return rtc_agent->SendAudioFrame(std::string(audio_sourceid), pcmdata)
+		? RtcErrorCode::OK : RtcErrorCode::Failed;
 }
 
 RtcErrorCode RtcSendFrame(RtcVideoSourceId video_sourceid, const RtcYUV420pFrame* in_video_frame) {

@@ -296,16 +296,29 @@ void RtcConnectionBase::InitObserverCallbacks() {
 				if (!media_track) {
 					return;
 				}
+				if (!attached_media_track_ids_.insert(media_track->id()).second) {
+					return;
+				}
+
+				std::string source_id = media_track->id();
+				if (!streams.empty() && streams[0]) {
+					source_id = streams[0]->id();
+				} else {
+					const std::vector<std::string> stream_ids = receiver->stream_ids();
+					if (!stream_ids.empty()) {
+						source_id = stream_ids[0];
+					}
+				}
 
 				if (media_track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
+					LOG_INFO("[WEBRTC] Remote audio track added: track=%s stream=%s",
+						media_track->id().c_str(), source_id.c_str());
 					if (!WantsAudioFrames()) {
 						return;
 					}
-					auto audio_trackid =
-						streams.size() > 0 && streams[0] ? streams[0]->id() : std::string("unknown");
 					auto audio_track =
 						static_cast<webrtc::AudioTrackInterface*>(media_track.get());
-					auto rtc_audiosink = std::make_unique<RtcAudioSink>(audio_trackid);
+					auto rtc_audiosink = std::make_unique<RtcAudioSink>(source_id);
 					rtc_audiosink->on_audioframe_ = [this, weak_self](
 						const vts_rtc::AudioSourceId& sourceid, size_t bits_per_sample,
 						size_t sample_rate, size_t number_of_channels, size_t number_of_frames,
@@ -328,11 +341,9 @@ void RtcConnectionBase::InitObserverCallbacks() {
 					if (!WantsVideoFrames()) {
 						return;
 					}
-					auto video_trackid =
-						streams.size() > 0 && streams[0] ? streams[0]->id() : std::string("unknown");
 					auto video_track =
 						static_cast<webrtc::VideoTrackInterface*>(media_track.get());
-					auto rtc_videosink = std::make_unique<RtcVideoSink>(video_trackid);
+					auto rtc_videosink = std::make_unique<RtcVideoSink>(source_id);
 					rtc_videosink->on_frame_ = [this, weak_self](
 						const vts_rtc::VideoSourceId& sourceid, size_t width, size_t height, size_t dimension,
 						const std::vector<unsigned char>& buffer) {
