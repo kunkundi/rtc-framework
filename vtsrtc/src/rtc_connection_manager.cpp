@@ -85,7 +85,7 @@ RtcConnectionManager::~RtcConnectionManager() {
 
   if (worker_thread_) {
     worker_thread_->Invoke<void>(RTC_FROM_HERE, [this]() {
-      adm_taskqueue_ = nullptr;
+      external_audio_device_module_ = nullptr;
       audio_device_moudle_ = nullptr;
     });
   }
@@ -164,18 +164,13 @@ bool RtcConnectionManager::InitPeerConnectionFactory() {
 	rtc::LogMessage::AddLogToStream(webrtc_log_hook_, rtc::LS_INFO);
 #endif
 
-  // To be improved
-  // create dummy AudioDeviceModule for fixing initialization crash of VTS
-  // apollo docker
-  // @attention: invoke method will block the current thread until execution is
-  // complete
+  // 外部 PCM 必须通过 AudioDeviceModule 注入 WebRTC 音频编码链路。
   audio_device_moudle_ =
       worker_thread_->Invoke<rtc::scoped_refptr<webrtc::AudioDeviceModule>>(
           RTC_FROM_HERE, [this]() {
-            adm_taskqueue_ = webrtc::CreateDefaultTaskQueueFactory();
-            return webrtc::AudioDeviceModule::Create(
-                webrtc::AudioDeviceModule::AudioLayer::kDummyAudio,
-                adm_taskqueue_.get());
+            external_audio_device_module_ =
+                new rtc::RefCountedObject<RtcExternalAudioDeviceModule>();
+            return external_audio_device_module_;
           });
 
   std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory = nullptr;
@@ -629,9 +624,17 @@ bool RtcConnectionManager::AddAudioSource(
     return false;
   }
 
-  external_audiosources_[audio_sourceid] =
-      new rtc::RefCountedObject<RtcAudioSource>(audio_sourceid,
-                                                cricket::AudioOptions());
+  // 当前 AudioDeviceModule 只有一条采集输入，避免多个 track 重复发送同一帧。
+  if (!external_audiosources_.empty()) {
+    return false;
+  }
+
+  rtc::scoped_refptr<webrtc::AudioSourceInterface> audio_source =
+      peer_conn_factory_->CreateAudioSource(cricket::AudioOptions());
+  if (!audio_source) {
+    return false;
+  }
+  external_audiosources_[audio_sourceid] = audio_source;
   return true;
 }
 
@@ -1339,15 +1342,17 @@ bool RtcConnectionManager::BroadcastData(const std::string& channel_label,
   return succeed;
 }
 
-void RtcConnectionManager::SendAudioFrame(
+bool RtcConnectionManager::SendAudioFrame(
     const vts_rtc::AudioSourceId& audio_sourceid,
     const vts_rtc::PCMData& pcmdata) {
   RTC_DCHECK_RUN_ON(logic_thread_);
 
-  if (external_audiosources_.find(audio_sourceid) !=
-      external_audiosources_.cend()) {
-    external_audiosources_[audio_sourceid]->OnData(pcmdata);
+  if (external_audiosources_.find(audio_sourceid) ==
+          external_audiosources_.cend() ||
+      !external_audio_device_module_) {
+    return false;
   }
+  return external_audio_device_module_->PushRecordedData(pcmdata);
 }
 
 void RtcConnectionManager::SendFrame(
@@ -1487,6 +1492,8 @@ void RtcConnectionManager::AddAudioTrack2PeerConnection(
       auto rtpsender = rtpsender_error.value();
       if (rtpsender) {
       }
+      LOG_INFO("[WEBRTC] Add audio track (%s) success",
+               audio_sourceid.c_str());
     } else {
       LOG_ERROR("[WEBRTC] Add track (%s) failed, reason: %s",
                 audio_sourceid.c_str(), rtpsender_error.error().message());

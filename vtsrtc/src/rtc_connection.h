@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <vector>
 #include <tuple>
 #include <memory>
@@ -79,6 +80,7 @@ private:
 
 	std::vector<std::unique_ptr<RtcVideoSink>> rtc_pc_videosinks_;
 	std::vector<std::unique_ptr<RtcAudioSink>> rtc_pc_audiosinks_;
+	std::set<std::string> attached_media_track_ids_;
 
 	PeerConnectionObserver peer_conn_observer_;
 	std::vector<std::shared_ptr<DataChannelObserver>> datachannel_observers_;

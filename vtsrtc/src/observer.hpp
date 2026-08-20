@@ -61,7 +61,9 @@ public:
 	}
 
 	void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override {
-//		LOG_INFO("[WEBRTC] On track");
+		if (on_addtrack_ && transceiver && transceiver->receiver()) {
+			on_addtrack_(transceiver->receiver(), {});
+		}
 	}
 
 	void OnRemoveTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override {

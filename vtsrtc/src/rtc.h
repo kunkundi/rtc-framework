@@ -89,7 +89,7 @@ public:
 	bool BroadcastData(const std::string& channel_label,
 		const std::string& msg) const;
 	// send audio frame(PCM format)
-	void SendAudioFrame(const AudioSourceId& audio_sourceid, const PCMData& pcmdata) const;
+	bool SendAudioFrame(const AudioSourceId& audio_sourceid, const PCMData& pcmdata) const;
 	// send frame
 	void SendFrame(const VideoSourceId& video_sourceid, const YUV420pFrame& video_frame) const;
 

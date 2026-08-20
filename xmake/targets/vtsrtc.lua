@@ -96,3 +96,17 @@ target(vtsrtc_target)
             end
         end
     end)
+
+target("rtc_external_audio_device_tests")
+    set_kind("binary")
+    set_default(false)
+    add_files(vtsrtc_path("vtsrtc", "tests", "rtc_external_audio_device_tests.cpp"))
+    add_includedirs(vtsrtc_path("vtsrtc", "src"))
+    vtsrtc_add_webrtc_config()
+    if vtsrtc_on_windows() then
+        add_defines("WEBRTC_WIN", "NOMINMAX", "WIN32_LEAN_AND_MEAN")
+        add_syslinks("winmm")
+    elseif vtsrtc_on_linux() then
+        add_defines("WEBRTC_LINUX", "WEBRTC_POSIX")
+        add_syslinks("pthread", "rt")
+    end

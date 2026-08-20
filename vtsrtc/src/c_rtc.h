@@ -538,7 +538,9 @@ RTC_API RtcErrorCode RtcBroadcastData(RtcDataChannelLabel channel_label,
  * @return 函数是否执行成功
  *   @retval RtcErrorCode::OK 发送成功
  *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
- * @attention pcmdata中的sz_buffer必须严格等于位深、声道数和采样帧数计算出的字节数
+ *   @retval RtcErrorCode::Failed 参数非法或本地音频编码链路尚未就绪
+ * @attention pcmdata中的sz_buffer必须严格等于位深、声道数和采样帧数计算出的字节数；
+ * 当前支持8000、16000、32000、44100或48000 Hz，1至2声道、16-bit、10 ms PCM帧
  */
 RTC_API RtcErrorCode RtcSendAudioFrame(RtcAudioSourceId audio_sourceid,
                                        const RtcPCMData* pcmdata);

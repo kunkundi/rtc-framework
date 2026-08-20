@@ -2,7 +2,7 @@
 
 #include "rtc_types.h"
 #include "rtc_connection.h"
-#include "rtc_audiosource.hpp"
+#include "rtc_external_audio_device.h"
 #include "rtc_device_manager.h"
 #include "statistics/rtc_statistics.h"
 #include <nlohmann/json.hpp>
@@ -107,7 +107,7 @@ public:
 		const std::string& channel_label, const std::string& msg) const;
 	bool BroadcastData(const std::string& channel_label,
 		const std::string& msg) const;
-	void SendAudioFrame(const vts_rtc::AudioSourceId& audio_sourceid,
+	bool SendAudioFrame(const vts_rtc::AudioSourceId& audio_sourceid,
 		const vts_rtc::PCMData& pcmdata);
 	void SendFrame(const vts_rtc::VideoSourceId& video_sourceid,
 		const vts_rtc::YUV420pFrame& frame);
@@ -184,14 +184,16 @@ private:
 	std::shared_ptr<SimpleWeb::io_context> stats_report_io_context_ = nullptr;
 	bool stats_report_inited_ = false;
 
-	std::map<vts_rtc::AudioSourceId, rtc::scoped_refptr<RtcAudioSource>>
+	std::map<vts_rtc::AudioSourceId,
+		rtc::scoped_refptr<webrtc::AudioSourceInterface>>
 		external_audiosources_;
 	std::map<rtc::scoped_refptr<webrtc::RtpSenderInterface>,
 		vts_rtc::PriorityType> rtpsender_priority_map_;
 
 	std::map<std::string, webrtc::DataChannelInit> label_datachannelinit_map_;
 
-	std::unique_ptr<webrtc::TaskQueueFactory> adm_taskqueue_;
+	rtc::scoped_refptr<RtcExternalAudioDeviceModule>
+		external_audio_device_module_;
 	rtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_moudle_;
 	std::unique_ptr<rtc::Thread> signaling_thread_, worker_thread_, network_thread_;
 	rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_conn_factory_;
