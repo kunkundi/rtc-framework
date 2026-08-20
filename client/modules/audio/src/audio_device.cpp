@@ -14,6 +14,9 @@
 namespace rtc_audio {
 namespace {
 
+constexpr size_t kMaxCaptureQueuedMs = 60;
+constexpr size_t kMaxPlaybackQueuedMs = 80;
+
 bool InitializeAudioSubsystem(std::string* error_message) {
   if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
     return true;
@@ -256,14 +259,23 @@ class AudioCapture::Impl {
     pending.reserve(packet_bytes * 4);
     std::vector<char> read_buffer(packet_bytes * 4);
     size_t consumed = 0;
-    const std::chrono::milliseconds packet_duration(
-        options_.frame_duration_ms);
-    std::chrono::steady_clock::time_point next_delivery;
+    const size_t max_buffered_packets = std::max<size_t>(
+        1, kMaxCaptureQueuedMs /
+               static_cast<size_t>(options_.frame_duration_ms));
+    const size_t max_buffered_bytes =
+        packet_bytes * max_buffered_packets;
 
     while (!stop_requested_.load()) {
       const int available = SDL_GetAudioStreamAvailable(stream_);
       if (available <= 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        continue;
+      }
+      if (static_cast<size_t>(available) > max_buffered_bytes) {
+        // 实时音频积压时旧数据已经失去价值，直接等待下一批最新采样。
+        SDL_ClearAudioStream(stream_);
+        pending.clear();
+        consumed = 0;
         continue;
       }
       const int read_capacity = static_cast<int>(std::min<size_t>(
@@ -279,18 +291,12 @@ class AudioCapture::Impl {
 
       const size_t pending_packets =
           (pending.size() - consumed) / packet_bytes;
-      if (pending_packets > 50) {
-        consumed += (pending_packets - 50) * packet_bytes;
+      if (pending_packets > max_buffered_packets) {
+        consumed +=
+            (pending_packets - max_buffered_packets) * packet_bytes;
       }
 
       while (pending.size() - consumed >= packet_bytes) {
-        const auto now = std::chrono::steady_clock::now();
-        if (next_delivery.time_since_epoch().count() == 0 ||
-            now - next_delivery > packet_duration * 2) {
-          next_delivery = now;
-        } else if (now < next_delivery) {
-          std::this_thread::sleep_until(next_delivery);
-        }
         if (stop_requested_.load()) {
           break;
         }
@@ -303,7 +309,6 @@ class AudioCapture::Impl {
         frame.data_size = packet_bytes;
         callback_(frame);
         consumed += packet_bytes;
-        next_delivery += packet_duration;
       }
       if (consumed > 0 &&
           (consumed == pending.size() || consumed >= packet_bytes * 4)) {
@@ -402,9 +407,12 @@ class AudioPlayback::Impl {
     const size_t bytes_per_second = bytes_per_sample *
                                     frame.number_of_channels *
                                     frame.sample_rate;
+    const size_t max_queued_bytes =
+        bytes_per_second * kMaxPlaybackQueuedMs / 1000;
     const int queued = SDL_GetAudioStreamQueued(stream_);
     if (queued > 0 &&
-        static_cast<size_t>(queued) > bytes_per_second / 2) {
+        static_cast<size_t>(queued) + frame.data_size > max_queued_bytes) {
+      // 播放侧优先保留最新语音，避免声卡时钟漂移累积成长延迟。
       SDL_ClearAudioStream(stream_);
     }
     return SDL_PutAudioStreamData(stream_, frame.data,

@@ -84,7 +84,9 @@ void TestDummyPlayback() {
   frame.number_of_frames = samples.size();
   frame.data = samples.data();
   frame.data_size = samples.size() * sizeof(samples[0]);
-  Check(playback.PushFrame(frame), "queue dummy playback frame");
+  for (int i = 0; i < 100; ++i) {
+    Check(playback.PushFrame(frame), "queue dummy playback frame");
+  }
   playback.Stop();
 }
 

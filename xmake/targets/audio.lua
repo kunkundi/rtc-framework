@@ -21,3 +21,6 @@ target("rtc_audio_device_tests")
     set_default(false)
     add_deps("rtc_audio")
     add_files(vtsrtc_path("client", "modules", "audio", "tests", "audio_device_tests.cpp"))
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    end
