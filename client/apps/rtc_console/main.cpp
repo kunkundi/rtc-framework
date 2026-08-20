@@ -1777,7 +1777,8 @@ class RtcConsoleApp {
       render_lr_pixel_interleave_ = !render_lr_pixel_interleave_;
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("Side-by-side input -> alternating output columns");
+    ImGui::TextDisabled(
+        "Main view side-by-side input -> alternating output columns");
     ImGui::SameLine();
     ImGui::TextDisabled("| Double-click a frame for full screen");
 
@@ -1953,9 +1954,11 @@ class RtcConsoleApp {
       }
     }
 
+    const bool render_lr_pixel_interleave =
+        render_lr_pixel_interleave_ && frame.source_id == kExternalVideoSource;
     int render_width_pixels = 0;
     int render_height_pixels = 0;
-    if (render_lr_pixel_interleave_) {
+    if (render_lr_pixel_interleave) {
       const ImGuiIO& io = ImGui::GetIO();
       const float fb_scale_x =
           io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
@@ -1969,7 +1972,8 @@ class RtcConsoleApp {
       draw_height = static_cast<float>(render_height_pixels) / fb_scale_y;
     }
 
-    UpdateTextureFromFrame(frame, render_width_pixels, render_height_pixels);
+    UpdateTextureFromFrame(frame, render_lr_pixel_interleave,
+                           render_width_pixels, render_height_pixels);
 
     const auto tex_it = video_textures_.find(frame.stream_key);
     if (tex_it == video_textures_.end() || tex_it->second.texture == 0) {
@@ -2518,6 +2522,7 @@ class RtcConsoleApp {
   }
 
   void UpdateTextureFromFrame(const VideoFrameView& frame,
+                              bool render_lr_pixel_interleave,
                               int render_width_pixels,
                               int render_height_pixels) {
     if (frame.buffer.empty() || frame.width == 0 || frame.height == 0 ||
@@ -2543,7 +2548,7 @@ class RtcConsoleApp {
     bool uploaded_with_lr_interleave = false;
     int upload_width = static_cast<int>(frame.width);
     int upload_height = static_cast<int>(frame.height);
-    if (render_lr_pixel_interleave_ &&
+    if (render_lr_pixel_interleave &&
         render_width_pixels > 0 && render_height_pixels > 0 &&
         RasterizeFrameToRenderedHorizontalInterleave(
             frame, static_cast<size_t>(render_width_pixels),
