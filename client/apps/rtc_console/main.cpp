@@ -62,20 +62,14 @@ constexpr float kGamepadAxisDeadzone = 0.25f;
 constexpr float kGamepadTriggerThreshold = 0.45f;
 constexpr uint64_t kGamepadThrottleRepeatMs = 160;
 constexpr int kMainWindowWidth = 1060;
-constexpr int kMainWindowHeight = 910;
-constexpr float kPanelLeft = 16.0f;
-constexpr float kPanelWidth = 1028.0f;
-constexpr float kPanelTop = 16.0f;
+constexpr int kMainWindowHeight = 950;
+constexpr int kMinimumWindowWidth = 760;
+constexpr int kMinimumWindowHeight = 600;
+constexpr float kPanelMargin = 16.0f;
 constexpr float kPanelGap = 10.0f;
-constexpr float kControlPanelHeight = 330.0f;
-constexpr float kVideoPanelHeight = 520.0f;
-constexpr float kStatsPanelHeight = 120.0f;
-constexpr float kLogPanelHeight = 90.0f;
-constexpr float kControlPanelTop = kPanelTop;
-constexpr float kVideoPanelTop = kControlPanelTop + kControlPanelHeight + kPanelGap;
-constexpr float kStatsPanelTop = kVideoPanelTop + kVideoPanelHeight + kPanelGap;
-constexpr float kLogPanelTopWithStats = kStatsPanelTop + kStatsPanelHeight + kPanelGap;
-constexpr float kLogPanelTopWithoutStats = kVideoPanelTop + kVideoPanelHeight + kPanelGap;
+constexpr float kPreferredControlPanelHeight = 370.0f;
+constexpr float kMinimumControlPanelHeight = 180.0f;
+constexpr float kMinimumVideoPanelHeight = 180.0f;
 constexpr float kVideoCardPadding = 14.0f;
 constexpr float kVideoOverlayPadding = 8.0f;
 constexpr float kFullscreenOverlayPadding = 20.0f;
@@ -151,6 +145,47 @@ struct NormalizedRect {
   float right = 0.0f;
   float bottom = 0.0f;
 };
+
+struct UiLayout {
+  ImVec2 viewport_pos;
+  ImVec2 viewport_size;
+  ImVec2 control_pos;
+  ImVec2 control_size;
+  ImVec2 video_pos;
+  ImVec2 video_size;
+};
+
+UiLayout ComputeUiLayout(const ImGuiViewport& viewport) {
+  UiLayout layout;
+  layout.viewport_pos = viewport.WorkPos;
+  layout.viewport_size = viewport.WorkSize;
+
+  const float margin_x = std::min(
+      kPanelMargin, std::max(0.0f, (layout.viewport_size.x - 1.0f) * 0.5f));
+  const float margin_y = std::min(
+      kPanelMargin,
+      std::max(0.0f,
+               (layout.viewport_size.y - kPanelGap - 2.0f) * 0.5f));
+  const float panel_width =
+      std::max(1.0f, layout.viewport_size.x - margin_x * 2.0f);
+  const float available_height = std::max(
+      2.0f, layout.viewport_size.y - margin_y * 2.0f - kPanelGap);
+  float control_height = std::min(
+      kPreferredControlPanelHeight,
+      std::max(kMinimumControlPanelHeight,
+               available_height - kMinimumVideoPanelHeight));
+  control_height =
+      std::min(control_height, std::max(1.0f, available_height - 1.0f));
+  const float video_height = std::max(1.0f, available_height - control_height);
+
+  layout.control_pos =
+      ImVec2(layout.viewport_pos.x + margin_x, layout.viewport_pos.y + margin_y);
+  layout.control_size = ImVec2(panel_width, control_height);
+  layout.video_pos = ImVec2(layout.control_pos.x,
+                            layout.control_pos.y + control_height + kPanelGap);
+  layout.video_size = ImVec2(panel_width, video_height);
+  return layout;
+}
 
 std::string MakeVideoStreamKey(RtcSessionId remote_sessionid,
                                const std::string& source_id) {
@@ -402,6 +437,8 @@ class SDLOpenGLWindow {
       initialized_ = false;
       return false;
     }
+    SDL_SetWindowMinimumSize(window_, kMinimumWindowWidth,
+                             kMinimumWindowHeight);
     gl_context_ = SDL_GL_CreateContext(window_);
     if (!gl_context_) {
       SDL_DestroyWindow(window_);
@@ -572,11 +609,11 @@ class RtcConsoleApp {
         delta = 1.0f / 60.0f;
       }
 
+      window.PumpEvents(io, &should_close);
+
       io.DisplaySize = ImVec2(static_cast<float>(window.width()),
                               static_cast<float>(window.height()));
       io.DeltaTime = delta;
-
-      window.PumpEvents(io, &should_close);
 
       ImGui_ImplSDL3_NewFrame();
       ImGui_ImplOpenGL3_NewFrame();
@@ -904,6 +941,7 @@ class RtcConsoleApp {
     if (ImGui::BeginCombo(id, choices[*selected_index].label.c_str())) {
       for (int i = 0; i < static_cast<int>(choices.size()); ++i) {
         const bool selected = i == *selected_index;
+        ImGui::PushID(i);
         if (ImGui::Selectable(choices[i].label.c_str(), selected)) {
           *selected_index = i;
           changed = true;
@@ -911,6 +949,7 @@ class RtcConsoleApp {
         if (selected) {
           ImGui::SetItemDefaultFocus();
         }
+        ImGui::PopID();
       }
       ImGui::EndCombo();
     }
@@ -922,24 +961,24 @@ class RtcConsoleApp {
     UpdateVehicleInputFromKeyboard();
     UpdateVehicleInputFromGamepad();
     MergeVehicleInputs();
-    DrawControlPanel();
-    DrawVideoPanel();
+    const UiLayout layout = ComputeUiLayout(*ImGui::GetMainViewport());
+    DrawControlPanel(layout);
+    DrawVideoPanel(layout);
     if (show_netstats_) {
-      DrawNetStatsHint();
+      DrawNetStatsHint(layout);
     }
     if (show_eventlog_) {
-      DrawEventLogHint();
+      DrawEventLogHint(layout);
     }
     DrawFullscreenVideoOverlay();
   }
 
-  void DrawControlPanel() {
+  void DrawControlPanel(const UiLayout& layout) {
     const ImGuiWindowFlags window_flags =
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus;
-    ImGui::SetNextWindowPos(ImVec2(kPanelLeft, kControlPanelTop), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(kPanelWidth, kControlPanelHeight),
-                             ImGuiCond_Always);
+    ImGui::SetNextWindowPos(layout.control_pos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(layout.control_size, ImGuiCond_Always);
 
     ImGui::Begin("RTC Controls", nullptr, window_flags);
 
@@ -996,9 +1035,7 @@ class RtcConsoleApp {
       ImGui::TableSetColumnIndex(0);
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 8));
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
-      if (ImGui::BeginChild("ControlLeftCard", ImVec2(0, 0), true,
-                            ImGuiWindowFlags_NoScrollbar |
-                                ImGuiWindowFlags_NoScrollWithMouse)) {
+      if (ImGui::BeginChild("ControlLeftCard", ImVec2(0, 0), true)) {
         const float side_btn_w = 96.0f;
         const float action_btn_w = 108.0f;
 
@@ -1122,9 +1159,7 @@ class RtcConsoleApp {
       ImGui::TableSetColumnIndex(1);
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 8));
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
-      if (ImGui::BeginChild("EdgeFeedbackCard", ImVec2(0, 0), true,
-                            ImGuiWindowFlags_NoScrollbar |
-                                ImGuiWindowFlags_NoScrollWithMouse)) {
+      if (ImGui::BeginChild("EdgeFeedbackCard", ImVec2(0, 0), true)) {
         DrawEdgeFeedbackPanel();
       }
       ImGui::EndChild();
@@ -1147,7 +1182,8 @@ class RtcConsoleApp {
 
     ImGui::TextDisabled("Vehicle target");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SetNextItemWidth(
+        std::max(1.0f, std::min(220.0f, ImGui::GetContentRegionAvail().x)));
     const bool control_input_active =
         vehicle_control_enabled_ || gamepad_dog_actions_.lateral_active();
     if (control_input_active) {
@@ -1722,13 +1758,12 @@ class RtcConsoleApp {
     return true;
   }
 
-  void DrawVideoPanel() {
+  void DrawVideoPanel(const UiLayout& layout) {
     const ImGuiWindowFlags window_flags =
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus;
-    ImGui::SetNextWindowPos(ImVec2(kPanelLeft, kVideoPanelTop), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(kPanelWidth, kVideoPanelHeight),
-                             ImGuiCond_Always);
+    ImGui::SetNextWindowPos(layout.video_pos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(layout.video_size, ImGuiCond_Always);
 
     ImGui::Begin("Video Preview", nullptr, window_flags);
 
@@ -2556,7 +2591,7 @@ class RtcConsoleApp {
     video_textures_.clear();
   }
 
-  void DrawNetStatsHint() {
+  void DrawNetStatsHint(const UiLayout& layout) {
     std::vector<NetStatsView> stats_snapshot;
     {
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -2568,11 +2603,22 @@ class RtcConsoleApp {
     const ImGuiWindowFlags hint_flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs;
+    const float hint_width =
+        std::min(392.0f, std::max(1.0f, layout.control_size.x - 40.0f));
+    const float hint_height =
+        std::min(118.0f, std::max(1.0f, layout.viewport_size.y - 32.0f));
+    const float hint_x = layout.control_pos.x + layout.control_size.x -
+                         hint_width - 20.0f;
+    const float preferred_y = layout.control_pos.y + 58.0f;
+    const float minimum_y = layout.viewport_pos.y + kPanelMargin;
+    const float maximum_y = layout.viewport_pos.y + layout.viewport_size.y -
+                            kPanelMargin - hint_height;
+    const float hint_y =
+        std::max(minimum_y, std::min(preferred_y, maximum_y));
     ImGui::SetNextWindowBgAlpha(0.96f);
-    ImGui::SetNextWindowPos(
-        ImVec2(kPanelLeft + kPanelWidth - 412.0f, kControlPanelTop + 58.0f),
-        ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(392.0f, 118.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(hint_x, hint_y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(hint_width, hint_height),
+                             ImGuiCond_Always);
     if (focus_netstats_hint_) {
       ImGui::SetNextWindowFocus();
       focus_netstats_hint_ = false;
@@ -2616,15 +2662,26 @@ class RtcConsoleApp {
     ImGui::End();
   }
 
-  void DrawEventLogHint() {
+  void DrawEventLogHint(const UiLayout& layout) {
     const ImGuiWindowFlags hint_flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs;
+    const float hint_width =
+        std::min(432.0f, std::max(1.0f, layout.control_size.x - 40.0f));
+    const float hint_height =
+        std::min(176.0f, std::max(1.0f, layout.viewport_size.y - 32.0f));
+    const float hint_x = layout.control_pos.x + layout.control_size.x -
+                         hint_width - 20.0f;
+    const float preferred_y = layout.control_pos.y + 184.0f;
+    const float minimum_y = layout.viewport_pos.y + kPanelMargin;
+    const float maximum_y = layout.viewport_pos.y + layout.viewport_size.y -
+                            kPanelMargin - hint_height;
+    const float hint_y =
+        std::max(minimum_y, std::min(preferred_y, maximum_y));
     ImGui::SetNextWindowBgAlpha(0.96f);
-    ImGui::SetNextWindowPos(
-        ImVec2(kPanelLeft + kPanelWidth - 452.0f, kControlPanelTop + 184.0f),
-        ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(432.0f, 176.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(hint_x, hint_y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(hint_width, hint_height),
+                             ImGuiCond_Always);
     if (focus_eventlog_hint_) {
       ImGui::SetNextWindowFocus();
       focus_eventlog_hint_ = false;
