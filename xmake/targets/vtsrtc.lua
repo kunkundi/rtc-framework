@@ -2,6 +2,9 @@ local vtsrtc_target = vtsrtc_target_name()
 
 target(vtsrtc_target)
     set_kind("shared")
+    if get_config("use_prebuilt_vtsrtc") then
+        set_default(false)
+    end
     if vtsrtc_is_aarch64_arch() then
         set_basename("vtsrtc.aarch64")
     else

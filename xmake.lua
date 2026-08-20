@@ -14,9 +14,7 @@ includes("xmake/dependencies.lua")
 includes("xmake/encoders.lua")
 includes("xmake/yolo.lua")
 
-if not vtsrtc_has_prebuilt_lib() then
-    includes("xmake/targets/vtsrtc.lua")
-end
+includes("xmake/targets/vtsrtc.lua")
 includes("xmake/targets/signaling_server.lua")
 includes("xmake/targets/vehicle_control_protocol.lua")
 includes("xmake/targets/vehicle_control_module.lua")
