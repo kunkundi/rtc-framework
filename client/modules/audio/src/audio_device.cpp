@@ -107,6 +107,27 @@ bool ResolveConfiguredDevice(bool capture,
   return true;
 }
 
+bool DiscardAudioStreamData(SDL_AudioStream* stream,
+                            size_t bytes_to_discard,
+                            std::vector<char>* scratch_buffer) {
+  if (stream == nullptr || scratch_buffer == nullptr ||
+      scratch_buffer->empty()) {
+    return false;
+  }
+
+  while (bytes_to_discard > 0) {
+    const int discard_size = static_cast<int>(std::min(
+        bytes_to_discard, scratch_buffer->size()));
+    const int discarded = SDL_GetAudioStreamData(
+        stream, scratch_buffer->data(), discard_size);
+    if (discarded <= 0) {
+      return false;
+    }
+    bytes_to_discard -= static_cast<size_t>(discarded);
+  }
+  return true;
+}
+
 }  // 匿名命名空间
 
 bool EnumerateCaptureDevices(std::vector<AudioDeviceInfo>* devices,
@@ -266,16 +287,31 @@ class AudioCapture::Impl {
         packet_bytes * max_buffered_packets;
 
     while (!stop_requested_.load()) {
-      const int available = SDL_GetAudioStreamAvailable(stream_);
+      int available = SDL_GetAudioStreamAvailable(stream_);
       if (available <= 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
         continue;
       }
-      if (static_cast<size_t>(available) > max_buffered_bytes) {
-        // 实时音频积压时旧数据已经失去价值，直接等待下一批最新采样。
-        SDL_ClearAudioStream(stream_);
+
+      bool discard_failed = false;
+      while (static_cast<size_t>(available) > max_buffered_bytes) {
+        // 只丢弃超过上限的最旧采样，保留队尾的最新音频继续组帧。
         pending.clear();
         consumed = 0;
+        const size_t bytes_to_discard =
+            static_cast<size_t>(available) - max_buffered_bytes;
+        if (!DiscardAudioStreamData(stream_, bytes_to_discard,
+                                    &read_buffer)) {
+          SDL_ClearAudioStream(stream_);
+          discard_failed = true;
+          break;
+        }
+        available = SDL_GetAudioStreamAvailable(stream_);
+        if (available <= 0) {
+          break;
+        }
+      }
+      if (discard_failed || available <= 0) {
         continue;
       }
       const int read_capacity = static_cast<int>(std::min<size_t>(

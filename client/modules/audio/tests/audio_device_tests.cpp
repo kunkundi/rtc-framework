@@ -2,8 +2,11 @@
 
 #include <SDL3/SDL.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -66,10 +69,47 @@ void TestRejectFractionalCaptureFrame() {
         "fractional capture frame error");
 }
 
+void TestDummyCaptureHandlesOversizedDeviceBlocks() {
+  Check(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "SDL_AUDIODRIVER",
+                                   "dummy", true),
+        "select SDL dummy audio driver");
+  Check(SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "1920"),
+        "set large dummy capture block");
+
+  std::mutex mutex;
+  std::condition_variable condition;
+  size_t received_frames = 0;
+  rtc_audio::AudioCapture capture;
+  rtc_audio::AudioCaptureOptions options;
+  options.sample_rate = 48000;
+  options.channels = 1;
+  options.frame_duration_ms = 10;
+  std::string error;
+  Check(capture.Start(
+            options,
+            [&](const rtc_audio::AudioFrameView&) {
+              std::lock_guard<std::mutex> lock(mutex);
+              ++received_frames;
+              condition.notify_all();
+            },
+            &error),
+        std::string("start dummy capture: ") + error);
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    Check(condition.wait_for(lock, std::chrono::seconds(2),
+                             [&]() { return received_frames > 0; }),
+          "capture frame from oversized device block");
+  }
+  capture.Stop();
+}
+
 void TestDummyPlayback() {
   Check(SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "SDL_AUDIODRIVER",
                                    "dummy", true),
         "select SDL dummy audio driver");
+  Check(SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "480"),
+        "set dummy playback block");
   rtc_audio::AudioPlayback playback;
   rtc_audio::AudioPlaybackOptions options;
   std::string error;
@@ -97,6 +137,7 @@ int main() {
   TestResolveNamedDevice();
   TestRejectUnknownDevice();
   TestRejectFractionalCaptureFrame();
+  TestDummyCaptureHandlesOversizedDeviceBlocks();
   TestDummyPlayback();
   std::cout << "rtc_audio_device_tests passed" << std::endl;
   return 0;
