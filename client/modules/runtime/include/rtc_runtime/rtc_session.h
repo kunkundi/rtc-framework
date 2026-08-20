@@ -43,6 +43,8 @@ class RtcSession {
 
   struct Features {
     bool enable_data_channel = false;
+    bool enable_external_audio_source = false;
+    std::string external_audio_source_id;
     bool enable_external_video_source = false;
     std::string external_video_source_id;
     RoomAction room_action = RoomAction::Join;
@@ -103,6 +105,7 @@ class RtcSession {
   bool IsReadyToSend() const;
   uint64_t captured_frames() const;
   uint64_t sent_frames() const;
+  uint64_t sent_audio_frames() const;
   uint64_t remote_video_frames() const;
   uint64_t remote_audio_frames() const;
   uint64_t received_messages() const;
@@ -122,6 +125,12 @@ class RtcSession {
                      size_t stride_y,
                      size_t stride_u,
                      size_t stride_v);
+  bool SendAudioFrame(const void* audio_data,
+                      size_t audio_data_size,
+                      size_t bits_per_sample,
+                      size_t sample_rate,
+                      size_t number_of_channels,
+                      size_t number_of_frames);
 
  private:
   void MaybeEnterRoom(std::chrono::steady_clock::time_point now);
@@ -168,12 +177,14 @@ class RtcSession {
   std::atomic<RtcServerConnectionState> server_state_{ServerDisconnected};
   std::atomic<uint64_t> captured_frames_{0};
   std::atomic<uint64_t> sent_frames_{0};
+  std::atomic<uint64_t> sent_audio_frames_{0};
   std::atomic<uint64_t> received_messages_{0};
   std::atomic<uint64_t> remote_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frames_{0};
   std::atomic<bool> room_retry_requested_{false};
   std::atomic<uint32_t> connected_peer_count_{0};
   std::unordered_set<std::string> external_video_source_ids_;
+  std::unordered_set<std::string> external_audio_source_ids_;
   std::chrono::steady_clock::time_point last_join_attempt_{};
   std::chrono::steady_clock::time_point last_status_{};
   mutable std::mutex connected_peers_mutex_;

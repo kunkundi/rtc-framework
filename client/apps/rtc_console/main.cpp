@@ -1,4 +1,5 @@
 #include "c_rtc.h"
+#include "rtc_audio/audio_device.h"
 #include "rtc_console_options.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
@@ -24,10 +25,8 @@
 #include <cfloat>
 #include <cstdint>
 #include <cmath>
-#include <condition_variable>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -41,7 +40,6 @@
 #if defined(_WIN32)
 #include <windows.h>
 #elif defined(__linux__)
-#include <alsa/asoundlib.h>
 #include <unistd.h>
 #else
 #include <unistd.h>
@@ -50,7 +48,7 @@
 namespace {
 
 constexpr const char* kDataChannelLabel = "datachannel";
-constexpr const char* kExternalAudioSource = "external_audio";
+constexpr const char* kExternalAudioSource = "console_audio";
 constexpr const char* kExternalVideoSource = "merged_image";
 constexpr const char* kSurroundFrontVideoSource = "surround_front";
 constexpr const char* kSurroundRearVideoSource = "surround_rear";
@@ -69,8 +67,8 @@ constexpr float kPanelLeft = 16.0f;
 constexpr float kPanelWidth = 1028.0f;
 constexpr float kPanelTop = 16.0f;
 constexpr float kPanelGap = 10.0f;
-constexpr float kControlPanelHeight = 260.0f;
-constexpr float kVideoPanelHeight = 590.0f;
+constexpr float kControlPanelHeight = 330.0f;
+constexpr float kVideoPanelHeight = 520.0f;
 constexpr float kStatsPanelHeight = 120.0f;
 constexpr float kLogPanelHeight = 90.0f;
 constexpr float kControlPanelTop = kPanelTop;
@@ -139,6 +137,12 @@ struct EdgeFeedbackView {
   uint64_t envelope_seq = 0;
   vts_rtc::vehicle::VehicleState state;
   std::chrono::steady_clock::time_point updated_at;
+};
+
+struct AudioDeviceChoice {
+  bool enabled = false;
+  uint32_t device_id = rtc_audio::kSystemDefaultDeviceId;
+  std::string label;
 };
 
 struct NormalizedRect {
@@ -376,257 +380,10 @@ uint64_t SteadyTimeMs() {
           .count());
 }
 
-class RtcAudioPlayer {
- public:
-  RtcAudioPlayer() {
-    worker_ = std::thread([this]() { PlaybackLoop(); });
-  }
-
-  ~RtcAudioPlayer() {
-    stop_.store(true);
-    cv_.notify_all();
-    if (worker_.joinable()) {
-      worker_.join();
-    }
-    CloseDevice();
-  }
-
-  void PushFrame(size_t bits_per_sample,
-                 size_t sample_rate,
-                 size_t number_of_channels,
-                 const void* audio_data,
-                 size_t sz_audio_data) {
-    if (!audio_data || sz_audio_data == 0 || bits_per_sample == 0 ||
-        number_of_channels == 0 || sample_rate == 0) {
-      return;
-    }
-
-    AudioPacket packet;
-    packet.bits_per_sample = bits_per_sample;
-    packet.sample_rate = sample_rate;
-    packet.number_of_channels = number_of_channels;
-    const char* begin = static_cast<const char*>(audio_data);
-    packet.data.assign(begin, begin + sz_audio_data);
-
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (queue_.size() >= kMaxQueuedPackets) {
-        queue_.pop_front();
-      }
-      queue_.push_back(std::move(packet));
-    }
-    cv_.notify_one();
-  }
-
-  void Clear() {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      queue_.clear();
-    }
-#if defined(__linux__)
-    if (pcm_device_) {
-      snd_pcm_drop(pcm_device_);
-      snd_pcm_prepare(pcm_device_);
-    }
-#endif
-  }
-
- private:
-  struct AudioPacket {
-    size_t bits_per_sample = 0;
-    size_t sample_rate = 0;
-    size_t number_of_channels = 0;
-    std::vector<char> data;
-  };
-
-  void PlaybackLoop() {
-    while (!stop_.load()) {
-      AudioPacket packet;
-      {
-        std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait(lock,
-                 [this]() { return stop_.load() || !queue_.empty(); });
-        if (stop_.load()) {
-          break;
-        }
-        packet = std::move(queue_.front());
-        queue_.pop_front();
-      }
-      PlayPacket(packet);
-    }
-  }
-
-  void PlayPacket(const AudioPacket& packet) {
-    if (packet.data.empty()) {
-      return;
-    }
-
-#if defined(__linux__)
-    if (!EnsureDevice(packet.bits_per_sample, packet.sample_rate,
-                      packet.number_of_channels)) {
-      return;
-    }
-
-    const size_t bytes_per_sample = packet.bits_per_sample / 8;
-    const size_t bytes_per_frame = bytes_per_sample * packet.number_of_channels;
-    if (bytes_per_frame == 0) {
-      return;
-    }
-
-    const snd_pcm_uframes_t total_frames =
-        static_cast<snd_pcm_uframes_t>(packet.data.size() / bytes_per_frame);
-    snd_pcm_uframes_t sent_frames = 0;
-    const char* data_ptr = packet.data.data();
-
-    while (!stop_.load() && sent_frames < total_frames) {
-      const snd_pcm_sframes_t written = snd_pcm_writei(
-          pcm_device_, data_ptr + sent_frames * bytes_per_frame,
-          total_frames - sent_frames);
-      if (written > 0) {
-        sent_frames += static_cast<snd_pcm_uframes_t>(written);
-        continue;
-      }
-      if (written == -EAGAIN) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        continue;
-      }
-
-      const int recovered =
-          snd_pcm_recover(pcm_device_, static_cast<int>(written), 1);
-      if (recovered < 0) {
-        snd_pcm_prepare(pcm_device_);
-        break;
-      }
-    }
-#else
-    (void)packet;
-#endif
-  }
-
-#if defined(__linux__)
-  snd_pcm_format_t BitsToFormat(size_t bits_per_sample) {
-    switch (bits_per_sample) {
-      case 8:
-        return SND_PCM_FORMAT_S8;
-      case 16:
-        return SND_PCM_FORMAT_S16_LE;
-      case 24:
-        return SND_PCM_FORMAT_S24_LE;
-      case 32:
-        return SND_PCM_FORMAT_S32_LE;
-      default:
-        return SND_PCM_FORMAT_UNKNOWN;
-    }
-  }
-
-  bool EnsureDevice(size_t bits_per_sample,
-                    size_t sample_rate,
-                    size_t number_of_channels) {
-    if (pcm_device_ && bits_per_sample == configured_bits_per_sample_ &&
-        sample_rate == configured_sample_rate_ &&
-        number_of_channels == configured_channels_) {
-      return true;
-    }
-
-    CloseDevice();
-
-    const snd_pcm_format_t format = BitsToFormat(bits_per_sample);
-    if (format == SND_PCM_FORMAT_UNKNOWN) {
-      return false;
-    }
-
-    if (snd_pcm_open(&pcm_device_, "default", SND_PCM_STREAM_PLAYBACK, 0) < 0) {
-      pcm_device_ = nullptr;
-      return false;
-    }
-
-    snd_pcm_hw_params_t* hw_params = nullptr;
-    snd_pcm_hw_params_alloca(&hw_params);
-    if (snd_pcm_hw_params_any(pcm_device_, hw_params) < 0) {
-      CloseDevice();
-      return false;
-    }
-    if (snd_pcm_hw_params_set_access(pcm_device_, hw_params,
-                                     SND_PCM_ACCESS_RW_INTERLEAVED) < 0) {
-      CloseDevice();
-      return false;
-    }
-    if (snd_pcm_hw_params_set_format(pcm_device_, hw_params, format) < 0) {
-      CloseDevice();
-      return false;
-    }
-    if (snd_pcm_hw_params_set_channels(
-            pcm_device_, hw_params,
-            static_cast<unsigned int>(number_of_channels)) < 0) {
-      CloseDevice();
-      return false;
-    }
-
-    unsigned int rate = static_cast<unsigned int>(sample_rate);
-    if (snd_pcm_hw_params_set_rate_near(pcm_device_, hw_params, &rate, nullptr) <
-        0) {
-      CloseDevice();
-      return false;
-    }
-
-    snd_pcm_uframes_t period_size = rate / 100;
-    if (period_size < 80) {
-      period_size = 80;
-    }
-    snd_pcm_hw_params_set_period_size_near(pcm_device_, hw_params, &period_size,
-                                           nullptr);
-    snd_pcm_uframes_t buffer_size = period_size * 4;
-    snd_pcm_hw_params_set_buffer_size_near(pcm_device_, hw_params, &buffer_size);
-
-    if (snd_pcm_hw_params(pcm_device_, hw_params) < 0) {
-      CloseDevice();
-      return false;
-    }
-    if (snd_pcm_prepare(pcm_device_) < 0) {
-      CloseDevice();
-      return false;
-    }
-
-    configured_bits_per_sample_ = bits_per_sample;
-    configured_sample_rate_ = sample_rate;
-    configured_channels_ = number_of_channels;
-    return true;
-  }
-#endif
-
-  void CloseDevice() {
-#if defined(__linux__)
-    if (pcm_device_) {
-      snd_pcm_drop(pcm_device_);
-      snd_pcm_close(pcm_device_);
-      pcm_device_ = nullptr;
-    }
-    configured_bits_per_sample_ = 0;
-    configured_sample_rate_ = 0;
-    configured_channels_ = 0;
-#endif
-  }
-
-  static constexpr size_t kMaxQueuedPackets = 200;
-
-  std::mutex mutex_;
-  std::condition_variable cv_;
-  std::deque<AudioPacket> queue_;
-  std::thread worker_;
-  std::atomic<bool> stop_{false};
-
-#if defined(__linux__)
-  snd_pcm_t* pcm_device_ = nullptr;
-  size_t configured_bits_per_sample_ = 0;
-  size_t configured_sample_rate_ = 0;
-  size_t configured_channels_ = 0;
-#endif
-};
-
 class SDLOpenGLWindow {
  public:
   bool Init(const char* title, int width, int height) {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
       return false;
     }
     initialized_ = true;
@@ -641,7 +398,7 @@ class SDLOpenGLWindow {
     window_ = SDL_CreateWindow(title, width, height,
                                SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!window_) {
-      SDL_Quit();
+      SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
       initialized_ = false;
       return false;
     }
@@ -649,7 +406,7 @@ class SDLOpenGLWindow {
     if (!gl_context_) {
       SDL_DestroyWindow(window_);
       window_ = nullptr;
-      SDL_Quit();
+      SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
       initialized_ = false;
       return false;
     }
@@ -659,7 +416,7 @@ class SDLOpenGLWindow {
       gl_context_ = nullptr;
       SDL_DestroyWindow(window_);
       window_ = nullptr;
-      SDL_Quit();
+      SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
       initialized_ = false;
       return false;
     }
@@ -680,7 +437,7 @@ class SDLOpenGLWindow {
       window_ = nullptr;
     }
     if (initialized_) {
-      SDL_Quit();
+      SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
       initialized_ = false;
     }
   }
@@ -744,6 +501,7 @@ class RtcConsoleApp {
 
   ~RtcConsoleApp() {
     StopMediaFeed();
+    remote_audio_player_.Stop();
     DestroyRtc();
     FreeMediaBuffers();
     instance_ = nullptr;
@@ -892,6 +650,7 @@ class RtcConsoleApp {
     }
 
     last_auto_open_attempt_ = now;
+    EnsureAudioSource();
     const RtcErrorCode code =
         RtcOpenRoom(const_cast<char*>(options_.room_id.c_str()),
                     RtcRoomType::VideoBroadcasting, false);
@@ -982,6 +741,8 @@ class RtcConsoleApp {
     rtc_inited_ = true;
     if (!options_.no_render) {
       LoadVideoSourceList();
+      LoadAudioDeviceLists();
+      ApplyAudioOutputSelection();
     }
     return true;
   }
@@ -1005,11 +766,9 @@ class RtcConsoleApp {
     }
 
     rtc_cfg_path_ = FindAsset("rtc.cfg", "config", base_candidates);
-    pcm_path_ = FindAsset("8k16bit.pcm", "test_data", base_candidates);
     yuv_path_ = FindAsset("zjlabs.yuv", "test_data", base_candidates);
 
     AppendLog(std::string("rtc.cfg: ") + rtc_cfg_path_);
-    AppendLog(std::string("8k16bit.pcm: ") + pcm_path_);
     AppendLog(std::string("zjlabs.yuv: ") + yuv_path_);
   }
 
@@ -1058,6 +817,106 @@ class RtcConsoleApp {
     }
   }
 
+  void LoadAudioDeviceLists() {
+    LoadAudioDeviceList(true, &audio_input_choices_,
+                        &selected_audio_input_);
+    LoadAudioDeviceList(false, &audio_output_choices_,
+                        &selected_audio_output_);
+  }
+
+  void LoadAudioDeviceList(bool capture,
+                           std::vector<AudioDeviceChoice>* choices,
+                           int* selected_index) {
+    if (choices == nullptr || selected_index == nullptr) {
+      return;
+    }
+    bool selected_enabled = choices->empty() ? *selected_index > 0 : false;
+    uint32_t selected_device_id = rtc_audio::kSystemDefaultDeviceId;
+    std::string selected_label;
+    if (*selected_index >= 0 &&
+        *selected_index < static_cast<int>(choices->size())) {
+      selected_enabled = (*choices)[*selected_index].enabled;
+      selected_device_id = (*choices)[*selected_index].device_id;
+      selected_label = (*choices)[*selected_index].label;
+    }
+
+    choices->clear();
+    AudioDeviceChoice disabled;
+    disabled.label = "Disabled";
+    choices->push_back(disabled);
+    AudioDeviceChoice system_default;
+    system_default.enabled = true;
+    system_default.label = "System default";
+    choices->push_back(system_default);
+
+    std::vector<rtc_audio::AudioDeviceInfo> devices;
+    std::string error_message;
+    const bool enumerated =
+        capture ? rtc_audio::EnumerateCaptureDevices(&devices, &error_message)
+                : rtc_audio::EnumeratePlaybackDevices(&devices,
+                                                      &error_message);
+    if (!enumerated) {
+      AppendLog(error_message);
+    } else {
+      for (const rtc_audio::AudioDeviceInfo& device : devices) {
+        AudioDeviceChoice choice;
+        choice.enabled = true;
+        choice.device_id = device.id;
+        choice.label = device.name;
+        choices->push_back(choice);
+      }
+    }
+
+    *selected_index = selected_enabled ? 1 : 0;
+    if (selected_enabled &&
+        selected_device_id != rtc_audio::kSystemDefaultDeviceId) {
+      bool restored = false;
+      for (size_t i = 2; i < choices->size(); ++i) {
+        if ((*choices)[i].device_id == selected_device_id) {
+          *selected_index = static_cast<int>(i);
+          restored = true;
+          break;
+        }
+      }
+      if (!restored && !selected_label.empty()) {
+        for (size_t i = 2; i < choices->size(); ++i) {
+          if ((*choices)[i].label == selected_label) {
+            *selected_index = static_cast<int>(i);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  bool DrawAudioDeviceCombo(const char* id,
+                            const std::vector<AudioDeviceChoice>& choices,
+                            int* selected_index) {
+    if (selected_index == nullptr || choices.empty()) {
+      return false;
+    }
+    if (*selected_index < 0 ||
+        *selected_index >= static_cast<int>(choices.size())) {
+      *selected_index = 0;
+    }
+    bool changed = false;
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::BeginCombo(id, choices[*selected_index].label.c_str())) {
+      for (int i = 0; i < static_cast<int>(choices.size()); ++i) {
+        const bool selected = i == *selected_index;
+        if (ImGui::Selectable(choices[i].label.c_str(), selected)) {
+          *selected_index = i;
+          changed = true;
+        }
+        if (selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+    return changed;
+  }
+
   void DrawUi() {
     ApplyPendingUiActions();
     UpdateVehicleInputFromKeyboard();
@@ -1097,6 +956,8 @@ class RtcConsoleApp {
       ImGui::Text("Remote Frames   video=%llu   audio=%llu",
                   static_cast<unsigned long long>(remote_video_frames_.load()),
                   static_cast<unsigned long long>(remote_audio_frames_.load()));
+      ImGui::Text("Local Audio     sent=%llu",
+                  static_cast<unsigned long long>(local_audio_frames_.load()));
       ImGui::SameLine();
       DrawVehicleControlTargetSelector();
 
@@ -1166,10 +1027,44 @@ class RtcConsoleApp {
         }
 
         ImGui::Spacing();
+        ImGui::TextDisabled("AUDIO");
+        ImGui::SameLine();
+        const float audio_refresh_x =
+            ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
+            side_btn_w;
+        ImGui::SetCursorPosX(audio_refresh_x);
+        if (ImGui::Button("Refresh Audio", ImVec2(side_btn_w, 0))) {
+          LoadAudioDeviceLists();
+          ApplyAudioInputSelection();
+          ApplyAudioOutputSelection();
+        }
+        if (ImGui::BeginTable("AudioDeviceSelectors", 2,
+                              ImGuiTableFlags_SizingStretchSame |
+                                  ImGuiTableFlags_NoSavedSettings)) {
+          ImGui::TableNextRow();
+          ImGui::TableSetColumnIndex(0);
+          ImGui::TextDisabled("Input");
+          if (DrawAudioDeviceCombo("##audio_input_combo",
+                                   audio_input_choices_,
+                                   &selected_audio_input_)) {
+            ApplyAudioInputSelection();
+          }
+          ImGui::TableSetColumnIndex(1);
+          ImGui::TextDisabled("Output");
+          if (DrawAudioDeviceCombo("##audio_output_combo",
+                                   audio_output_choices_,
+                                   &selected_audio_output_)) {
+            ApplyAudioOutputSelection();
+          }
+          ImGui::EndTable();
+        }
+
+        ImGui::Spacing();
         ImGui::TextDisabled("ROOM");
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputText("##open_room_input", open_room_id_, sizeof(open_room_id_));
         if (ImGui::Button("Open Room", ImVec2(action_btn_w, 0))) {
+          EnsureAudioSource();
           const RtcErrorCode code =
               RtcOpenRoom(open_room_id_, RtcRoomType::VideoBroadcasting, false);
           AppendLogWithCode("RtcOpenRoom", code);
@@ -1178,6 +1073,10 @@ class RtcConsoleApp {
         if (ImGui::Button("Close Room", ImVec2(action_btn_w, 0))) {
           const RtcErrorCode code = RtcCloseRoom(open_room_id_);
           AppendLogWithCode("RtcCloseRoom", code);
+          if (code == RtcErrorCode::OK) {
+            ResetSessionStateOnUi();
+            ResetVehicleControlOnUi(true);
+          }
         }
 
         const float room_combo_w =
@@ -2788,8 +2687,6 @@ class RtcConsoleApp {
     StopMediaFeed();
     remote_audio_player_.Clear();
     CloseFullscreenVideo();
-    video_source_added_ = false;
-    audio_source_added_ = false;
 
     {
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -2810,6 +2707,7 @@ class RtcConsoleApp {
 
     remote_video_frames_.store(0);
     remote_audio_frames_.store(0);
+    local_audio_frames_.store(0);
     remote_video_frame_seq_.store(0);
     ReleaseVideoTextures();
   }
@@ -2863,9 +2761,17 @@ class RtcConsoleApp {
   void EnsureMediaSources() {
     if (!video_source_added_) {
       AddVideoSource();
+    } else if (selected_video_source_ == 0) {
+      StartVideoFeed();
     }
+    EnsureAudioSource();
+  }
+
+  void EnsureAudioSource() {
     if (!audio_source_added_) {
       AddAudioSource();
+    } else {
+      ApplyAudioInputSelection();
     }
   }
 
@@ -2878,10 +2784,79 @@ class RtcConsoleApp {
     }
 
     audio_source_added_ = true;
-    if (pcm_frames_.empty()) {
-      LoadPcmData();
+    ApplyAudioInputSelection();
+  }
+
+  void ApplyAudioInputSelection() {
+    audio_capture_.Stop();
+    if (options_.no_render || !audio_source_added_ ||
+        selected_audio_input_ < 0 ||
+        selected_audio_input_ >=
+            static_cast<int>(audio_input_choices_.size())) {
+      return;
     }
-    StartAudioFeed();
+    const AudioDeviceChoice& choice =
+        audio_input_choices_[selected_audio_input_];
+    if (!choice.enabled) {
+      AppendLog("Audio input disabled");
+      return;
+    }
+
+    rtc_audio::AudioCaptureOptions capture_options;
+    if (choice.device_id != rtc_audio::kSystemDefaultDeviceId) {
+      capture_options.device_name = choice.label;
+    }
+    capture_options.sample_rate = 48000;
+    capture_options.channels = 1;
+    capture_options.frame_duration_ms = 10;
+    std::string error_message;
+    const bool started = audio_capture_.Start(
+        capture_options,
+        [this](const rtc_audio::AudioFrameView& frame) {
+          RtcPCMData pcm;
+          pcm.bits_per_sample = frame.bits_per_sample;
+          pcm.sample_rate = frame.sample_rate;
+          pcm.number_of_channels = frame.number_of_channels;
+          pcm.number_of_frames = frame.number_of_frames;
+          pcm.buffer = const_cast<void*>(frame.data);
+          pcm.sz_buffer = frame.data_size;
+          if (RtcSendAudioFrame(kExternalAudioSource, &pcm) ==
+              RtcErrorCode::OK) {
+            local_audio_frames_.fetch_add(1, std::memory_order_relaxed);
+          }
+        },
+        &error_message);
+    if (!started) {
+      AppendLog(error_message);
+      return;
+    }
+    AppendLog(std::string("Audio input started: ") + choice.label);
+  }
+
+  void ApplyAudioOutputSelection() {
+    remote_audio_player_.Stop();
+    if (options_.no_render || selected_audio_output_ < 0 ||
+        selected_audio_output_ >=
+            static_cast<int>(audio_output_choices_.size())) {
+      return;
+    }
+    const AudioDeviceChoice& choice =
+        audio_output_choices_[selected_audio_output_];
+    if (!choice.enabled) {
+      AppendLog("Audio output disabled");
+      return;
+    }
+
+    rtc_audio::AudioPlaybackOptions playback_options;
+    if (choice.device_id != rtc_audio::kSystemDefaultDeviceId) {
+      playback_options.device_name = choice.label;
+    }
+    std::string error_message;
+    if (!remote_audio_player_.Start(playback_options, &error_message)) {
+      AppendLog(error_message);
+      return;
+    }
+    AppendLog(std::string("Audio output selected: ") + choice.label);
   }
 
   void AddVideoSource() {
@@ -2911,36 +2886,6 @@ class RtcConsoleApp {
     if (code == RtcErrorCode::OK) {
       video_source_added_ = true;
     }
-  }
-
-  void LoadPcmData() {
-    std::ifstream file(pcm_path_, std::ios::binary);
-    if (!file.good()) {
-      AppendLog(std::string("Cannot open PCM file: ") + pcm_path_);
-      return;
-    }
-
-    const size_t frame_bytes = 160;
-    const size_t max_frames = 1000;
-    while (pcm_frames_.size() < max_frames) {
-      RtcPCMData frame;
-      frame.bits_per_sample = 16;
-      frame.sample_rate = 8000;
-      frame.number_of_channels = 1;
-      frame.number_of_frames = 80;
-      frame.sz_buffer = frame_bytes;
-      frame.buffer = new char[frame_bytes];
-      file.read(static_cast<char*>(frame.buffer), static_cast<std::streamsize>(frame_bytes));
-      if (file.gcount() != static_cast<std::streamsize>(frame_bytes)) {
-        delete[] static_cast<char*>(frame.buffer);
-        break;
-      }
-      pcm_frames_.push_back(frame);
-    }
-
-    std::ostringstream oss;
-    oss << "Loaded PCM frames: " << pcm_frames_.size();
-    AppendLog(oss.str());
   }
 
   void LoadYuvFrames() {
@@ -2978,25 +2923,6 @@ class RtcConsoleApp {
     AppendLog(oss.str());
   }
 
-  void StartAudioFeed() {
-    if (audio_thread_.joinable() || pcm_frames_.empty()) {
-      return;
-    }
-
-    stop_media_feed_.store(false);
-    audio_thread_ = std::thread([this]() {
-      size_t idx = 0;
-      while (!stop_media_feed_.load()) {
-        if (idx >= pcm_frames_.size()) {
-          idx = 0;
-        }
-        RtcSendAudioFrame(kExternalAudioSource, &pcm_frames_[idx]);
-        ++idx;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      }
-    });
-  }
-
   void StartVideoFeed() {
     if (video_thread_.joinable() || yuv_frames_.empty()) {
       return;
@@ -3017,22 +2943,14 @@ class RtcConsoleApp {
   }
 
   void StopMediaFeed() {
+    audio_capture_.Stop();
     stop_media_feed_.store(true);
-    if (audio_thread_.joinable()) {
-      audio_thread_.join();
-    }
     if (video_thread_.joinable()) {
       video_thread_.join();
     }
   }
 
   void FreeMediaBuffers() {
-    for (RtcPCMData& frame : pcm_frames_) {
-      delete[] static_cast<char*>(frame.buffer);
-      frame.buffer = nullptr;
-    }
-    pcm_frames_.clear();
-
     for (RtcYUV420pFrame& frame : yuv_frames_) {
       delete[] frame.buffer;
       frame.buffer = nullptr;
@@ -3307,7 +3225,7 @@ class RtcConsoleApp {
                                size_t bits_per_sample,
                                size_t sample_rate,
                                size_t number_of_channels,
-                               size_t,
+                               size_t number_of_frames,
                                const void* audio_data,
                                size_t sz_audio_data) {
     if (!instance_) {
@@ -3315,9 +3233,14 @@ class RtcConsoleApp {
     }
     instance_->remote_audio_frames_.fetch_add(1);
     if (!instance_->options_.no_render) {
-      instance_->remote_audio_player_.PushFrame(bits_per_sample, sample_rate,
-                                                number_of_channels, audio_data,
-                                                sz_audio_data);
+      rtc_audio::AudioFrameView frame;
+      frame.bits_per_sample = bits_per_sample;
+      frame.sample_rate = sample_rate;
+      frame.number_of_channels = number_of_channels;
+      frame.number_of_frames = number_of_frames;
+      frame.data = audio_data;
+      frame.data_size = sz_audio_data;
+      instance_->remote_audio_player_.PushFrame(frame);
     }
   }
 
@@ -3406,11 +3329,13 @@ class RtcConsoleApp {
   std::chrono::steady_clock::time_point last_auto_open_attempt_{};
   std::atomic<uint64_t> remote_video_frames_{0};
   std::atomic<uint64_t> remote_audio_frames_{0};
+  std::atomic<uint64_t> local_audio_frames_{0};
   std::atomic<uint64_t> remote_video_frame_seq_{0};
   std::atomic<bool> pending_reset_session_state_{false};
   std::atomic<bool> pending_reset_vehicle_control_{false};
   rtc_console::VehicleControlTargetRegistry vehicle_control_targets_;
-  RtcAudioPlayer remote_audio_player_;
+  rtc_audio::AudioCapture audio_capture_;
+  rtc_audio::AudioPlayback remote_audio_player_;
   SDLOpenGLWindow* ui_window_ = nullptr;
 
   std::mutex log_mutex_;
@@ -3464,6 +3389,10 @@ class RtcConsoleApp {
 
   std::vector<std::string> video_sources_ = {"Local YUV420p"};
   int selected_video_source_ = 0;
+  std::vector<AudioDeviceChoice> audio_input_choices_;
+  std::vector<AudioDeviceChoice> audio_output_choices_;
+  int selected_audio_input_ = 0;
+  int selected_audio_output_ = 1;
 
   std::vector<std::string> rooms_;
   int selected_room_ = -1;
@@ -3471,14 +3400,11 @@ class RtcConsoleApp {
   char open_room_id_[128];
 
   std::string rtc_cfg_path_;
-  std::string pcm_path_;
   std::string yuv_path_;
 
   std::atomic<bool> stop_media_feed_{false};
-  std::thread audio_thread_;
   std::thread video_thread_;
 
-  std::vector<RtcPCMData> pcm_frames_;
   std::vector<RtcYUV420pFrame> yuv_frames_;
 };
 

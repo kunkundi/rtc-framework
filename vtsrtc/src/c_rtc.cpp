@@ -1,6 +1,7 @@
 #include "c_rtc.h"
 #include "rtc.h"
 #include <iostream>
+#include <limits>
 
 #define CHECK_RTCAGENT_INITED if (!rtc_agent) { return RtcErrorCode::AgentNotInited; }
 
@@ -573,8 +574,25 @@ RtcErrorCode RtcBroadcastData(RtcDataChannelLabel channel_label,
 }
 
 RtcErrorCode RtcSendAudioFrame(RtcAudioSourceId audio_sourceid,
-	const RtcPCMData* in_pcmdata) {
+		const RtcPCMData* in_pcmdata) {
 	CHECK_RTCAGENT_INITED
+	if (!audio_sourceid || !in_pcmdata || !in_pcmdata->buffer ||
+		in_pcmdata->bits_per_sample == 0 ||
+		in_pcmdata->bits_per_sample % 8 != 0 ||
+		in_pcmdata->sample_rate == 0 ||
+		in_pcmdata->number_of_channels == 0 ||
+		in_pcmdata->number_of_frames == 0) {
+		return RtcErrorCode::Failed;
+	}
+	const size_t bytes_per_sample = in_pcmdata->bits_per_sample / 8;
+	const size_t max_size = std::numeric_limits<size_t>::max();
+	if (in_pcmdata->number_of_channels > max_size / bytes_per_sample ||
+		in_pcmdata->number_of_frames >
+			max_size / (bytes_per_sample * in_pcmdata->number_of_channels) ||
+		in_pcmdata->sz_buffer != bytes_per_sample *
+			in_pcmdata->number_of_channels * in_pcmdata->number_of_frames) {
+		return RtcErrorCode::Failed;
+	}
 
 	vts_rtc::PCMData pcmdata {
 		in_pcmdata->bits_per_sample,

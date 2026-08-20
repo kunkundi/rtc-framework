@@ -508,6 +508,7 @@ RTC_API RtcErrorCode RtcUnplayFromSRS(const RtcSRSStreamurl SRS_streamurl);
  * @return 函数是否执行成功
  *   @retval RtcErrorCode::OK 发送成功
  *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
+ *   @retval RtcErrorCode::Failed PCM参数或缓冲区长度非法
  *   @retval RtcErrorCode::Failed 发送失败
  */
 RTC_API RtcErrorCode RtcSendData(RtcSessionId remote_sessionid,
@@ -537,6 +538,7 @@ RTC_API RtcErrorCode RtcBroadcastData(RtcDataChannelLabel channel_label,
  * @return 函数是否执行成功
  *   @retval RtcErrorCode::OK 发送成功
  *   @retval RtcErrorCode::AgentNotInited 发送失败，因为Rtc Agent未成功初始化
+ * @attention pcmdata中的sz_buffer必须严格等于位深、声道数和采样帧数计算出的字节数
  */
 RTC_API RtcErrorCode RtcSendAudioFrame(RtcAudioSourceId audio_sourceid,
                                        const RtcPCMData* pcmdata);

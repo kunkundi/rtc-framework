@@ -4,6 +4,7 @@
 #include "rtc_runtime/process_runtime.h"
 
 #include <cstring>
+#include <limits>
 #include <sstream>
 
 namespace rtc_runtime {
@@ -80,6 +81,7 @@ RtcSession::~RtcSession() {
 
 bool RtcSession::Init() {
   external_video_source_ids_.clear();
+  external_audio_source_ids_.clear();
   rtc_cfg_path_ = ResolveConfigPath(options_.config_path);
   rtc_logging::LogInfo(std::string("rtc.cfg: ") + rtc_cfg_path_);
 
@@ -121,6 +123,22 @@ bool RtcSession::Init() {
     if (channel_code != RtcErrorCode::OK) {
       return false;
     }
+  }
+
+  if (features_.enable_external_audio_source) {
+    if (features_.external_audio_source_id.empty()) {
+      rtc_logging::LogError("External audio source ID must not be empty");
+      return false;
+    }
+    const RtcErrorCode audio_code = RtcAddExternalAudioSource(
+        features_.external_audio_source_id.c_str(), RtcPriorityType::High);
+    const std::string action = std::string("RtcAddExternalAudioSource(") +
+                               features_.external_audio_source_id + ")";
+    LogRtcCall(action.c_str(), audio_code);
+    if (audio_code != RtcErrorCode::OK) {
+      return false;
+    }
+    external_audio_source_ids_.insert(features_.external_audio_source_id);
   }
 
   if (features_.enable_external_video_source) {
@@ -181,6 +199,7 @@ void RtcSession::Shutdown() {
   room_retry_requested_.store(false);
   connected_peer_count_.store(0);
   external_video_source_ids_.clear();
+  external_audio_source_ids_.clear();
   {
     std::lock_guard<std::mutex> lock(connected_peers_mutex_);
     connected_peers_.clear();
@@ -219,6 +238,10 @@ uint64_t RtcSession::captured_frames() const {
 
 uint64_t RtcSession::sent_frames() const {
   return sent_frames_.load();
+}
+
+uint64_t RtcSession::sent_audio_frames() const {
+  return sent_audio_frames_.load();
 }
 
 uint64_t RtcSession::remote_video_frames() const {
@@ -285,6 +308,47 @@ bool RtcSession::SendI420Frame(const char* video_source_id,
   return true;
 }
 
+bool RtcSession::SendAudioFrame(const void* audio_data,
+                                size_t audio_data_size,
+                                size_t bits_per_sample,
+                                size_t sample_rate,
+                                size_t number_of_channels,
+                                size_t number_of_frames) {
+  const std::string& source_id = features_.external_audio_source_id;
+  if (source_id.empty() || audio_data == nullptr || audio_data_size == 0 ||
+      bits_per_sample == 0 || sample_rate == 0 || number_of_channels == 0 ||
+      number_of_frames == 0 || bits_per_sample % 8 != 0 ||
+      external_audio_source_ids_.find(source_id) ==
+          external_audio_source_ids_.end()) {
+    return false;
+  }
+  const size_t bytes_per_sample = bits_per_sample / 8;
+  if (number_of_channels >
+          std::numeric_limits<size_t>::max() / bytes_per_sample ||
+      number_of_frames >
+          std::numeric_limits<size_t>::max() /
+              (bytes_per_sample * number_of_channels) ||
+      audio_data_size !=
+          bytes_per_sample * number_of_channels * number_of_frames) {
+    return false;
+  }
+
+  RtcPCMData frame;
+  frame.bits_per_sample = bits_per_sample;
+  frame.sample_rate = sample_rate;
+  frame.number_of_channels = number_of_channels;
+  frame.number_of_frames = number_of_frames;
+  frame.buffer = const_cast<void*>(audio_data);
+  frame.sz_buffer = audio_data_size;
+
+  const RtcErrorCode send_code = RtcSendAudioFrame(source_id.c_str(), &frame);
+  if (send_code != RtcErrorCode::OK) {
+    return false;
+  }
+  sent_audio_frames_.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
 void RtcSession::MaybeEnterRoom(
     std::chrono::steady_clock::time_point now) {
   if (server_state_.load() != ServerLogined || room_joined_.load()) {
@@ -330,6 +394,7 @@ void RtcSession::PrintStatus() const {
       << " ready=" << (IsReadyToSend() ? "yes" : "no")
       << " captured=" << captured_frames_.load()
       << " sent=" << sent_frames_.load()
+      << " sent_audio=" << sent_audio_frames_.load()
       << " recv_msg=" << received_messages_.load()
       << " recv_audio=" << remote_audio_frames_.load()
       << " recv_video=" << remote_video_frames_.load();

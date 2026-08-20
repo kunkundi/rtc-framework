@@ -5,6 +5,7 @@ if vtsrtc_on_linux() then
         add_deps(
             "rtc_camera",
             "rtc_camera_converter",
+            "rtc_audio",
             "rtc_logging",
             "rtc_runtime",
             "rtc_vehicle_control_module",

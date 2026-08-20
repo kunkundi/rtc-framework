@@ -1,6 +1,6 @@
 # rtc_edge
 
-`rtc_edge` 是运行在工控机上的边缘端主程序，统一编排 RTC、双目摄像头采集和设备控制配置。当前只实现车辆控制配置，且仅在 Linux/Jetson 构建。
+`rtc_edge` 是运行在工控机上的边缘端主程序，统一编排 RTC、摄像头、音频采集播放和设备控制配置，仅在 Linux/Jetson 构建。
 
 ## 模块结构
 
@@ -11,6 +11,7 @@
 - `client/modules/edge/`：与设备类型无关的摄像头推流编排。
 - `client/modules/vehicle/`：车辆控制接收、安全门控和本地控制接口。
 - `client/modules/camera/`：公共 V4L2 能力以及单摄、双摄采集和转换。
+- `client/modules/audio/`：跨平台音频设备枚举、PCM 采集和播放。
 - `client/modules/runtime/`：进程生命周期、配置路径解析和 RTC 会话。
 
 控制数据流：
@@ -31,6 +32,13 @@ RTC DataChannel
     -> DualCameraStreamingModule
     -> I420 拼接帧
     -> RtcSession
+```
+
+音频数据流：
+
+```text
+输入设备 -> rtc_audio 10 ms PCM 帧 -> edge_audio RTC 音频轨道
+远端 RTC 音频帧 -> rtc_audio 播放流 -> 输出设备
 ```
 
 ## 相机视频通道
@@ -91,6 +99,14 @@ xmake r rtc_edge --config rtc.cfg
       "status_interval_sec": 5,
       "frame_limit": 0
     },
+    "audio": {
+      "input_enabled": true,
+      "output_enabled": true,
+      "input_device": "default",
+      "output_device": "default",
+      "sample_rate": 48000,
+      "channels": 1
+    },
     "stereo_camera": {
       "left_device": "/dev/video0",
       "right_device": "/dev/video1",
@@ -124,7 +140,9 @@ xmake r rtc_edge --config rtc.cfg
 }
 ```
 
-`edge` 中列出的字段都是必填项。`stereo_camera` 配置双目左右设备，`surround_camera` 配置环视前后左右四个设备，各组相机在组内共享采集参数。当前环视配置会被读取和校验，实际采集模块仍待接入。
+`audio` 配置段可省略，省略时音频输入输出均关闭。启用后，`input_device` 和 `output_device` 使用 SDL 报告的完整设备名称，填写 `default` 表示跟随系统默认设备；设备名称不匹配时，启动错误会列出当前可用设备。输入支持 8000、16000、32000、44100 或 48000 Hz，以及单声道或双声道，发送端固定按 10 ms、16-bit PCM 帧传输。示例配置可先保持输入输出关闭，再根据实际设备逐项启用。
+
+`stereo_camera` 配置双目左右设备，`surround_camera` 配置环视前后左右四个设备，各组相机在组内共享采集参数。当前环视配置会被读取和校验，实际采集模块仍待接入。
 
 `watchdog_ms` 不能超过协议规定的 300 ms 上限。视频源 ID、DataChannel label 和安全上限属于稳定协议约束，不作为可配置项。
 为避免部分系统终端编码不兼容，配置文件和命令行错误信息统一使用 ASCII 英文。

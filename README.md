@@ -10,14 +10,14 @@ rtc-framework是基于 [Google WebRTC](https://webrtc.org/) 开发的跨平台�
    - 实时音视频通信
    - 实时数据通信
 * rtc_console是使用vtsrtc + Dear ImGui开发的RTC操作端
-* rtc_edge是运行在工控机上的边缘端主程序，当前编排双目摄像头采集和车辆控制配置
+* rtc_edge是运行在工控机上的边缘端主程序，编排摄像头、音频和车辆控制配置
 
 ### 工程结构
 
 ```text
 client/
   apps/                 可执行程序入口与应用专属代码
-  modules/              运行时、边缘端、摄像头、视觉和车辆业务模块
+  modules/              运行时、音频、边缘端、摄像头、视觉和车辆业务模块
   protocols/
     vehicle/            车辆控制协议、生成代码和 codec
     vision/             视觉检测协议、生成代码和 codec
@@ -93,6 +93,8 @@ scripts\download_third_party.bat
 3. 构建产物默认输出到 `build/runtime`，安装输出到 `install`
 4. RTC操作端为 `build/runtime/rtc_console`
 5. 习惯使用IDE开发，可执行 `xmake project -k compile_commands` 生成 `compile_commands.json`
+
+`rtc_console` 的控制面板可分别选择音频输入和输出设备。输入默认关闭，选择系统默认或具体麦克风后，会通过 `console_audio` 音频轨道发送 48 kHz 单声道 PCM；输出默认使用系统默认播放设备，也可在界面中关闭或切换。打开或加入房间前会先注册音频轨道，设备切换不需要重启程序。
 
 #### 常用xmake命令
 参照[xmake官方文档](https://xmake.io/)

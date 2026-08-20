@@ -2,6 +2,7 @@
 
 #include "video_send_planner.h"
 
+#include "rtc_audio/audio_device.h"
 #include "rtc_edge/camera_video_sources.h"
 #include "rtc_edge/single_camera_streaming_module.h"
 #include "rtc_logging/rtc_logging.h"
@@ -31,6 +32,7 @@ using rtc_runtime::RtcSession;
 
 constexpr uint64_t kInactiveVideoViewSendIntervalMs = 1000;
 constexpr uint64_t kMaxMainLoopSleepMs = 10;
+constexpr const char* kEdgeAudioSourceId = "edge_audio";
 
 rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
     const SurroundCameraOptions& surround,
@@ -408,6 +410,92 @@ class EdgeCameraModules {
   std::chrono::steady_clock::time_point next_send_plan_update_;
 };
 
+class EdgeAudioModule {
+ public:
+  explicit EdgeAudioModule(const AudioOptions& options) : options_(options) {}
+
+  ~EdgeAudioModule() { Stop(); }
+
+  bool Start(RtcSession* rtc_session, std::string* error_message) {
+    Stop();
+    if (rtc_session == nullptr) {
+      if (error_message != nullptr) {
+        *error_message = "RTC session must not be null";
+      }
+      return false;
+    }
+    rtc_session_ = rtc_session;
+
+    if (options_.output_enabled) {
+      rtc_audio::AudioPlaybackOptions playback_options;
+      playback_options.device_name = options_.output_device;
+      if (!playback_.Start(playback_options, error_message)) {
+        Stop();
+        return false;
+      }
+      rtc_logging::LogInfo(std::string("Audio output started: ") +
+                           options_.output_device);
+    }
+
+    if (options_.input_enabled) {
+      rtc_audio::AudioCaptureOptions capture_options;
+      capture_options.device_name = options_.input_device;
+      capture_options.sample_rate = options_.sample_rate;
+      capture_options.channels = options_.channels;
+      capture_options.frame_duration_ms = 10;
+      const bool started = capture_.Start(
+          capture_options,
+          [this](const rtc_audio::AudioFrameView& frame) {
+            if (rtc_session_ != nullptr) {
+              rtc_session_->SendAudioFrame(
+                  frame.data, frame.data_size, frame.bits_per_sample,
+                  frame.sample_rate, frame.number_of_channels,
+                  frame.number_of_frames);
+            }
+          },
+          error_message);
+      if (!started) {
+        Stop();
+        return false;
+      }
+      rtc_logging::LogInfo(std::string("Audio input started: ") +
+                           options_.input_device);
+    }
+    return true;
+  }
+
+  void Stop() {
+    capture_.Stop();
+    playback_.Stop();
+    rtc_session_ = nullptr;
+  }
+
+  void PushRemoteFrame(size_t bits_per_sample,
+                       size_t sample_rate,
+                       size_t number_of_channels,
+                       size_t number_of_frames,
+                       const void* audio_data,
+                       size_t audio_data_size) {
+    if (!options_.output_enabled) {
+      return;
+    }
+    rtc_audio::AudioFrameView frame;
+    frame.bits_per_sample = bits_per_sample;
+    frame.sample_rate = sample_rate;
+    frame.number_of_channels = number_of_channels;
+    frame.number_of_frames = number_of_frames;
+    frame.data = audio_data;
+    frame.data_size = audio_data_size;
+    playback_.PushFrame(frame);
+  }
+
+ private:
+  AudioOptions options_;
+  RtcSession* rtc_session_ = nullptr;
+  rtc_audio::AudioCapture capture_;
+  rtc_audio::AudioPlayback playback_;
+};
+
 RtcSession::DataChannelConfig MakeDataChannel(
     const char* label,
     RtcPriorityType priority,
@@ -431,9 +519,12 @@ RtcSession::ExternalVideoSourceConfig MakeVideoSource(
 
 RtcSession::Features MakeVehicleRtcFeatures(
     const SurroundCameraOptions& surround,
+    const AudioOptions& audio,
     bool yolo_enabled) {
   RtcSession::Features features;
   features.enable_data_channel = false;
+  features.enable_external_audio_source = audio.input_enabled;
+  features.external_audio_source_id = kEdgeAudioSourceId;
   features.enable_external_video_source = true;
   features.external_video_source_id = rtc_edge::kStereoCameraVideoSourceId;
   features.room_action = RtcSession::RoomAction::Join;
@@ -571,7 +662,8 @@ void HandleServerConnectionState(
 
 RtcSession::Callbacks MakeVehicleRtcCallbacks(
     rtc_vehicle::VehicleControlModule* control_module,
-    EdgeCameraModules* camera_modules) {
+    EdgeCameraModules* camera_modules,
+    EdgeAudioModule* audio_module) {
   RtcSession::Callbacks callbacks;
 
   // RTC 回调需要记住控制模块指针，这里的 lambda 只负责转发参数。
@@ -597,14 +689,32 @@ RtcSession::Callbacks MakeVehicleRtcCallbacks(
       [control_module](RtcServerConnectionState state) {
         HandleServerConnectionState(control_module, state);
       };
+  callbacks.recv_audio_frame =
+      [audio_module](RtcSessionId,
+                     RtcAudioSourceId,
+                     RtcMediaSourceType,
+                     size_t bits_per_sample,
+                     size_t sample_rate,
+                     size_t number_of_channels,
+                     size_t number_of_frames,
+                     const void* audio_data,
+                     size_t audio_data_size) {
+        if (audio_module != nullptr) {
+          audio_module->PushRemoteFrame(
+              bits_per_sample, sample_rate, number_of_channels,
+              number_of_frames, audio_data, audio_data_size);
+        }
+      };
   return callbacks;
 }
 
 void ShutdownApplication(
     rtc_vehicle::VehicleControlModule& control_module,
     RtcSession& rtc_session,
-    EdgeCameraModules& camera_modules) {
+    EdgeCameraModules& camera_modules,
+    EdgeAudioModule& audio_module) {
   control_module.Shutdown();
+  audio_module.Stop();
   camera_modules.Stop();
   rtc_session.Shutdown();
 }
@@ -676,11 +786,12 @@ int RunEdgeApplication(const EdgeOptions& options) {
       control_options);
 
   EdgeCameraModules camera_modules(options);
+  EdgeAudioModule audio_module(options.audio);
   const RtcSession::Callbacks callbacks =
-      MakeVehicleRtcCallbacks(&control_module, &camera_modules);
+      MakeVehicleRtcCallbacks(&control_module, &camera_modules, &audio_module);
   RtcSession rtc_session(
       options.rtc,
-      MakeVehicleRtcFeatures(options.surround_camera,
+      MakeVehicleRtcFeatures(options.surround_camera, options.audio,
                              options.camera.yolo_enabled),
       callbacks);
 
@@ -694,6 +805,12 @@ int RunEdgeApplication(const EdgeOptions& options) {
       throw std::runtime_error("RTC session initialization failed");
     }
 
+    std::string audio_error;
+    if (!audio_module.Start(&rtc_session, &audio_error)) {
+      throw std::runtime_error(std::string("Audio module failed to start: ") +
+                               audio_error);
+    }
+
     std::string camera_error;
     if (!camera_modules.Start(&rtc_session, &camera_error)) {
       throw std::runtime_error(std::string("Camera modules failed to start: ") +
@@ -703,11 +820,13 @@ int RunEdgeApplication(const EdgeOptions& options) {
     RunMainLoop(options, control_module, rtc_session, camera_modules);
   } catch (...) {
     // 运行中任意步骤失败时，都按相同顺序关闭已启动的模块。
-    ShutdownApplication(control_module, rtc_session, camera_modules);
+    ShutdownApplication(control_module, rtc_session, camera_modules,
+                        audio_module);
     throw;
   }
 
-  ShutdownApplication(control_module, rtc_session, camera_modules);
+  ShutdownApplication(control_module, rtc_session, camera_modules,
+                      audio_module);
   return 0;
 }
 

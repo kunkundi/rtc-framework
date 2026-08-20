@@ -2,6 +2,7 @@ target("rtc_console")
     set_kind("binary")
     vtsrtc_add_client_dependency()
     add_deps(
+        "rtc_audio",
         "rtc_vehicle_control_protocol",
         "rtc_vision_detection_protocol"
     )
@@ -22,7 +23,7 @@ target("rtc_console")
         add_cxflags("/utf-8", {force = true})
         add_syslinks("opengl32")
     elseif vtsrtc_on_linux() then
-        add_syslinks("pthread", "GL", "dl", "asound")
+        add_syslinks("pthread", "GL", "dl")
     end
 
     if vtsrtc_on_linux() then
@@ -33,7 +34,7 @@ target("rtc_console")
             end
 
             local test_data = path.join(os.projectdir(), "test_data")
-            for _, f in ipairs({"8k16bit.pcm", "zjlabs.yuv"}) do
+            for _, f in ipairs({"zjlabs.yuv"}) do
                 local src = path.join(test_data, f)
                 if os.exists(src) then
                     batchcmds:cp(src, target:targetdir())

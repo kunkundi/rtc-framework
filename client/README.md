@@ -4,8 +4,8 @@
 
 ## apps
 
-- `rtc_console/`：支持桌面交互和无渲染运行的 RTC 操作端。
-- `rtc_edge/`：工控机边缘端主程序，当前加载车辆控制配置。
+- `rtc_console/`：支持桌面交互、音视频收发和无渲染运行的 RTC 操作端。
+- `rtc_edge/`：工控机边缘端主程序，编排摄像头、音频和车辆控制配置。
 
 应用目录只负责参数解析、依赖组装和生命周期管理。需要被多个应用复用的实现必须放入 `modules/`。
 
@@ -41,6 +41,8 @@ xmake r rtc_console --room my-room
 
 命令行 `--room` 会覆盖配置文件中的 `console.room`。
 
+桌面控制面板的 Audio Input 和 Audio Output 下拉框分别选择麦克风与播放设备。输入默认关闭，输出默认跟随系统设备；点击 Refresh Audio 可重新枚举设备。打开或加入房间时会自动注册音频轨道，之后仍可直接切换或关闭输入输出设备。
+
 服务器无屏幕环境使用 `--no-render`，此模式不会创建 SDL 窗口或 OpenGL 上下文；`--headless` 是等价别名：
 
 无渲染模式没有手动开房界面，需要将 `console.auto_open_room` 设置为 `true` 才会在登录后自动打开房间。
@@ -64,7 +66,7 @@ xmake b rtc_edge
 xmake r rtc_edge
 ```
 
-使用 `--config` 指定其他配置文件；RTC、摄像头、视觉和车辆控制运行参数均从该文件的 `edge` 配置段读取：
+使用 `--config` 指定其他配置文件；RTC、音频、摄像头、视觉和车辆控制运行参数均从该文件的 `edge` 配置段读取：
 
 ```sh
 xmake r rtc_edge --config /path/to/rtc.cfg
@@ -92,6 +94,7 @@ xmake r rtc_edge --config /path/to/rtc.cfg
 
 ## modules
 
+- `audio/`：基于 SDL3 的音频设备枚举、PCM 采集与低延迟播放。
 - `camera/`：公共 V4L2 能力以及 `single/`、`dual/` 单双摄采集和转换。
 - `logging/`：基于 spdlog 的公共日志模块。
 - `runtime/`：客户端进程生命周期、配置路径解析和可复用 RTC 会话。
@@ -103,6 +106,7 @@ xmake r rtc_edge --config /path/to/rtc.cfg
 
 ```cpp
 #include "rtc_runtime/rtc_session.h"
+#include "rtc_audio/audio_device.h"
 #include "rtc_camera/single/async_image_source.h"
 #include "rtc_camera/dual/async_image_source.h"
 #include "rtc_edge/dual_camera_streaming_module.h"

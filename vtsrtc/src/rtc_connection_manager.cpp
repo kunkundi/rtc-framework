@@ -1346,11 +1346,7 @@ void RtcConnectionManager::SendAudioFrame(
 
   if (external_audiosources_.find(audio_sourceid) !=
       external_audiosources_.cend()) {
-    vts_rtc::PCMData pcmdata_copy = pcmdata;
-    pcmdata_copy.buffer = new char[pcmdata.sz_buffer];
-    memcpy(pcmdata_copy.buffer, pcmdata.buffer, pcmdata.sz_buffer);
-
-    external_audiosources_[audio_sourceid]->OnData(pcmdata_copy);
+    external_audiosources_[audio_sourceid]->OnData(pcmdata);
   }
 }
 

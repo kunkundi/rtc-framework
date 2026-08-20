@@ -40,6 +40,13 @@ nlohmann::json MakeValidConfig() {
   root["edge"]["rtc"]["status_interval_sec"] = 2;
   root["edge"]["rtc"]["frame_limit"] = 25;
 
+  root["edge"]["audio"]["input_enabled"] = true;
+  root["edge"]["audio"]["output_enabled"] = true;
+  root["edge"]["audio"]["input_device"] = "USB microphone";
+  root["edge"]["audio"]["output_device"] = "USB speaker";
+  root["edge"]["audio"]["sample_rate"] = 48000;
+  root["edge"]["audio"]["channels"] = 1;
+
   root["edge"]["stereo_camera"]["left_device"] = "/dev/video4";
   root["edge"]["stereo_camera"]["right_device"] = "/dev/video5";
   root["edge"]["stereo_camera"]["width"] = 1280;
@@ -94,6 +101,14 @@ void TestValidConfig() {
   Check(options.rtc.room_id == "test-room", "load room");
   Check(options.rtc.join_retry_ms == 1200, "load join retry");
   Check(options.frame_limit == 25, "load frame limit");
+  Check(options.audio.input_enabled, "load audio input enabled");
+  Check(options.audio.output_enabled, "load audio output enabled");
+  Check(options.audio.input_device == "USB microphone",
+        "load audio input device");
+  Check(options.audio.output_device == "USB speaker",
+        "load audio output device");
+  Check(options.audio.sample_rate == 48000, "load audio sample rate");
+  Check(options.audio.channels == 1, "load audio channels");
   Check(options.camera.capture.left_device == "/dev/video4",
         "load left camera");
   Check(options.camera.capture.buffer_count == 6, "load buffer count");
@@ -136,6 +151,61 @@ void TestRepositoryConfig() {
         "load repository YOLO processing downscale");
   Check(options.control.watchdog_ms == 300,
         "load repository watchdog");
+  Check(!options.audio.input_enabled,
+        "repository audio input defaults to disabled");
+  Check(!options.audio.output_enabled,
+        "repository audio output defaults to disabled");
+}
+
+void TestMissingAudioSection() {
+  const std::string path = "/tmp/rtc_edge_options_audio_optional.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"].erase("audio");
+  WriteConfig(path, config);
+
+  const rtc_edge_app::EdgeOptions options =
+      rtc_edge_app::LoadEdgeOptions(path);
+  Check(!options.audio.input_enabled,
+        "missing audio section disables input");
+  Check(!options.audio.output_enabled,
+        "missing audio section disables output");
+  Check(options.audio.input_device == "default",
+        "missing audio section uses default input device");
+  std::remove(path.c_str());
+}
+
+void TestInvalidAudioSampleRate() {
+  const std::string path = "/tmp/rtc_edge_options_audio_rate.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["audio"]["sample_rate"] = 12000;
+  WriteConfig(path, config);
+
+  bool rejected = false;
+  try {
+    rtc_edge_app::LoadEdgeOptions(path);
+  } catch (const std::runtime_error& ex) {
+    rejected = std::string(ex.what()).find("edge.audio.sample_rate") !=
+               std::string::npos;
+  }
+  Check(rejected, "reject unsupported audio sample rate");
+  std::remove(path.c_str());
+}
+
+void TestInvalidAudioChannels() {
+  const std::string path = "/tmp/rtc_edge_options_audio_channels.json";
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["audio"]["channels"] = 3;
+  WriteConfig(path, config);
+
+  bool rejected = false;
+  try {
+    rtc_edge_app::LoadEdgeOptions(path);
+  } catch (const std::runtime_error& ex) {
+    rejected = std::string(ex.what()).find("edge.audio.channels") !=
+               std::string::npos;
+  }
+  Check(rejected, "reject unsupported audio channel count");
+  std::remove(path.c_str());
 }
 
 void TestRelativeMediaPath() {
@@ -336,6 +406,9 @@ void TestInvalidDogSpeed() {
 int main() {
   TestValidConfig();
   TestRepositoryConfig();
+  TestMissingAudioSection();
+  TestInvalidAudioSampleRate();
+  TestInvalidAudioChannels();
   TestRelativeMediaPath();
   TestInvalidWatchdog();
   TestMissingCameraDevice();

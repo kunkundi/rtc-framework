@@ -31,12 +31,22 @@ struct DogControlOptions {
   float max_angular_speed = 1.0f;
 };
 
+struct AudioOptions {
+  bool input_enabled = false;
+  bool output_enabled = false;
+  std::string input_device = "default";
+  std::string output_device = "default";
+  int sample_rate = 48000;
+  int channels = 1;
+};
+
 struct EdgeOptions {
   std::string log_path;
   rtc_runtime::SessionOptions rtc;
   int frame_limit = 0;
   rtc_edge::DualCameraStreamingModuleOptions camera;
   SurroundCameraOptions surround_camera;
+  AudioOptions audio;
   rtc_vehicle::VehicleControlModuleOptions control;
   DogControlOptions dog_control;
 };

@@ -1,4 +1,5 @@
 add_requires("imgui v1.92.6", {configs = {opengl3 = true, sdl3 = true}})
+add_requires("libsdl3 3.4.12")
 add_requires("asio 1.32.0")
 add_requires("spdlog 1.14.1")
 add_requires("nanopb 0.4.9", {configs = {generator = true}})
