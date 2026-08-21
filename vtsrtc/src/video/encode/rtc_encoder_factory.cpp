@@ -22,6 +22,13 @@ std::vector<SdpVideoFormat> RtcEncoderFactory::GetSupportedFormats() const {
   // return webrtc::SupportedH264Codecs();
 
   return {
+      // 双目原生 1920x1200 超过 Level 4.2 的 MaxFS，优先协商 Level 5.1。
+      CreateH264Format(H264::kProfileBaseline, H264::kLevel5_1, "1"),
+      CreateH264Format(H264::kProfileBaseline, H264::kLevel5_1, "0"),
+      CreateH264Format(H264::kProfileConstrainedBaseline, H264::kLevel5_1,
+                       "1"),
+      CreateH264Format(H264::kProfileConstrainedBaseline, H264::kLevel5_1,
+                       "0"),
       CreateH264Format(H264::kProfileBaseline, H264::kLevel4, "1"),
       CreateH264Format(H264::kProfileBaseline, H264::kLevel4, "0"),
       CreateH264Format(H264::kProfileConstrainedBaseline, H264::kLevel4, "1"),

@@ -307,7 +307,7 @@ std::shared_ptr<RtcAgent> RtcAgent::Create(
 			rtc_config.encode_params.qp_threshold.second == 0 ||
 			rtc_config.encode_params.qp_threshold.first >=
 				rtc_config.encode_params.qp_threshold.second) {
-			rtc_config.encode_params.qp_threshold = std::make_pair(34u, 38u);
+			rtc_config.encode_params.qp_threshold = std::make_pair(32u, 36u);
 			LOG_WARN(
 				"jetson_h264_encoder=%s, apply default qp_threshold=[%u,%u]",
 				rtc_config.jetson_h264_encoder.c_str(),

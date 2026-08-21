@@ -113,3 +113,38 @@ target("rtc_external_audio_device_tests")
         add_defines("WEBRTC_LINUX", "WEBRTC_POSIX")
         add_syslinks("pthread", "rt")
     end
+
+if vtsrtc_is_aarch64_arch() and not get_config("use_default_jetson_encoder") then
+    target("rtc_jetson_encoder_switch_benchmark")
+        set_kind("binary")
+        set_default(false)
+        add_files(
+            vtsrtc_path("vtsrtc", "tests", "rtc_jetson_encoder_switch_benchmark.cpp"),
+            vtsrtc_path("vtsrtc", "src", "log", "log_manager.cpp")
+        )
+        add_includedirs(vtsrtc_path("vtsrtc", "src"))
+        add_defines("WEBRTC_LINUX", "WEBRTC_POSIX")
+        add_syslinks("pthread", "rt")
+        vtsrtc_add_spdlog_config()
+        vtsrtc_add_webrtc_config()
+        if not vtsrtc_add_jetson_encoder_backend_config() then
+            set_enabled(false)
+        end
+
+    target("rtc_jetson_h264_encoder_integration_tests")
+        set_kind("binary")
+        set_default(false)
+        add_files(
+            vtsrtc_path("vtsrtc", "tests", "rtc_jetson_h264_encoder_integration_tests.cpp"),
+            vtsrtc_path("vtsrtc", "src", "log", "log_manager.cpp"),
+            vtsrtc_path("vtsrtc", "src", "video", "encode", "nvidia-jetson", "jetsonh264_encoder_impl.cpp")
+        )
+        add_includedirs(vtsrtc_path("vtsrtc", "src"))
+        add_defines("WEBRTC_LINUX", "WEBRTC_POSIX")
+        add_syslinks("pthread", "rt")
+        vtsrtc_add_spdlog_config()
+        vtsrtc_add_webrtc_config()
+        if not vtsrtc_add_jetson_encoder_backend_config() then
+            set_enabled(false)
+        end
+end

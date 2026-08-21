@@ -10,6 +10,7 @@
 #endif
 
 #include <limits>
+#include <system_wrappers/include/clock.h>
 
 vts_rtc::ErrorCode ConvertHttpCode(HttpStatus::Code http_code) {
   switch (http_code) {
@@ -650,7 +651,8 @@ bool RtcConnectionManager::AddVideoSource(
 
   external_feed_tracksources_[video_sourceid] =
       new rtc::RefCountedObject<RtcExternalFeedTrackSource>(
-          video_sourceid, std::make_unique<RtcVideoSource>(), priority);
+          video_sourceid, std::make_unique<RtcVideoSource>(video_sourceid),
+          priority);
   return true;
 }
 
@@ -1372,7 +1374,9 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
     const vts_rtc::VideoSourceId& video_sourceid,
     const vts_rtc::YUV420pFrame& frame) {
   const int64_t capture_time_us = rtc::TimeMicros();
-  const int64_t capture_time_ms = capture_time_us / 1000;
+  // ntp_time_ms 必须使用绝对 NTP 时基，不能填入单调时钟毫秒值。
+  const int64_t capture_ntp_time_ms =
+      webrtc::Clock::GetRealTimeClock()->CurrentNtpInMilliseconds();
   const uint32_t capture_timestamp_rtp =
       static_cast<uint32_t>(capture_time_us * 90 / 1000);
 
@@ -1396,7 +1400,7 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
                              .set_rotation(webrtc::kVideoRotation_0)
                              .set_timestamp_us(capture_time_us)
                              .set_timestamp_rtp(capture_timestamp_rtp)
-                             .set_ntp_time_ms(capture_time_ms)
+                             .set_ntp_time_ms(capture_ntp_time_ms)
                              .build();
       // if (frame.has_update_rect()) {
       // 	auto new_rect =
@@ -1411,7 +1415,7 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
                              .set_rotation(webrtc::kVideoRotation_0)
                              .set_timestamp_us(capture_time_us)
                              .set_timestamp_rtp(capture_timestamp_rtp)
-                             .set_ntp_time_ms(capture_time_ms)
+                             .set_ntp_time_ms(capture_ntp_time_ms)
                              .build();
       return frame_build;
     }
@@ -1421,7 +1425,7 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
                            .set_rotation(webrtc::kVideoRotation_0)
                            .set_timestamp_us(capture_time_us)
                            .set_timestamp_rtp(capture_timestamp_rtp)
-                           .set_ntp_time_ms(capture_time_ms)
+                           .set_ntp_time_ms(capture_ntp_time_ms)
                            .build();
     return frame_build;
   }
@@ -1429,6 +1433,8 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
 
 void RtcConnectionManager::SetRtpSendersPriority() {
   RTC_DCHECK_RUN_ON(logic_thread_);
+
+  constexpr int kVeryLowPriorityMaxBitrateBps = 300000;
 
   const int configured_min_bitrate_bps =
       static_cast<int>(std::min<unsigned int>(
@@ -1453,16 +1459,37 @@ void RtcConnectionManager::SetRtpSendersPriority() {
           bitrate_priority_map[rtpsender_priority.second];
       rtpparams.encodings[0].network_priority =
           static_cast<webrtc::Priority>(rtpsender_priority.second);
-      if (configured_max_bitrate_bps > 0) {
-        rtpparams.encodings[0].max_bitrate_bps = configured_max_bitrate_bps;
+      int sender_max_bitrate_bps = configured_max_bitrate_bps;
+      if (rtpsender_priority.second == vts_rtc::PriorityType::VeryLow) {
+        sender_max_bitrate_bps =
+            sender_max_bitrate_bps > 0
+                ? std::min(sender_max_bitrate_bps,
+                           kVeryLowPriorityMaxBitrateBps)
+                : kVeryLowPriorityMaxBitrateBps;
       }
-      if (configured_min_bitrate_bps > 0) {
-        rtpparams.encodings[0].min_bitrate_bps = configured_min_bitrate_bps;
+      if (sender_max_bitrate_bps > 0) {
+        rtpparams.encodings[0].max_bitrate_bps = sender_max_bitrate_bps;
+      }
+      const int sender_min_bitrate_bps =
+          sender_max_bitrate_bps > 0
+              ? std::min(configured_min_bitrate_bps,
+                         sender_max_bitrate_bps)
+              : configured_min_bitrate_bps;
+      if (sender_min_bitrate_bps > 0) {
+        rtpparams.encodings[0].min_bitrate_bps = sender_min_bitrate_bps;
       }
       auto error = rtpsender->SetParameters(rtpparams);
       if (!error.ok()) {
         LOG_WARN("Set priority of rtpsender (%s) failed, reason: %s",
                  rtpsender->id().c_str(), error.message());
+      } else {
+        LOG_INFO(
+            "[WebRTC][sender] id=%s priority=%d bitrate_priority=%.1f "
+            "min_bitrate=%d max_bitrate=%d",
+            rtpsender->id().c_str(),
+            static_cast<int>(rtpsender_priority.second),
+            rtpparams.encodings[0].bitrate_priority,
+            sender_min_bitrate_bps, sender_max_bitrate_bps);
       }
     } else {
       LOG_WARN("Set priority of rtpsender (%s) failed, reason: encodings empty",
@@ -1590,10 +1617,8 @@ void RtcConnectionManager::StatsReport(SteadyTimer steady_timer) {
           }
         }
         mtx_.unlock();
-        LOG_INFO(
-            "[Stats] StatsReport called, TotalConnections: %zu, "
-            "GetStatsCalled: %zu",
-            conn_count, stats_called);
+        (void)conn_count;
+        (void)stats_called;
         StatsReport(steady_timer);
       });
 }
@@ -1704,9 +1729,6 @@ void RtcConnectionManager::InteractRemotePeer(
   rtc_conn->on_net_stats_report_ =
       [this, remote_sessionid, weak_self](
           const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
-        LOG_INFO(
-            "[Stats] on_net_stats_report_ callback called for SessionID: %u",
-            remote_sessionid);
         statistics_collector_->OnStatisticsReport(remote_sessionid, report);
       };
 

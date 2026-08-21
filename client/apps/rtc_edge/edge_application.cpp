@@ -513,7 +513,8 @@ RtcSession::ExternalVideoSourceConfig MakeVideoSource(
     const char* source_id) {
   RtcSession::ExternalVideoSourceConfig source;
   source.source_id = source_id;
-  source.priority = RtcPriorityType::High;
+  // 双目主画面保持 High，环视辅助画面降低带宽竞争，优先保证主画面升到 1080p。
+  source.priority = RtcPriorityType::VeryLow;
   return source;
 }
 

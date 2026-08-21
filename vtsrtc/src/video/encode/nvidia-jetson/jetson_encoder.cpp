@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <iterator>
 
 #include "/usr/src/jetson_multimedia_api/include/NvBuffer.h"
 #include "/usr/src/jetson_multimedia_api/include/nvbufsurface.h"
@@ -20,6 +21,35 @@ namespace webrtc {
 const int KEY_FRAME_INTERVAL = 3000;
 const int BUFFER_NUM = 4;
 const uint32_t DQ_THREAD_WAIT_TIMEOUT_MS = 1000;
+const uint32_t OUTPUT_DRAIN_TIMEOUT_MS = 250;
+const uint32_t CAPTURE_TASK_DRAIN_TIMEOUT_MS = 250;
+
+int64_t SteadyTimeMillis() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+bool HasH264NalType(const uint8_t* data, size_t size, uint8_t nal_type) {
+  if (!data) {
+    return false;
+  }
+
+  for (size_t i = 0; i + 4 < size; ++i) {
+    size_t header_offset = size;
+    if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
+      header_offset = i + 3;
+    } else if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0 &&
+               data[i + 3] == 1) {
+      header_offset = i + 4;
+    }
+    if (header_offset < size &&
+        (data[header_offset] & 0x1f) == nal_type) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const char* PixFmtName(uint32_t pix_fmt) {
   switch (pix_fmt) {
@@ -134,8 +164,13 @@ JetsonEncoder::JetsonEncoder(int width, int height, uint32_t dst_pix_fmt,
     : encoder_(nullptr),
       abort_(true),
       stopping_(true),
+      awaiting_resolution_idr_(false),
+      force_idr_before_next_frame_(false),
+      reconfigure_ready_(false),
       width_(width),
       height_(height),
+      session_width_(width),
+      session_height_(height),
       framerate_(30),
       bitrate_bps_(2 * 1024 * 1024),
       src_pix_fmt_(V4L2_PIX_FMT_YUV420M),
@@ -199,8 +234,8 @@ bool JetsonEncoder::CreateVideoEncoder() {
   }
   LogQueueState("create:created");
 
-  ret = encoder_->setCapturePlaneFormat(dst_pix_fmt_, width_, height_,
-                                        CHUNK_SIZE);
+  ret = encoder_->setCapturePlaneFormat(dst_pix_fmt_, session_width_,
+                                        session_height_, CHUNK_SIZE);
   if (ret < 0) {
     LOG_ERROR("[JetsonEnc][create] Could not set capture plane format ret=%d errno=%d",
               ret, errno);
@@ -411,52 +446,79 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
     return false;
   }
 
-  LOG_INFO("[JetsonEnc][reconfigure] begin old=%dx%d new=%dx%d", width_,
-           height_, new_width, new_height);
-  LogQueueState("reconfigure:before-stop");
-  int ret = 0;
-  abort_ = true;
-  stopping_.store(true, std::memory_order_release);
-
-  StopEncoderIo(false);
-  LogQueueState("reconfigure:after-stop");
-  encoder_->capture_plane.deinitPlane();
-  encoder_->output_plane.deinitPlane();
-  LogQueueState("reconfigure:after-deinit");
-
-  {
-    std::lock_guard<std::mutex> lock(tasks_mutex_);
-    capturing_tasks_.clear();
+  if (new_width <= 0 || new_height <= 0) {
+    LOG_ERROR("[JetsonEnc][reconfigure] Invalid target size=%dx%d", new_width,
+              new_height);
+    return false;
   }
 
-  width_ = new_width;
-  height_ = new_height;
+  if (new_width == width_ && new_height == height_) {
+    return true;
+  }
 
-  ret = encoder_->setCapturePlaneFormat(dst_pix_fmt_, width_, height_,
-                                        CHUNK_SIZE);
+  if (new_width > session_width_ || new_height > session_height_) {
+    LOG_WARN(
+        "[JetsonEnc][reconfigure] Target size=%dx%d exceeds session "
+        "limit=%dx%d, recreate encoder session",
+        new_width, new_height, session_width_, session_height_);
+    return false;
+  }
+
+  if (new_width > width_ || new_height > height_) {
+    LOG_WARN(
+        "[JetsonEnc][reconfigure] Jetson output-plane DRC only supports "
+        "high-to-low changes, current=%dx%d target=%dx%d",
+        width_, height_, new_width, new_height);
+    return false;
+  }
+
+  if (!CanReconfigure()) {
+    LOG_WARN(
+        "[JetsonEnc][reconfigure] Session has not produced a frame since "
+        "creation or the previous DRC, current=%dx%d target=%dx%d",
+        width_, height_, new_width, new_height);
+    return false;
+  }
+
+  const auto start_time = std::chrono::steady_clock::now();
+  LOG_INFO(
+      "[JetsonEnc][reconfigure] begin old=%dx%d new=%dx%d session=%dx%d",
+      width_, height_, new_width, new_height, session_width_, session_height_);
+  LogQueueState("reconfigure:before-output-drain");
+
+  if (!DrainOutputPlane()) {
+    return false;
+  }
+  LogQueueState("reconfigure:after-output-drain");
+
+  if (!WaitForPendingTasks()) {
+    return false;
+  }
+  LogQueueState("reconfigure:after-capture-drain");
+
+  int ret = encoder_->output_plane.setStreamStatus(false);
   if (ret < 0) {
     LOG_ERROR(
-        "[JetsonEnc][reconfigure] Could not set capture plane format ret=%d "
+        "[JetsonEnc][reconfigure] Could not stream off output plane ret=%d "
         "errno=%d",
         ret, errno);
     return false;
   }
-  LogQueueState("reconfigure:capture-format-set");
+  LogQueueState("reconfigure:output-streamoff");
 
-  ret = encoder_->setOutputPlaneFormat(src_pix_fmt_, width_, height_);
+  encoder_->output_plane.deinitPlane();
+  LogQueueState("reconfigure:output-plane-deinit");
+
+  ret = encoder_->setOutputPlaneFormat(src_pix_fmt_, new_width, new_height);
   if (ret < 0) {
     LOG_ERROR(
         "[JetsonEnc][reconfigure] Could not set output plane format ret=%d "
         "errno=%d",
         ret, errno);
+    MarkUnhealthyAfterReconfigureFailure("set-output-format", ret);
     return false;
   }
   LogQueueState("reconfigure:output-format-set");
-
-  if (!ApplyCodecSettings()) {
-    return false;
-  }
-  LogQueueState("reconfigure:codec-settings-applied");
 
   ret = encoder_->output_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true,
                                           false);
@@ -464,19 +526,19 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
     LOG_ERROR(
         "[JetsonEnc][reconfigure] Could not setup output plane ret=%d errno=%d",
         ret, errno);
+    MarkUnhealthyAfterReconfigureFailure("setup-output-plane", ret);
     return false;
   }
+  ResetAvailableOutputBuffers();
   LogQueueState("reconfigure:output-plane-setup");
 
-  ret = encoder_->capture_plane.setupPlane(V4L2_MEMORY_MMAP, BUFFER_NUM, true,
-                                           false);
-  if (ret < 0) {
-    LOG_ERROR(
-        "[JetsonEnc][reconfigure] Could not setup capture plane ret=%d errno=%d",
-        ret, errno);
-    return false;
+  // 在重新启流前先进入 DRC pending。只有目标分辨率的 SPS+IDR 已经
+  // 通过完整的 capture task 路径后，才允许同一会话继续下一次 DRC。
+  reconfigure_ready_.store(false, std::memory_order_release);
+  if (dst_pix_fmt_ == V4L2_PIX_FMT_H264) {
+    awaiting_resolution_idr_.store(true, std::memory_order_release);
+    force_idr_before_next_frame_.store(true, std::memory_order_release);
   }
-  LogQueueState("reconfigure:capture-plane-setup");
 
   ret = encoder_->output_plane.setStreamStatus(true);
   if (ret < 0) {
@@ -484,36 +546,84 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
         "[JetsonEnc][reconfigure] Failed to stream on output plane ret=%d "
         "errno=%d",
         ret, errno);
+    MarkUnhealthyAfterReconfigureFailure("streamon-output-plane", ret);
     return false;
   }
   LogQueueState("reconfigure:output-streamon");
 
-  ret = encoder_->capture_plane.setStreamStatus(true);
-  if (ret < 0) {
-    LOG_ERROR(
-        "[JetsonEnc][reconfigure] Failed to stream on capture plane ret=%d "
-        "errno=%d",
-        ret, errno);
-    encoder_->output_plane.setStreamStatus(false);
-    return false;
+  width_ = new_width;
+  height_ = new_height;
+  if (dst_pix_fmt_ != V4L2_PIX_FMT_H264) {
+    ForceKeyFrame();
   }
-  LogQueueState("reconfigure:capture-streamon");
-
-  encoder_->capture_plane.setDQThreadCallback(EncoderCapturePlaneDqCallback);
-  encoder_->capture_plane.startDQThread(this);
-  LogQueueState("reconfigure:capture-dq-thread-started");
-
-  if (!PrepareCaptureBuffer()) {
-    LOG_ERROR("Failed to prepare capture buffers");
-    StopEncoderIo(false);
-    return false;
-  }
-
-  stopping_.store(false, std::memory_order_release);
-  abort_ = false;
-  ForceKeyFrame();
+  const auto duration_ms =
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - start_time)
+          .count() /
+      1000.0;
+  LOG_INFO(
+      "[JetsonEnc][reconfigure] output-plane DRC complete size=%dx%d "
+      "duration=%.3f ms",
+      width_, height_, duration_ms);
   LogQueueState("reconfigure:complete");
   return true;
+}
+
+bool JetsonEncoder::CanReconfigure() const {
+  return reconfigure_ready_.load(std::memory_order_acquire) &&
+         !awaiting_resolution_idr_.load(std::memory_order_acquire);
+}
+
+bool JetsonEncoder::IsHealthy() const {
+  return encoder_ && !abort_.load(std::memory_order_acquire) &&
+         !stopping_.load(std::memory_order_acquire) && !encoder_->isInError();
+}
+
+void JetsonEncoder::MarkUnhealthyAfterReconfigureFailure(const char* stage,
+                                                         int ret) {
+  reconfigure_ready_.store(false, std::memory_order_release);
+  abort_.store(true, std::memory_order_release);
+  LOG_ERROR(
+      "[JetsonEnc][reconfigure] Session is unusable after destructive "
+      "output-plane failure stage=%s ret=%d",
+      stage, ret);
+  if (encoder_) {
+    encoder_->abort();
+  }
+}
+
+bool JetsonEncoder::DrainOutputPlane() {
+  std::unique_lock<std::mutex> lock(output_buffers_mutex_);
+  const size_t output_buffer_count = encoder_->output_plane.getNumBuffers();
+  if (output_buffers_condition_.wait_for(
+          lock, std::chrono::milliseconds(OUTPUT_DRAIN_TIMEOUT_MS),
+          [this, output_buffer_count]() {
+            return available_output_buffers_.size() == output_buffer_count;
+          })) {
+    return true;
+  }
+
+  LOG_ERROR(
+      "[JetsonEnc][reconfigure] Timed out draining output plane, "
+      "available=%zu total=%zu queued=%u",
+      available_output_buffers_.size(), output_buffer_count,
+      encoder_->output_plane.getNumQueuedBuffers());
+  return false;
+}
+
+bool JetsonEncoder::WaitForPendingTasks() {
+  std::unique_lock<std::mutex> lock(tasks_mutex_);
+  if (tasks_condition_.wait_for(
+          lock, std::chrono::milliseconds(CAPTURE_TASK_DRAIN_TIMEOUT_MS),
+          [this]() { return capturing_tasks_.empty(); })) {
+    return true;
+  }
+
+  LOG_ERROR(
+      "[JetsonEnc][reconfigure] Timed out waiting for capture tasks, "
+      "pending=%zu",
+      capturing_tasks_.size());
+  return false;
 }
 
 bool JetsonEncoder::PrepareCaptureBuffer() {
@@ -546,6 +656,48 @@ bool JetsonEncoder::PrepareCaptureBuffer() {
   return true;
 }
 
+void JetsonEncoder::ResetAvailableOutputBuffers() {
+  std::lock_guard<std::mutex> lock(output_buffers_mutex_);
+  available_output_buffers_.clear();
+  for (uint32_t i = 0; i < encoder_->output_plane.getNumBuffers(); ++i) {
+    available_output_buffers_.push_back(i);
+  }
+  output_buffers_condition_.notify_all();
+}
+
+bool JetsonEncoder::ReclaimOutputBuffer() {
+  struct v4l2_buffer v4l2_output_buf;
+  struct v4l2_plane output_planes[MAX_PLANES];
+  NvBuffer* output_buffer = nullptr;
+  memset(&v4l2_output_buf, 0, sizeof(v4l2_output_buf));
+  memset(output_planes, 0, sizeof(output_planes));
+  v4l2_output_buf.m.planes = output_planes;
+
+  // 编码完成时对应的输入缓冲已经消费完毕。阻塞式 DQ 只允许发生在
+  // Capture Plane 线程，禁止占用 WebRTC EncoderQueue。
+  if (encoder_->output_plane.dqBuffer(v4l2_output_buf, &output_buffer, nullptr,
+                                      10) < 0) {
+    if (stopping_.load(std::memory_order_acquire)) {
+      return false;
+    }
+    const int saved_errno = errno;
+    abort_ = true;
+    encoder_->abort();
+    LOG_ERROR(
+        "[JetsonEnc][dqbuf] Failed to reclaim output buffer errno=%d",
+        saved_errno);
+    LogQueueState("capture-dq:output-reclaim-failed");
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(output_buffers_mutex_);
+    available_output_buffers_.push_back(v4l2_output_buf.index);
+  }
+  output_buffers_condition_.notify_one();
+  return true;
+}
+
 void JetsonEncoder::SetBitrate(int adjusted_bitrate_bps) {
   if (!encoder_) {
     return;
@@ -569,6 +721,19 @@ void JetsonEncoder::SetBitrate(int adjusted_bitrate_bps) {
       }
     }
   }
+}
+
+void JetsonEncoder::SetFramerate(int adjusted_framerate) {
+  if (!encoder_ || adjusted_framerate < 1 || framerate_ == adjusted_framerate) {
+    return;
+  }
+
+  const int ret = encoder_->setFrameRate(adjusted_framerate, 1);
+  if (ret < 0) {
+    LOG_ERROR("Could not set encoder framerate ret=%d errno=%d", ret, errno);
+    return;
+  }
+  framerate_ = adjusted_framerate;
 }
 
 void JetsonEncoder::ForceKeyFrame() {
@@ -616,6 +781,8 @@ bool JetsonEncoder::Start() {
     return false;
   }
 
+  ResetAvailableOutputBuffers();
+
   stopping_.store(false, std::memory_order_release);
   abort_ = false;
   LogQueueState("start:complete");
@@ -643,6 +810,16 @@ void JetsonEncoder::EmplaceBuffer(
     return;
   }
 
+  if (!i420_buffer || i420_buffer->width() != width_ ||
+      i420_buffer->height() != height_) {
+    LOG_ERROR(
+        "[JetsonEnc][emplace] Input size mismatch, input=%dx%d encoder=%dx%d; "
+        "drop frame before qBuffer",
+        i420_buffer ? i420_buffer->width() : 0,
+        i420_buffer ? i420_buffer->height() : 0, width_, height_);
+    return;
+  }
+
   struct v4l2_buffer v4l2_output_buf;
   struct v4l2_plane output_planes[MAX_PLANES];
   NvBuffer* nv_buffer = nullptr;
@@ -650,37 +827,56 @@ void JetsonEncoder::EmplaceBuffer(
   memset(&v4l2_output_buf, 0, sizeof(v4l2_output_buf));
   memset(output_planes, 0, sizeof(output_planes));
   v4l2_output_buf.m.planes = output_planes;
+  const uint64_t task_timestamp_us =
+      next_task_timestamp_us_.fetch_add(1, std::memory_order_relaxed);
+  v4l2_output_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
+  v4l2_output_buf.timestamp.tv_sec = task_timestamp_us / 1000000u;
+  v4l2_output_buf.timestamp.tv_usec = task_timestamp_us % 1000000u;
 
-  if (encoder_->output_plane.getNumQueuedBuffers() ==
-      encoder_->output_plane.getNumBuffers()) {
-    // Queue is full. For low latency, do not block; drop frame if no buffer can
-    // be dequeued immediately.
-    LogQueueState("emplace:output-full-before-dq");
-    if (encoder_->output_plane.dqBuffer(v4l2_output_buf, &nv_buffer, NULL, 0) <
-        0) {
-      LOG_WARN(
-          "[JetsonEnc][dqbuf] Encoder output queue full, dropping frame; "
-          "dqBuffer failed errno=%d",
-          errno);
-      LogV4L2Buffer("emplace:output-dq-failed", v4l2_output_buf);
-      LogQueueState("emplace:output-dq-failed");
+  {
+    std::lock_guard<std::mutex> lock(output_buffers_mutex_);
+    if (available_output_buffers_.empty()) {
+      const int64_t now_ms = SteadyTimeMillis();
+      int64_t last_log_ms =
+          last_output_drop_log_ms_.load(std::memory_order_relaxed);
+      if (now_ms - last_log_ms >= 1000 &&
+          last_output_drop_log_ms_.compare_exchange_strong(
+              last_log_ms, now_ms, std::memory_order_relaxed)) {
+        LOG_WARN(
+            "[JetsonEnc][emplace] No free output buffer, dropping input "
+            "frame size=%dx%d queued=%u/%u",
+            width_, height_, encoder_->output_plane.getNumQueuedBuffers(),
+            encoder_->output_plane.getNumBuffers());
+      }
       return;
     }
-  } else {
-    nv_buffer = encoder_->output_plane.getNthBuffer(
-        encoder_->output_plane.getNumQueuedBuffers());
-    if (!nv_buffer) {
-      LOG_ERROR("[JetsonEnc][emplace] Failed to get output buffer");
-      LogQueueState("emplace:get-output-buffer-failed");
-      return;
+    v4l2_output_buf.index = available_output_buffers_.front();
+    available_output_buffers_.pop_front();
+  }
+
+  nv_buffer = encoder_->output_plane.getNthBuffer(v4l2_output_buf.index);
+  if (!nv_buffer) {
+    {
+      std::lock_guard<std::mutex> lock(output_buffers_mutex_);
+      available_output_buffers_.push_front(v4l2_output_buf.index);
     }
-    v4l2_output_buf.index = nv_buffer->index;
+    output_buffers_condition_.notify_one();
+    LOG_ERROR("[JetsonEnc][emplace] Failed to get output buffer");
+    LogQueueState("emplace:get-output-buffer-failed");
+    return;
   }
 
 #if ENABLE_ENCODE_PERF_STATS
   auto convert_start = std::chrono::steady_clock::now();
 #endif
-  ConvertI420ToYUV420M(nv_buffer, i420_buffer);
+  if (!ConvertI420ToYUV420M(nv_buffer, i420_buffer)) {
+    {
+      std::lock_guard<std::mutex> lock(output_buffers_mutex_);
+      available_output_buffers_.push_front(v4l2_output_buf.index);
+    }
+    output_buffers_condition_.notify_one();
+    return;
+  }
 #if ENABLE_ENCODE_PERF_STATS
   auto convert_end = std::chrono::steady_clock::now();
   int64_t convert_duration_us =
@@ -692,6 +888,7 @@ void JetsonEncoder::EmplaceBuffer(
   {
     std::lock_guard<std::mutex> lock(tasks_mutex_);
     CaptureTask task;
+    task.timestamp_us = task_timestamp_us;
     task.callback = on_capture;
 #if ENABLE_ENCODE_PERF_STATS
     auto now = std::chrono::steady_clock::now();
@@ -711,6 +908,11 @@ void JetsonEncoder::EmplaceBuffer(
   }
 #endif
 
+  if (force_idr_before_next_frame_.exchange(false,
+                                             std::memory_order_acq_rel)) {
+    ForceKeyFrame();
+  }
+
   if (encoder_->output_plane.qBuffer(v4l2_output_buf, nullptr) < 0) {
     const int saved_errno = errno;
     {
@@ -719,6 +921,12 @@ void JetsonEncoder::EmplaceBuffer(
         capturing_tasks_.pop_back();
       }
     }
+    tasks_condition_.notify_all();
+    {
+      std::lock_guard<std::mutex> lock(output_buffers_mutex_);
+      available_output_buffers_.push_front(v4l2_output_buf.index);
+    }
+    output_buffers_condition_.notify_one();
     LOG_ERROR("[JetsonEnc][qbuf] Failed to qBuffer output_plane errno=%d",
               saved_errno);
     LogV4L2Buffer("emplace:output-qbuf-failed", v4l2_output_buf);
@@ -766,8 +974,17 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
     is_keyframe = enc_metadata.KeyFrame;
   }
 
-  uint64_t timestamp = (v4l2_buf->timestamp.tv_usec % 1000000) +
-                       (v4l2_buf->timestamp.tv_sec * 1000000UL);
+  const bool has_h264_idr =
+      thiz->dst_pix_fmt_ == V4L2_PIX_FMT_H264 &&
+      HasH264NalType(buffer->planes[0].data, buffer->planes[0].bytesused, 5);
+  const bool has_h264_sps =
+      thiz->dst_pix_fmt_ == V4L2_PIX_FMT_H264 &&
+      HasH264NalType(buffer->planes[0].data, buffer->planes[0].bytesused, 7);
+  is_keyframe = is_keyframe || has_h264_idr;
+
+  const uint64_t timestamp =
+      static_cast<uint64_t>(v4l2_buf->timestamp.tv_usec) +
+      static_cast<uint64_t>(v4l2_buf->timestamp.tv_sec) * 1000000u;
 
   if (thiz->packets_buf_size_ < buffer->planes[0].bytesused) {
     uint32_t new_size = thiz->packets_buf_size_;
@@ -788,14 +1005,29 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
   thiz->packets_keyflag_[current_index] = is_keyframe;
   thiz->timestamp_[current_index] = timestamp;
 
+  const bool awaiting_resolution_idr =
+      thiz->awaiting_resolution_idr_.load(std::memory_order_acquire);
+  const bool deliver_frame =
+      !awaiting_resolution_idr || (has_h264_idr && has_h264_sps);
+
   CaptureTask task;
+  bool matched_task = false;
+  size_t abandoned_tasks = 0;
   {
     std::lock_guard<std::mutex> lock(thiz->tasks_mutex_);
-    if (thiz->capturing_tasks_.empty()) {
+    auto task_it = std::find_if(
+        thiz->capturing_tasks_.begin(), thiz->capturing_tasks_.end(),
+        [timestamp](const CaptureTask& candidate) {
+          return candidate.timestamp_us == timestamp;
+        });
+    if (task_it == thiz->capturing_tasks_.end()) {
       if (thiz->stopping_.load(std::memory_order_acquire)) {
         return false;
       }
-      LOG_ERROR("No capture task available");
+      LOG_INFO(
+          "[JetsonEnc][capture-dq] Extra coded buffer without matching "
+          "capture task timestamp=%llu; requeue after DRC",
+          static_cast<unsigned long long>(timestamp));
       if (thiz->encoder_->capture_plane.qBuffer(*v4l2_buf, NULL) < 0) {
         const int saved_errno = errno;
         thiz->abort_ = true;
@@ -808,18 +1040,42 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
         thiz->LogQueueState("capture-dq:no-task-requeue-failed");
         return false;
       }
+      // Jetson 在 DRC 后可能为同一个输入额外输出一块 SPS/图像数据。
+      // 此时对应的输出面缓冲已随前一块捕获数据回收，不能再次阻塞 DQ。
       LogV4L2Buffer("capture-dq:no-task-requeue-ok", *v4l2_buf);
       thiz->LogQueueState("capture-dq:no-task-requeue-ok");
       return true;
     }
-    task = thiz->capturing_tasks_.front();
-    thiz->capturing_tasks_.pop_front();
+
+    // 时间戳已经前进到较新的输入时，排在它之前的任务不会再产生可交付
+    // 码流。丢弃这些任务并在锁外逐个回收对应 output buffer。
+    abandoned_tasks = static_cast<size_t>(
+        std::distance(thiz->capturing_tasks_.begin(), task_it));
+    for (size_t i = 0; i < abandoned_tasks; ++i) {
+      thiz->capturing_tasks_.pop_front();
+    }
+
+    if (deliver_frame) {
+      task = thiz->capturing_tasks_.front();
+      thiz->capturing_tasks_.pop_front();
+      matched_task = true;
+    }
+  }
+  if (abandoned_tasks > 0 || matched_task) {
+    thiz->tasks_condition_.notify_all();
   }
 
-  task.callback(thiz->packets_[current_index],
-                thiz->packets_size_[current_index], is_keyframe, timestamp);
-
-  thiz->buf_index_ = (thiz->buf_index_ + 1) % thiz->packets_num_;
+  if (!deliver_frame) {
+    // Jetson DRC 的首帧可能仅带新 SPS 和非 IDR 图像。同一输入还可能
+    // 继续输出 IDR，因此保留时间戳任务，不得让该 buffer 消费下一帧任务。
+    thiz->force_idr_before_next_frame_.store(true,
+                                             std::memory_order_release);
+    LOG_WARN(
+        "[JetsonEnc][reconfigure] Hold capture task for target IDR, "
+        "timestamp=%llu idr=%d sps=%d",
+        static_cast<unsigned long long>(timestamp), has_h264_idr,
+        has_h264_sps);
+  }
 
   if (thiz->encoder_->capture_plane.qBuffer(*v4l2_buf, NULL) < 0) {
     const int saved_errno = errno;
@@ -832,39 +1088,106 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
     thiz->LogQueueState("capture-dq:requeue-failed");
     return false;
   }
+
+  for (size_t i = 0; i < abandoned_tasks; ++i) {
+    if (!thiz->ReclaimOutputBuffer()) {
+      return false;
+    }
+  }
+
+  if (!deliver_frame) {
+    return true;
+  }
+
+  if (!thiz->ReclaimOutputBuffer()) {
+    return false;
+  }
+
+  thiz->buf_index_ = (thiz->buf_index_ + 1) % thiz->packets_num_;
+  if (awaiting_resolution_idr) {
+    thiz->awaiting_resolution_idr_.store(false, std::memory_order_release);
+    is_keyframe = true;
+  }
+  // 无任务的额外 SPS 输出和 DRC 后不可交付的非 IDR 都不能解除 pending，
+  // 否则快速弱网降档可能在硬件确认新尺寸前再次修改 output plane。
+  thiz->reconfigure_ready_.store(true, std::memory_order_release);
+  task.callback(thiz->packets_[current_index],
+                thiz->packets_size_[current_index], is_keyframe, timestamp);
   return true;
 }
 
-void JetsonEncoder::ConvertI420ToYUV420M(
+bool JetsonEncoder::ConvertI420ToYUV420M(
     NvBuffer* nv_buffer, rtc::scoped_refptr<I420BufferInterface> i420_buffer) {
+  if (!nv_buffer || !i420_buffer || nv_buffer->n_planes < 3) {
+    LOG_ERROR("[JetsonEnc][convert] Invalid I420 or NvBuffer");
+    return false;
+  }
+
   for (uint32_t p = 0; p < nv_buffer->n_planes; p++) {
     const uint8_t* src_addr;
     int stride;
+    int visible_width;
+    int visible_height;
+    uint8_t padding_value;
     if (p == 0) {
       src_addr = i420_buffer->DataY();
       stride = i420_buffer->StrideY();
+      visible_width = i420_buffer->width();
+      visible_height = i420_buffer->height();
+      padding_value = 16;
     } else if (p == 1) {
       src_addr = i420_buffer->DataU();
       stride = i420_buffer->StrideU();
+      visible_width = (i420_buffer->width() + 1) / 2;
+      visible_height = (i420_buffer->height() + 1) / 2;
+      padding_value = 128;
     } else if (p == 2) {
       src_addr = i420_buffer->DataV();
       stride = i420_buffer->StrideV();
+      visible_width = (i420_buffer->width() + 1) / 2;
+      visible_height = (i420_buffer->height() + 1) / 2;
+      padding_value = 128;
     } else {
       break;
     }
 
     auto& plane = nv_buffer->planes[p];
-    int row_size = plane.fmt.bytesperpixel * plane.fmt.width;
-    uint8_t* dst_addr = plane.data;
-    plane.bytesused = 0;
+    const int bytes_per_pixel = std::max(1u, plane.fmt.bytesperpixel);
+    const int row_size = bytes_per_pixel * visible_width;
+    const uint64_t padded_size =
+        static_cast<uint64_t>(plane.fmt.stride) * plane.fmt.height;
+    if (!src_addr || stride < row_size ||
+        plane.fmt.width < static_cast<uint32_t>(visible_width) ||
+        plane.fmt.height < static_cast<uint32_t>(visible_height) ||
+        plane.fmt.stride < static_cast<uint32_t>(row_size) ||
+        padded_size > plane.length) {
+      LOG_ERROR(
+          "[JetsonEnc][convert] Plane mismatch p=%u visible=%dx%d "
+          "src_stride=%d dst=%ux%u dst_stride=%u bpp=%u padded=%llu "
+          "length=%u sizeimage=%u",
+          p, visible_width, visible_height, stride, plane.fmt.width,
+          plane.fmt.height, plane.fmt.stride, plane.fmt.bytesperpixel,
+          static_cast<unsigned long long>(padded_size), plane.length,
+          plane.fmt.sizeimage);
+      return false;
+    }
 
-    for (uint32_t row = 0; row < plane.fmt.height; row++) {
+    uint8_t* dst_addr = plane.data;
+    if (!dst_addr) {
+      LOG_ERROR("[JetsonEnc][convert] Null destination plane p=%u", p);
+      return false;
+    }
+    plane.bytesused = 0;
+    memset(dst_addr, padding_value, static_cast<size_t>(padded_size));
+
+    for (int row = 0; row < visible_height; row++) {
       memcpy(dst_addr, src_addr + stride * row, row_size);
       dst_addr += plane.fmt.stride;
     }
 
-    plane.bytesused = plane.fmt.stride * plane.fmt.height;
+    plane.bytesused = static_cast<uint32_t>(padded_size);
   }
+  return true;
 }
 
 void JetsonEncoder::SendEOS() {

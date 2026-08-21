@@ -4,6 +4,8 @@
 #include <api/video/i420_buffer.h>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -46,14 +48,24 @@ class JetsonEncoder {
   void SetStrategyConfig(const StrategyConfig& config);
   void ForceKeyFrame();
   void SetBitrate(int bitrate_bps);
+  void SetFramerate(int framerate);
   bool Reconfigure(int new_width, int new_height);
+  bool CanReconfigure() const;
+  bool IsHealthy() const;
+  int width() const { return width_; }
+  int height() const { return height_; }
 
  private:
   NvVideoEncoder* encoder_;
   std::atomic<bool> abort_;
   std::atomic<bool> stopping_;
+  std::atomic<bool> awaiting_resolution_idr_;
+  std::atomic<bool> force_idr_before_next_frame_;
+  std::atomic<bool> reconfigure_ready_;
   int width_;
   int height_;
+  int session_width_;
+  int session_height_;
   int framerate_;
   int bitrate_bps_;
   uint32_t src_pix_fmt_;
@@ -61,6 +73,7 @@ class JetsonEncoder {
   bool is_dma_src_;
 
   struct CaptureTask {
+    uint64_t timestamp_us = 0;
     std::function<void(const uint8_t* data, size_t size, bool is_keyframe,
                        uint64_t timestamp)>
         callback;
@@ -71,6 +84,13 @@ class JetsonEncoder {
 
   std::deque<CaptureTask> capturing_tasks_;
   std::mutex tasks_mutex_;
+  std::condition_variable tasks_condition_;
+  std::atomic<uint64_t> next_task_timestamp_us_{1};
+
+  std::deque<uint32_t> available_output_buffers_;
+  std::mutex output_buffers_mutex_;
+  std::condition_variable output_buffers_condition_;
+  std::atomic<int64_t> last_output_drop_log_ms_{0};
 
   // Packet buffers
   static const int MAX_BUFFERS = 32;
@@ -87,14 +107,19 @@ class JetsonEncoder {
   bool CreateVideoEncoder();
   bool ApplyCodecSettings();
   bool PrepareCaptureBuffer();
+  void ResetAvailableOutputBuffers();
+  bool ReclaimOutputBuffer();
   bool Start();
   void StopEncoderIo(bool send_eos);
   void SendEOS();
   void LogQueueState(const char* event);
+  bool DrainOutputPlane();
+  bool WaitForPendingTasks();
+  void MarkUnhealthyAfterReconfigureFailure(const char* stage, int ret);
   static bool EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
                                             NvBuffer* buffer,
                                             NvBuffer* shared_buffer, void* arg);
-  void ConvertI420ToYUV420M(
+  bool ConvertI420ToYUV420M(
       NvBuffer* nv_buffer,
       rtc::scoped_refptr<I420BufferInterface> i420_buffer);
 };

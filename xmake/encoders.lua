@@ -101,7 +101,7 @@ function vtsrtc_add_jetson_multimedia_api_compat_defines()
     return true
 end
 
-function vtsrtc_add_jetson_h264_encoder_config()
+function vtsrtc_add_jetson_encoder_backend_config()
     if not os.isdir("/usr/src/jetson_multimedia_api/include") then
         return vtsrtc_fail("jetson multimedia api headers not found at /usr/src/jetson_multimedia_api/include")
     end
@@ -114,7 +114,6 @@ function vtsrtc_add_jetson_h264_encoder_config()
     add_linkdirs("/usr/lib/aarch64-linux-gnu/tegra")
     add_syslinks("v4l2", "nvbufsurface", "nvbufsurftransform", "X11")
     add_files(
-        vtsrtc_path("vtsrtc", "src", "video", "encode", "nvidia-jetson", "jetsonh264_encoder_impl.cpp"),
         vtsrtc_path("vtsrtc", "src", "video", "encode", "nvidia-jetson", "jetson_encoder.cpp"),
         vtsrtc_path("vtsrtc", "src", "video", "encode", "nvidia-jetson", "NvVideoEncoder.cpp"),
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvV4l2Element.cpp",
@@ -123,6 +122,18 @@ function vtsrtc_add_jetson_h264_encoder_config()
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvBuffer.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvElement.cpp",
         "/usr/src/jetson_multimedia_api/samples/common/classes/NvLogging.cpp"
+    )
+
+    return true
+end
+
+function vtsrtc_add_jetson_h264_encoder_config()
+    if not vtsrtc_add_jetson_encoder_backend_config() then
+        return nil
+    end
+
+    add_files(
+        vtsrtc_path("vtsrtc", "src", "video", "encode", "nvidia-jetson", "jetsonh264_encoder_impl.cpp")
     )
 
     return true

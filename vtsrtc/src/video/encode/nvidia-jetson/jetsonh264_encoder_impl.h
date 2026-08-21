@@ -8,10 +8,13 @@
 #include <atomic>
 #include <chrono>
 #include <climits>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -52,10 +55,41 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   void OnLossNotification(const LossNotification& loss_notification) override;
 
  private:
-  bool EnsureEncoderForResolution(unsigned int width, unsigned int height);
+  enum class EnsureEncoderResult {
+    kReady,
+    kPending,
+    kError,
+  };
+
+  EnsureEncoderResult EnsureEncoderForResolution(unsigned int width,
+                                                  unsigned int height);
+  static bool ShouldEnableStandby(unsigned int width, unsigned int height);
   JetsonEncoder::StrategyConfig BuildStrategyConfig() const;
   void ApplyRatesToEncoder(JetsonEncoder* encoder);
   void InitializeResolutionBitrateLimits();
+  std::unique_ptr<JetsonEncoder> CreateEncoder(unsigned int width,
+                                               unsigned int height,
+                                               const JetsonEncoder::StrategyConfig&
+                                                   config,
+                                               unsigned int framerate,
+                                               unsigned int bitrate) const;
+  bool WarmupEncoder(JetsonEncoder* encoder, unsigned int width,
+                     unsigned int height) const;
+  void StartStandbyWorker();
+  void StopStandbyWorker();
+  void CancelDeferredRelease();
+  void ScheduleDeferredRelease();
+  void ReleaseHardwareResources();
+  void RequestStandbyPrewarm();
+  void RetireEncoder(std::unique_ptr<JetsonEncoder> encoder);
+  void StandbyWorkerLoop();
+  std::pair<unsigned int, unsigned int> ResolveSessionResolution(
+      unsigned int width, unsigned int height) const;
+  void ResetQpStatistics();
+  void RecordQp(int qp, unsigned int width, unsigned int height);
+  EncodedImageCallback* BeginEncodeCallback();
+  void EndEncodeCallback();
+  void ClearEncodeCallbackAndWait();
 
   void ReportInit();
   void ReportError();
@@ -65,14 +99,34 @@ class JetsonH264EncoderImpl : public VideoEncoder {
 
  private:
   std::unique_ptr<JetsonEncoder> encoder_;
+  std::unique_ptr<JetsonEncoder> standby_encoder_;
   std::mutex encoder_mutex_;
   std::atomic<uint64_t> encoder_generation_{0};
+  std::atomic<uint64_t> session_epoch_{0};
+
+  std::thread standby_thread_;
+  std::mutex standby_worker_mutex_;
+  std::condition_variable standby_worker_condition_;
+  std::atomic<bool> standby_enabled_{false};
+  std::atomic<bool> codec_released_{false};
+  std::atomic<uint64_t> release_sequence_{0};
+  bool standby_worker_stop_ = true;
+  bool standby_request_pending_ = false;
+  bool deferred_release_pending_ = false;
+  uint64_t deferred_release_sequence_ = 0;
+  std::chrono::steady_clock::time_point deferred_release_deadline_;
+  std::deque<std::unique_ptr<JetsonEncoder>> retired_encoders_;
 
   EncodedImage encoded_image_;
   size_t encoded_image_capacity_ = 0;
   std::mutex encoded_image_mutex_;
+  std::atomic<int64_t> callback_start_time_ms_{0};
 
-  EncodedImageCallback* encoded_image_callback_ = nullptr;
+  std::atomic<EncodedImageCallback*> encoded_image_callback_{nullptr};
+  std::mutex callback_lifecycle_mutex_;
+  std::condition_variable callback_lifecycle_condition_;
+  size_t callback_inflight_ = 0;
+  uint64_t callback_epoch_ = 0;
   H264BitstreamParser h264_bitstream_parser_;
 
   vts_rtc::RtcConfig rtc_config_;
@@ -86,12 +140,11 @@ class JetsonH264EncoderImpl : public VideoEncoder {
 
   unsigned int width_ = 0;
   unsigned int height_ = 0;
-  // NVENC V4L2 frame rate is configured before STREAMON and kept fixed while
-  // the encoder is running. WebRTC's fps_ may change with rate control.
+  unsigned int session_width_ = 0;
+  unsigned int session_height_ = 0;
   unsigned int hardware_framerate_ = 30;
   unsigned int fps_ = 30;
   unsigned int bitrate_ = 25000000;
-  unsigned int bitrate_floor_bps_ = 0;
   unsigned int gop_size_ = 3000;
   unsigned int bitrate_cap_bps_ = 100000000;
   std::pair<unsigned int, unsigned int> qp_range_ = {0u, 0u};
@@ -99,8 +152,24 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   bool has_configured_playout_delay_ = false;
   int configured_playout_delay_min_ms_ = -1;
   int configured_playout_delay_max_ms_ = -1;
-  std::pair<unsigned int, unsigned int> qp_threshold_ = {37u, 39u};
+  std::pair<unsigned int, unsigned int> qp_threshold_ = {32u, 36u};
   std::vector<ResolutionBitrateLimits> resolution_bitrate_limits_;
+
+  struct QpWindowStats {
+    bool initialized = false;
+    uint64_t qp_sum = 0;
+    uint32_t sample_count = 0;
+    uint32_t missing_count = 0;
+    int min_qp = 52;
+    int max_qp = -1;
+    unsigned int width = 0;
+    unsigned int height = 0;
+    unsigned int bitrate_bps = 0;
+    unsigned int fps = 0;
+    std::chrono::steady_clock::time_point window_start;
+  };
+  std::mutex qp_stats_mutex_;
+  QpWindowStats qp_stats_;
 
 #if ENABLE_ENCODE_PERF_STATS
   struct EncodeStats {
