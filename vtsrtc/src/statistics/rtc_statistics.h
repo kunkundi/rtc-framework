@@ -1,5 +1,8 @@
 ﻿#pragma once
 
+#include <map>
+#include <utility>
+
 #include "api/stats/rtc_stats_report.h"
 #include "rtc_types.h"
 
@@ -27,6 +30,19 @@ class RtcStatistics {
 
  private:
   void ResetHistoryNetStats(vts_rtc::VideoSourceId sourceid);
+  void LogNetworkDiagnostics(
+      vts_rtc::SessionId session_id,
+      const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+
+  struct OutboundVideoHistory {
+    bool initialized = false;
+    uint64_t bytes_sent = 0;
+    uint64_t retransmitted_packets_sent = 0;
+    uint32_t nack_count = 0;
+    uint32_t pli_count = 0;
+    int32_t remote_packets_lost = 0;
+    int64_t timestamp_us = 0;
+  };
 
  private:
   vts_rtc::ChannelNetworkStatsHandler stats_report_callback_ = nullptr;
@@ -46,4 +62,8 @@ class RtcStatistics {
   // 存储上一次的 jitter_buffer_emitted_count 累积值，用于计算增量平均
   std::map<vts_rtc::VideoSourceId, uint64_t>
       prev_jitter_buffer_emitted_count_;
+  std::map<std::pair<vts_rtc::SessionId, uint32_t>, OutboundVideoHistory>
+      outbound_video_history_;
+  std::map<std::pair<vts_rtc::SessionId, uint32_t>, int64_t>
+      last_pacer_diagnosis_us_;
 };

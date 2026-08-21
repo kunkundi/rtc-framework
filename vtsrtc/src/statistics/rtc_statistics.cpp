@@ -1,5 +1,8 @@
 ﻿#include "rtc_statistics.h"
 
+#include <set>
+#include <string>
+
 #include "api/stats/rtcstats_objects.h"
 #include "log/log_manager.h"
 #include "video/call_stats.h"
@@ -11,10 +14,14 @@ RtcStatistics::~RtcStatistics() { stats_report_callback_ = nullptr; }
 void RtcStatistics::Reset() {
   sender_media_ssrc_vs_id_.clear();
   receiver_media_id_vs_ssrc_.clear();
+  session_sender_media_ssrc_vs_id_.clear();
+  session_receiver_media_id_vs_ssrc_.clear();
   net_stats_.clear();
   prev_total_packet_send_delay_.clear();
   prev_jitter_buffer_delay_.clear();
   prev_jitter_buffer_emitted_count_.clear();
+  outbound_video_history_.clear();
+  last_pacer_diagnosis_us_.clear();
 }
 
 void RtcStatistics::SetStatisticsReportCallback(
@@ -57,6 +64,23 @@ void RtcStatistics::RemoveSessionMediaSsrcVsId(
     } else
       it++;
   }
+
+  for (auto it = outbound_video_history_.begin();
+       it != outbound_video_history_.end();) {
+    if (it->first.first == remote_sessionid) {
+      it = outbound_video_history_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (auto it = last_pacer_diagnosis_us_.begin();
+       it != last_pacer_diagnosis_us_.end();) {
+    if (it->first.first == remote_sessionid) {
+      it = last_pacer_diagnosis_us_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 void RtcStatistics::ResetHistoryNetStats(vts_rtc::VideoSourceId sourceid) {
@@ -72,11 +96,217 @@ void RtcStatistics::ResetHistoryNetStats(vts_rtc::VideoSourceId sourceid) {
   prev_jitter_buffer_emitted_count_.erase(sourceid);
 }
 
+void RtcStatistics::LogNetworkDiagnostics(
+    vts_rtc::SessionId session_id,
+    const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+  const auto session_it = session_sender_media_ssrc_vs_id_.find(session_id);
+  if (!report) {
+    return;
+  }
+
+  std::set<std::string> transport_ids;
+  const auto outbound_stats =
+      report->GetStatsOfType<webrtc::RTCOutboundRTPStreamStats>();
+  for (const auto* media_stats : outbound_stats) {
+    if (!media_stats || !media_stats->ssrc.is_defined()) {
+      continue;
+    }
+    const bool is_video =
+        (media_stats->kind.is_defined() && *media_stats->kind == "video") ||
+        (media_stats->media_type.is_defined() &&
+         *media_stats->media_type == "video");
+    if (!is_video) {
+      continue;
+    }
+
+    const uint32_t ssrc = *media_stats->ssrc;
+    std::string source_id = "unknown";
+    if (session_it != session_sender_media_ssrc_vs_id_.end()) {
+      const auto source_it = session_it->second.find(ssrc);
+      if (source_it != session_it->second.end()) {
+        source_id = source_it->second;
+      }
+    }
+    if (source_id == "unknown" && media_stats->track_id.is_defined()) {
+      source_id = *media_stats->track_id;
+    }
+
+    const uint64_t bytes_sent = media_stats->bytes_sent.is_defined()
+                                    ? *media_stats->bytes_sent
+                                    : 0;
+    const uint64_t retransmitted =
+        media_stats->retransmitted_packets_sent.is_defined()
+            ? *media_stats->retransmitted_packets_sent
+            : 0;
+    const uint32_t nack_total = media_stats->nack_count.is_defined()
+                                    ? *media_stats->nack_count
+                                    : 0;
+    const uint32_t pli_total = media_stats->pli_count.is_defined()
+                                   ? *media_stats->pli_count
+                                   : 0;
+    const webrtc::RTCRemoteInboundRtpStreamStats* remote_inbound = nullptr;
+    if (media_stats->remote_id.is_defined()) {
+      remote_inbound = report->GetAs<webrtc::RTCRemoteInboundRtpStreamStats>(
+          *media_stats->remote_id);
+    }
+    const int32_t remote_lost_total =
+        remote_inbound && remote_inbound->packets_lost.is_defined()
+            ? *remote_inbound->packets_lost
+            : 0;
+    const double remote_rtt_ms =
+        remote_inbound && remote_inbound->round_trip_time.is_defined()
+            ? *remote_inbound->round_trip_time * 1000.0
+            : -1.0;
+    const auto history_key = std::make_pair(session_id, ssrc);
+    auto& history = outbound_video_history_[history_key];
+
+    double actual_bitrate_bps = -1.0;
+    uint64_t retransmitted_delta = 0;
+    uint32_t nack_delta = 0;
+    uint32_t pli_delta = 0;
+    int32_t remote_lost_delta = 0;
+    if (history.initialized && report->timestamp_us() > history.timestamp_us) {
+      const int64_t elapsed_us = report->timestamp_us() - history.timestamp_us;
+      if (bytes_sent >= history.bytes_sent) {
+        actual_bitrate_bps =
+            static_cast<double>(bytes_sent - history.bytes_sent) * 8.0 *
+            1000000.0 / static_cast<double>(elapsed_us);
+      }
+      if (retransmitted >= history.retransmitted_packets_sent) {
+        retransmitted_delta =
+            retransmitted - history.retransmitted_packets_sent;
+      }
+      if (nack_total >= history.nack_count) {
+        nack_delta = nack_total - history.nack_count;
+      }
+      if (pli_total >= history.pli_count) {
+        pli_delta = pli_total - history.pli_count;
+      }
+      if (remote_lost_total >= history.remote_packets_lost) {
+        remote_lost_delta =
+            remote_lost_total - history.remote_packets_lost;
+      }
+    }
+
+    history.initialized = true;
+    history.bytes_sent = bytes_sent;
+    history.retransmitted_packets_sent = retransmitted;
+    history.nack_count = nack_total;
+    history.pli_count = pli_total;
+    history.remote_packets_lost = remote_lost_total;
+    history.timestamp_us = report->timestamp_us();
+
+    const double target_bitrate_bps = media_stats->target_bitrate.is_defined()
+                                          ? *media_stats->target_bitrate
+                                          : -1.0;
+    const uint32_t width = media_stats->frame_width.is_defined()
+                               ? *media_stats->frame_width
+                               : 0;
+    const uint32_t height = media_stats->frame_height.is_defined()
+                                ? *media_stats->frame_height
+                                : 0;
+    const double fps = media_stats->frames_per_second.is_defined()
+                           ? *media_stats->frames_per_second
+                           : 0.0;
+    const std::string quality =
+        media_stats->quality_limitation_reason.is_defined()
+            ? *media_stats->quality_limitation_reason
+            : "unknown";
+
+    LOG_INFO(
+        "[NetVideo] session=%u source=%s ssrc=%u size=%ux%u fps=%.1f "
+        "actual_bps=%.0f target_bps=%.0f nack_delta=%u nack_total=%u "
+        "pli_delta=%u pli_total=%u retrans_delta=%llu "
+        "remote_lost_delta=%d remote_lost_total=%d remote_rtt_ms=%.1f "
+        "quality=%s",
+        session_id, source_id.c_str(), ssrc, width, height, fps,
+        actual_bitrate_bps, target_bitrate_bps, nack_delta, nack_total,
+        pli_delta, pli_total,
+        static_cast<unsigned long long>(retransmitted_delta), remote_lost_delta,
+        remote_lost_total, remote_rtt_ms, quality.c_str());
+
+    if (media_stats->transport_id.is_defined()) {
+      transport_ids.insert(*media_stats->transport_id);
+    }
+  }
+
+  for (const auto& transport_id : transport_ids) {
+    const auto* transport =
+        report->GetAs<webrtc::RTCTransportStats>(transport_id);
+    if (!transport || !transport->selected_candidate_pair_id.is_defined()) {
+      continue;
+    }
+    const std::string& pair_id = *transport->selected_candidate_pair_id;
+    const auto* pair = report->GetAs<webrtc::RTCIceCandidatePairStats>(pair_id);
+    if (!pair) {
+      continue;
+    }
+
+    const webrtc::RTCLocalIceCandidateStats* local = nullptr;
+    const webrtc::RTCRemoteIceCandidateStats* remote = nullptr;
+    if (pair->local_candidate_id.is_defined()) {
+      local = report->GetAs<webrtc::RTCLocalIceCandidateStats>(
+          *pair->local_candidate_id);
+    }
+    if (pair->remote_candidate_id.is_defined()) {
+      remote = report->GetAs<webrtc::RTCRemoteIceCandidateStats>(
+          *pair->remote_candidate_id);
+    }
+
+    const std::string local_ip =
+        local && local->ip.is_defined() ? *local->ip : "unknown";
+    const int local_port =
+        local && local->port.is_defined() ? *local->port : -1;
+    const std::string local_protocol =
+        local && local->protocol.is_defined() ? *local->protocol : "unknown";
+    const std::string local_type =
+        local && local->candidate_type.is_defined()
+            ? *local->candidate_type
+            : "unknown";
+    const std::string remote_ip =
+        remote && remote->ip.is_defined() ? *remote->ip : "unknown";
+    const int remote_port =
+        remote && remote->port.is_defined() ? *remote->port : -1;
+    const std::string remote_protocol =
+        remote && remote->protocol.is_defined() ? *remote->protocol
+                                                : "unknown";
+    const std::string remote_type =
+        remote && remote->candidate_type.is_defined()
+            ? *remote->candidate_type
+            : "unknown";
+    const std::string relay_protocol =
+        local && local->relay_protocol.is_defined() ? *local->relay_protocol
+                                                    : "none";
+    const std::string pair_state =
+        pair->state.is_defined() ? *pair->state : "unknown";
+    const double rtt_ms = pair->current_round_trip_time.is_defined()
+                              ? *pair->current_round_trip_time * 1000.0
+                              : -1.0;
+    const double available_out_bps =
+        pair->available_outgoing_bitrate.is_defined()
+            ? *pair->available_outgoing_bitrate
+            : -1.0;
+
+    LOG_INFO(
+        "[NetPath] session=%u transport=%s pair=%s "
+        "local=%s:%d/%s(%s) remote=%s:%d/%s(%s) relay=%s state=%s "
+        "rtt_ms=%.1f available_out_bps=%.0f",
+        session_id, transport_id.c_str(), pair_id.c_str(), local_ip.c_str(),
+        local_port, local_protocol.c_str(), local_type.c_str(),
+        remote_ip.c_str(), remote_port, remote_protocol.c_str(),
+        remote_type.c_str(), relay_protocol.c_str(), pair_state.c_str(), rtt_ms,
+        available_out_bps);
+  }
+}
+
 void RtcStatistics::OnStatisticsReport(
     const vts_rtc::SessionId session_id,
     const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
-  for (auto& it : session_sender_media_ssrc_vs_id_)
-    for (auto& ssrc_vs_id : it.second) {
+  LogNetworkDiagnostics(session_id, report);
+  const auto sender_session_it =
+      session_sender_media_ssrc_vs_id_.find(session_id);
+  if (sender_session_it != session_sender_media_ssrc_vs_id_.end()) {
+    for (auto& ssrc_vs_id : sender_session_it->second) {
       vts_rtc::NetStats net_stats_out;
       net_stats_out.input = false;
       if (net_stats_.find(ssrc_vs_id.second) == net_stats_.end()) {
@@ -346,16 +576,16 @@ void RtcStatistics::OnStatisticsReport(
             continue;
           }
 
-          LOG_WARN(
-              "[VideoStats-Send] SourceID: %s, SessionID: %u, NetworkDelay: %u "
-              "ms, EncodeTime: %u ms, PacketSendDelay: %u ms, ReportedDelay: "
-              "%u ms",
-              net_stats_out.video_stats.sourceid.c_str(), session_id,
-              network_delay_ms, encode_time_ms, packet_send_delay_ms,
-              net_stats_out.video_stats.delay_ms);
-
           // 如果 PacketSendDelay 过大，输出详细诊断信息
-          if (packet_send_delay_ms > 50) {
+          const auto pacer_history_key =
+              std::make_pair(session_id, ssrc_vs_id.first);
+          int64_t& last_pacer_diagnosis_us =
+              last_pacer_diagnosis_us_[pacer_history_key];
+          const int64_t diagnosis_now_us = report->timestamp_us();
+          if (packet_send_delay_ms > 50 &&
+              (last_pacer_diagnosis_us == 0 ||
+               diagnosis_now_us - last_pacer_diagnosis_us >= 5000000)) {
+            last_pacer_diagnosis_us = diagnosis_now_us;
             LOG_WARN(
                 "[PacerDiagnosis] ========== PacketSendDelay Analysis "
                 "==========");
@@ -532,9 +762,12 @@ void RtcStatistics::OnStatisticsReport(
         }
       }
     }
+  }
 
-  for (auto& it : session_receiver_media_id_vs_ssrc_)
-    for (auto& id_vs_ssrc : it.second) {
+  const auto receiver_session_it =
+      session_receiver_media_id_vs_ssrc_.find(session_id);
+  if (receiver_session_it != session_receiver_media_id_vs_ssrc_.end()) {
+    for (auto& id_vs_ssrc : receiver_session_it->second) {
       vts_rtc::NetStats net_stats_out;
       net_stats_out.input = true;
       if (net_stats_.find(id_vs_ssrc.first) == net_stats_.end()) {
@@ -846,4 +1079,5 @@ void RtcStatistics::OnStatisticsReport(
         }
       }
     }
+  }
 }
