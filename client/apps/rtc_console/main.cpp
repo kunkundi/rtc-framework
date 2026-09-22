@@ -1,6 +1,7 @@
 #include "c_rtc.h"
 #include "rtc_audio/audio_device.h"
 #include "rtc_console_options.h"
+#include "video_composite_layout.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
 #include "rtc_vision/view_control_protocol.h"
@@ -70,7 +71,6 @@ constexpr float kPanelGap = 10.0f;
 constexpr float kPreferredControlPanelHeight = 370.0f;
 constexpr float kMinimumControlPanelHeight = 180.0f;
 constexpr float kMinimumVideoPanelHeight = 180.0f;
-constexpr float kVideoCardPadding = 14.0f;
 constexpr float kVideoOverlayPadding = 8.0f;
 constexpr float kFullscreenOverlayPadding = 20.0f;
 
@@ -192,6 +192,50 @@ std::string MakeVideoStreamKey(RtcSessionId remote_sessionid,
   std::ostringstream key;
   key << remote_sessionid << ":" << source_id;
   return key.str();
+}
+
+const char* VideoSourceIdForTile(rtc_console::VideoTileId tile) {
+  switch (tile) {
+    case rtc_console::VideoTileId::Stereo:
+      return kExternalVideoSource;
+    case rtc_console::VideoTileId::SurroundFront:
+      return kSurroundFrontVideoSource;
+    case rtc_console::VideoTileId::SurroundRear:
+      return kSurroundRearVideoSource;
+    case rtc_console::VideoTileId::SurroundLeft:
+      return kSurroundLeftVideoSource;
+    case rtc_console::VideoTileId::SurroundRight:
+      return kSurroundRightVideoSource;
+  }
+  return "unknown";
+}
+
+bool VideoTileForSourceId(const std::string& source_id,
+                          rtc_console::VideoTileId* tile) {
+  if (tile == nullptr) {
+    return false;
+  }
+  if (source_id == kExternalVideoSource) {
+    *tile = rtc_console::VideoTileId::Stereo;
+    return true;
+  }
+  if (source_id == kSurroundFrontVideoSource) {
+    *tile = rtc_console::VideoTileId::SurroundFront;
+    return true;
+  }
+  if (source_id == kSurroundRearVideoSource) {
+    *tile = rtc_console::VideoTileId::SurroundRear;
+    return true;
+  }
+  if (source_id == kSurroundLeftVideoSource) {
+    *tile = rtc_console::VideoTileId::SurroundLeft;
+    return true;
+  }
+  if (source_id == kSurroundRightVideoSource) {
+    *tile = rtc_console::VideoTileId::SurroundRight;
+    return true;
+  }
+  return false;
 }
 
 size_t ScaleIndexNearest(size_t dst_index, size_t dst_count, size_t src_count) {
@@ -1743,23 +1787,70 @@ class RtcConsoleApp {
     SendVideoViewControl(next_view);
   }
 
-  bool IsSurroundVideoSource(const std::string& source_id) const {
-    return source_id == kSurroundFrontVideoSource ||
-           source_id == kSurroundRearVideoSource ||
-           source_id == kSurroundLeftVideoSource ||
-           source_id == kSurroundRightVideoSource;
+  using VideoFramesByTile =
+      std::map<rtc_console::VideoTileId, std::shared_ptr<VideoFrameView>>;
+
+  struct VideoSessionSnapshot {
+    RtcSessionId remote_sessionid = 0;
+    VideoFramesByTile frames_by_tile;
+  };
+
+  std::vector<VideoSessionSnapshot> SnapshotVideoSessions() {
+    std::map<RtcSessionId, VideoFramesByTile> frames_by_session;
+    {
+      std::lock_guard<std::mutex> lock(video_mutex_);
+      for (const auto& item : remote_video_frames_by_source_) {
+        if (!item.second) {
+          continue;
+        }
+        rtc_console::VideoTileId tile;
+        if (!VideoTileForSourceId(item.second->source_id, &tile)) {
+          continue;
+        }
+        frames_by_session[item.second->remote_sessionid][tile] = item.second;
+      }
+    }
+
+    std::vector<VideoSessionSnapshot> sessions;
+    for (const auto& item : frames_by_session) {
+      VideoSessionSnapshot session;
+      session.remote_sessionid = item.first;
+      session.frames_by_tile = item.second;
+      sessions.push_back(session);
+    }
+
+    const RtcSessionId selected_target =
+        vehicle_control_targets_.selected_target();
+    std::stable_sort(
+        sessions.begin(), sessions.end(),
+        [selected_target](const VideoSessionSnapshot& lhs,
+                          const VideoSessionSnapshot& rhs) {
+          const bool lhs_selected = lhs.remote_sessionid == selected_target;
+          const bool rhs_selected = rhs.remote_sessionid == selected_target;
+          if (lhs_selected != rhs_selected) {
+            return lhs_selected;
+          }
+          return lhs.remote_sessionid < rhs.remote_sessionid;
+        });
+    return sessions;
   }
 
-  bool IsFrameVisibleForEnabledView(const VideoFrameView& frame) const {
-    const vts_rtc::vision::ViewMode enabled_view =
-        video_view_state_.Get(frame.remote_sessionid);
-    if (enabled_view == vts_rtc::vision::ViewMode::Binocular) {
-      return frame.source_id == kExternalVideoSource;
+  const std::shared_ptr<VideoFrameView>* FindVideoFrame(
+      const VideoFramesByTile& frames,
+      rtc_console::VideoTileId tile) const {
+    const auto it = frames.find(tile);
+    return it == frames.end() ? nullptr : &it->second;
+  }
+
+  float StereoAspect(const VideoFramesByTile& frames) const {
+    const std::shared_ptr<VideoFrameView>* frame =
+        FindVideoFrame(frames, rtc_console::VideoTileId::Stereo);
+    if (frame != nullptr && *frame && (*frame)->width > 0 &&
+        (*frame)->height > 0) {
+      return static_cast<float>((*frame)->width) /
+             static_cast<float>((*frame)->height);
     }
-    if (enabled_view == vts_rtc::vision::ViewMode::Surround) {
-      return IsSurroundVideoSource(frame.source_id);
-    }
-    return true;
+    return 32.0f / 9.0f;
   }
 
   void DrawVideoPanel(const UiLayout& layout) {
@@ -1797,125 +1888,147 @@ class RtcConsoleApp {
         "Binocular -> merged_image | Surround -> front/rear/left/right");
     ImGui::Separator();
 
-    std::vector<std::shared_ptr<VideoFrameView>> frame_snapshot;
-    {
-      std::lock_guard<std::mutex> lock(video_mutex_);
-      for (const auto& item : remote_video_frames_by_source_) {
-        if (item.second && IsFrameVisibleForEnabledView(*item.second)) {
-          frame_snapshot.push_back(item.second);
-        }
-      }
-    }
-
-    if (frame_snapshot.empty()) {
-      ImGui::TextUnformatted("Waiting for enabled video view frame...");
+    const std::vector<VideoSessionSnapshot> sessions = SnapshotVideoSessions();
+    if (sessions.empty()) {
+      ImGui::TextUnformatted("Waiting for remote video frames...");
       ImGui::End();
       return;
     }
-
-    std::sort(frame_snapshot.begin(), frame_snapshot.end(),
-              [](const std::shared_ptr<VideoFrameView>& a,
-                 const std::shared_ptr<VideoFrameView>& b) {
-                return a->stream_key < b->stream_key;
-              });
 
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 panel_avail = ImGui::GetContentRegionAvail();
-
-    if (frame_snapshot.size() == 1) {
-      const ImVec2 start_pos = ImGui::GetCursorPos();
-      const float max_box_width =
-          std::max(1.0f, panel_avail.x - kVideoCardPadding * 2.0f);
-      const float max_box_height =
-          std::max(1.0f, panel_avail.y - kVideoCardPadding * 2.0f);
-      const ImVec2 video_box_size =
-          ComputeVideoBoxSize(*frame_snapshot.front(), max_box_width, max_box_height);
-      const float y_offset =
-          std::max(0.0f, (panel_avail.y - video_box_size.y) * 0.5f);
-      ImGui::SetCursorPosY(start_pos.y + y_offset);
-      DrawSingleVideoFrame(*frame_snapshot.front(), max_box_width, max_box_height,
-                           panel_avail.x);
-      ImGui::End();
-      return;
-    }
-
-    const int columns = 2;
+    const int columns = sessions.size() == 1 ? 1 : 2;
     const int rows =
-        static_cast<int>((frame_snapshot.size() + static_cast<size_t>(columns) - 1) /
+        static_cast<int>((sessions.size() + static_cast<size_t>(columns) - 1) /
                          static_cast<size_t>(columns));
-    const float cell_width =
-        (panel_avail.x - style.ItemSpacing.x * static_cast<float>(columns - 1)) /
-        static_cast<float>(columns);
-    const float max_by_width =
-        std::max(1.0f, cell_width - style.CellPadding.x * 2.0f - 12.0f);
-    const float max_by_height = std::max(
-        1.0f, (panel_avail.y - style.ItemSpacing.y * static_cast<float>(rows - 1)) /
-                  static_cast<float>(rows) -
-                  style.CellPadding.y * 2.0f - 12.0f);
-    const float row_height =
-        std::max(1.0f, max_by_height + style.CellPadding.y * 2.0f + 12.0f);
-    if (ImGui::BeginTable("VideoTable", columns,
-                          ImGuiTableFlags_SizingStretchSame |
-                              ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders,
-                          ImVec2(0.0f, 0.0f))) {
-      for (size_t i = 0; i < frame_snapshot.size(); ++i) {
-        if (static_cast<int>(i % static_cast<size_t>(columns)) == 0) {
-          ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
-        }
-        ImGui::TableSetColumnIndex(
-            static_cast<int>(i % static_cast<size_t>(columns)));
-        DrawSingleVideoFrame(*frame_snapshot[i], max_by_width, max_by_height,
-                             cell_width);
-      }
-      ImGui::EndTable();
+    const float cell_width = std::max(
+        1.0f, (panel_avail.x -
+               style.ItemSpacing.x * static_cast<float>(columns - 1)) /
+                  static_cast<float>(columns));
+    const float cell_height = std::max(
+        1.0f, (panel_avail.y -
+               style.ItemSpacing.y * static_cast<float>(rows - 1)) /
+                  static_cast<float>(rows));
+    const ImVec2 grid_origin = ImGui::GetCursorScreenPos();
+
+    for (size_t i = 0; i < sessions.size(); ++i) {
+      const int column = static_cast<int>(i % static_cast<size_t>(columns));
+      const int row = static_cast<int>(i / static_cast<size_t>(columns));
+      ImGui::SetCursorScreenPos(ImVec2(
+          grid_origin.x +
+              static_cast<float>(column) * (cell_width + style.ItemSpacing.x),
+          grid_origin.y +
+              static_cast<float>(row) * (cell_height + style.ItemSpacing.y)));
+      DrawVideoComposite(sessions[i], ImVec2(cell_width, cell_height));
     }
+    ImGui::SetCursorScreenPos(grid_origin);
+    ImGui::Dummy(ImVec2(std::max(1.0f, panel_avail.x),
+                        std::max(1.0f, panel_avail.y)));
 
     ImGui::End();
   }
 
-  ImVec2 ComputeVideoBoxSize(const VideoFrameView& frame,
-                             float max_width,
-                             float max_height) const {
-    const float clamped_max_width = std::max(1.0f, max_width);
-    const float clamped_max_height = std::max(1.0f, max_height);
+  void DrawVideoComposite(const VideoSessionSnapshot& session,
+                          const ImVec2& requested_size) {
+    const ImVec2 size(std::max(1.0f, requested_size.x),
+                      std::max(1.0f, requested_size.y));
+    const bool binocular_mode =
+        video_view_state_.Get(session.remote_sessionid) ==
+        vts_rtc::vision::ViewMode::Binocular;
+    const rtc_console::VideoCompositeLayout composite_layout =
+        rtc_console::ComputeVideoCompositeLayout(
+            binocular_mode, size.x, size.y,
+            StereoAspect(session.frames_by_tile));
 
-    float aspect = 1.0f;
-    if (frame.width > 0 && frame.height > 0) {
-      aspect = static_cast<float>(frame.width) / static_cast<float>(frame.height);
-      if (aspect <= 0.0f) {
-        aspect = 1.0f;
+    ImGui::PushID(static_cast<int>(session.remote_sessionid));
+    const ImVec2 canvas_min = ImGui::GetCursorScreenPos();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    draw_list->AddRectFilled(canvas_min,
+                            ImVec2(canvas_min.x + size.x,
+                                   canvas_min.y + size.y),
+                            IM_COL32(0, 0, 0, 255));
+
+    for (const rtc_console::VideoTilePlacement& placement :
+         composite_layout.placements) {
+      if (!placement.picture_in_picture) {
+        DrawVideoTile(session, placement, canvas_min, !binocular_mode);
       }
     }
 
-    float box_width = clamped_max_width;
-    float box_height = box_width / aspect;
-    if (box_height > clamped_max_height) {
-      box_height = clamped_max_height;
-      box_width = box_height * aspect;
+    const rtc_console::VideoRect& pip =
+        composite_layout.picture_in_picture_bounds;
+    const ImVec2 pip_min(canvas_min.x + pip.x, canvas_min.y + pip.y);
+    const ImVec2 pip_max(pip_min.x + pip.width, pip_min.y + pip.height);
+    draw_list->AddRectFilled(ImVec2(pip_min.x - 3.0f, pip_min.y - 3.0f),
+                             ImVec2(pip_max.x + 3.0f, pip_max.y + 3.0f),
+                             IM_COL32(8, 8, 10, 245));
+    draw_list->AddRect(ImVec2(pip_min.x - 3.0f, pip_min.y - 3.0f),
+                       ImVec2(pip_max.x + 3.0f, pip_max.y + 3.0f),
+                       IM_COL32(220, 220, 220, 230), 0.0f, 0, 2.0f);
+
+    for (const rtc_console::VideoTilePlacement& placement :
+         composite_layout.placements) {
+      if (placement.picture_in_picture) {
+        DrawVideoTile(session, placement, canvas_min, true);
+      }
     }
 
-    box_width = std::max(1.0f, std::min(box_width, clamped_max_width));
-    box_height = std::max(1.0f, std::min(box_height, clamped_max_height));
-    return ImVec2(box_width, box_height);
+    draw_list->AddRect(canvas_min,
+                       ImVec2(canvas_min.x + size.x, canvas_min.y + size.y),
+                       IM_COL32(80, 80, 80, 255));
+    ImGui::SetCursorScreenPos(canvas_min);
+    ImGui::Dummy(size);
+    ImGui::PopID();
   }
 
-  void DrawSingleVideoFrame(const VideoFrameView& frame,
-                            float max_box_width,
-                            float max_box_height,
-                            float content_width) {
-    const ImVec2 video_box_size =
-        ComputeVideoBoxSize(frame, max_box_width, max_box_height);
-    const float start_x = ImGui::GetCursorPosX();
-    const float x_offset = std::max(0.0f, (content_width - video_box_size.x) * 0.5f);
-    if (x_offset > 0.0f) {
-      ImGui::SetCursorPosX(start_x + x_offset);
+  void DrawVideoTile(const VideoSessionSnapshot& session,
+                     const rtc_console::VideoTilePlacement& placement,
+                     const ImVec2& canvas_min,
+                     bool compact_mode) {
+    const ImVec2 tile_size(std::max(1.0f, placement.rect.width),
+                           std::max(1.0f, placement.rect.height));
+    ImGui::SetCursorScreenPos(
+        ImVec2(canvas_min.x + placement.rect.x,
+               canvas_min.y + placement.rect.y));
+    const std::shared_ptr<VideoFrameView>* frame =
+        FindVideoFrame(session.frames_by_tile, placement.tile);
+    if (frame != nullptr && *frame) {
+      DrawVideoFrameBox(**frame, tile_size, false, compact_mode);
+      return;
     }
-    DrawVideoFrameBox(frame, video_box_size, false);
+    DrawMissingVideoFrame(session.remote_sessionid, placement.tile, tile_size);
+  }
+
+  void DrawMissingVideoFrame(RtcSessionId remote_sessionid,
+                             rtc_console::VideoTileId tile,
+                             const ImVec2& requested_size) {
+    const ImVec2 size(std::max(1.0f, requested_size.x),
+                      std::max(1.0f, requested_size.y));
+    const char* source_id = VideoSourceIdForTile(tile);
+    ImGui::PushID(static_cast<int>(remote_sessionid));
+    ImGui::PushID(source_id);
+    ImGui::InvisibleButton("missing_video_frame", size);
+    const ImVec2 box_min = ImGui::GetItemRectMin();
+    const ImVec2 box_max = ImGui::GetItemRectMax();
+    ImGui::PopID();
+    ImGui::PopID();
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    draw_list->AddRectFilled(box_min, box_max, IM_COL32(12, 12, 14, 255));
+    draw_list->AddRect(box_min, box_max, IM_COL32(70, 70, 74, 255));
+    const ImVec2 text_size = ImGui::CalcTextSize(source_id);
+    const ImVec2 text_pos(
+        box_min.x + std::max(4.0f, (size.x - text_size.x) * 0.5f),
+        box_min.y + std::max(4.0f, (size.y - text_size.y) * 0.5f));
+    draw_list->PushClipRect(box_min, box_max, true);
+    draw_list->AddText(text_pos, IM_COL32(150, 150, 155, 255), source_id);
+    draw_list->PopClipRect();
   }
 
   void DrawVideoFrameBox(const VideoFrameView& frame,
                          const ImVec2& requested_box_size,
-                         bool fullscreen_mode) {
+                         bool fullscreen_mode,
+                         bool compact_mode = false) {
     const ImVec2 box_size(std::max(1.0f, requested_box_size.x),
                           std::max(1.0f, requested_box_size.y));
 
@@ -2000,19 +2113,24 @@ class RtcConsoleApp {
                            : IM_COL32(80, 80, 80, 255));
 
     std::ostringstream title;
-    title << "sid=" << frame.remote_sessionid << "  " << frame.source_id << "  "
-          << frame.width << "x" << frame.height;
+    if (compact_mode) {
+      title << frame.source_id;
+    } else {
+      title << "sid=" << frame.remote_sessionid << "  " << frame.source_id
+            << "  " << frame.width << "x" << frame.height;
+    }
     const std::string title_text = title.str();
-    const float overlay_height = ImGui::GetTextLineHeight() + kVideoOverlayPadding * 2.0f;
+    const float title_padding = compact_mode ? 4.0f : kVideoOverlayPadding;
+    const float overlay_height = ImGui::GetTextLineHeight() + title_padding * 2.0f;
     const ImVec2 overlay_max(box_max.x, box_min.y + overlay_height);
     draw_list->AddRectFilled(box_min, overlay_max, IM_COL32(0, 0, 0, 170));
     draw_list->PushClipRect(box_min, overlay_max, true);
     draw_list->AddText(
-        ImVec2(box_min.x + kVideoOverlayPadding, box_min.y + kVideoOverlayPadding),
+        ImVec2(box_min.x + title_padding, box_min.y + title_padding),
         IM_COL32(235, 235, 235, 255), title_text.c_str());
     draw_list->PopClipRect();
 
-    if (fullscreen_mode || hovered) {
+    if (fullscreen_mode || (hovered && !compact_mode)) {
       const char* hint_text = fullscreen_mode
                                   ? "Double-click or press Esc to exit full screen"
                                   : "Double-click to view full screen";
