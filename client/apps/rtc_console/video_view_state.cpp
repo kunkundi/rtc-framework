@@ -14,8 +14,8 @@ vts_rtc::vision::ViewMode VideoViewState::Get(uint32_t sessionid) const {
 void VideoViewState::Set(uint32_t sessionid,
                          vts_rtc::vision::ViewMode mode) {
   if (sessionid == 0 ||
-      (mode != vts_rtc::vision::ViewMode::Binocular &&
-       mode != vts_rtc::vision::ViewMode::Surround)) {
+      (mode < vts_rtc::vision::ViewMode::Binocular ||
+       mode > vts_rtc::vision::ViewMode::SurroundRight)) {
     return;
   }
   std::lock_guard<std::mutex> lock(mutex_);

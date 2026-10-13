@@ -9,7 +9,7 @@ namespace {
 constexpr size_t kPayloadSize = 20;
 
 bool IsKnownViewMode(ViewMode mode) {
-  return mode == ViewMode::Binocular || mode == ViewMode::Surround;
+  return mode >= ViewMode::Binocular && mode <= ViewMode::SurroundRight;
 }
 
 void WriteU16(std::vector<uint8_t>* payload, uint16_t value) {
@@ -113,6 +113,14 @@ const char* ViewModeText(ViewMode mode) {
       return "binocular";
     case ViewMode::Surround:
       return "surround";
+    case ViewMode::SurroundFront:
+      return "surround_front";
+    case ViewMode::SurroundRear:
+      return "surround_rear";
+    case ViewMode::SurroundLeft:
+      return "surround_left";
+    case ViewMode::SurroundRight:
+      return "surround_right";
     case ViewMode::Unknown:
     default:
       return "unknown";

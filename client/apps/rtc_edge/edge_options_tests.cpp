@@ -138,11 +138,14 @@ void TestRepositoryConfig() {
   Check(!options.rtc.room_id.empty(), "load repository room");
   Check(options.camera.capture.left_device == "/dev/video0",
         "load repository left camera");
-  Check(options.camera.capture.width == 1280,
+    Check(options.camera.capture.width == 1920,
         "load repository camera width");
-  Check(!options.surround_camera.front_device.empty(),
+    Check(options.surround_camera.front_device == "/dev/video2",
         "load enabled repository surround front camera");
-  Check(!options.surround_camera.right_device.empty(),
+    Check(options.surround_camera.rear_device == "/dev/video3" &&
+      options.surround_camera.left_device == "/dev/video4",
+      "load repository surround rear and left cameras");
+    Check(options.surround_camera.right_device == "/dev/video5",
         "load enabled repository surround right camera");
   Check(options.camera.yolo_enabled, "load repository YOLO enabled");
   Check(options.camera.yolo_max_fps == 15,
@@ -151,10 +154,10 @@ void TestRepositoryConfig() {
         "load repository YOLO processing downscale");
   Check(options.control.watchdog_ms == 300,
         "load repository watchdog");
-  Check(!options.audio.input_enabled,
-        "repository audio input defaults to disabled");
-  Check(!options.audio.output_enabled,
-        "repository audio output defaults to disabled");
+    Check(options.audio.input_enabled,
+      "repository audio input defaults to enabled");
+    Check(options.audio.output_enabled,
+      "repository audio output defaults to enabled");
 }
 
 void TestMissingAudioSection() {

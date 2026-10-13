@@ -26,7 +26,7 @@ void TestRoundTripAndGolden() {
 
   // 该消息在 v1 协议中的固定小端字节。
   const std::vector<uint8_t> golden = {
-      0x56, 0x56, 0x43, 0x31, 0x01, 0x00, 0x00, 0x00, 0x08, 0x07,
+      0x56, 0x56, 0x43, 0x31, 0x01, 0x00, 0x01, 0x00, 0x08, 0x07,
       0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x02, 0x00, 0x00, 0x00,
   };
   Check(encoded.payload == golden, "view control golden vector");
@@ -48,6 +48,13 @@ void TestRoundTripAndGolden() {
 }
 
 void TestEncodeRejectsUnknownMode() {
+      for (uint32_t value = 1; value <= 6; ++value) {
+            const auto mode = static_cast<ViewMode>(value);
+            const auto encoded = EncodeViewControl(value, mode);
+            Check(static_cast<bool>(encoded), "encode all modes");
+            const auto decoded = DecodeViewControl(encoded.payload);
+            Check(decoded && decoded.envelope.command.enable_view == mode, "round trip all modes");
+      }
   Check(!EncodeViewControl(1, ViewMode::Unknown),
         "reject unknown view mode");
   Check(!EncodeViewControl(1, static_cast<ViewMode>(99)),

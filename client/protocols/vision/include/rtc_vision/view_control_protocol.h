@@ -13,12 +13,16 @@ constexpr const char* kVideoViewControlChannelLabel = "video.view_control.v1";
 
 constexpr uint32_t kVideoViewControlMagic = 0x31435656u;
 constexpr uint16_t kVideoViewControlProtocolMajor = 1;
-constexpr uint16_t kVideoViewControlProtocolMinor = 0;
+constexpr uint16_t kVideoViewControlProtocolMinor = 1;
 
 enum class ViewMode : uint32_t {
   Unknown = 0,
   Binocular = 1,
   Surround = 2,
+  SurroundFront = 3,
+  SurroundRear = 4,
+  SurroundLeft = 5,
+  SurroundRight = 6,
 };
 
 enum class ViewControlDecodeStatus {

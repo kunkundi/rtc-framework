@@ -7,10 +7,10 @@ namespace {
 
 constexpr float kTileGap = 4.0f;
 constexpr float kPictureInPictureInset = 8.0f;
-constexpr float kPictureInPictureWidthRatio = 0.44f;
-constexpr float kPictureInPictureHeightRatio = 0.48f;
+constexpr float kPictureInPictureWidthRatio = 0.28f;
+constexpr float kPictureInPictureHeightRatio = 0.30f;
+constexpr float kPictureInPictureMaxWidth = 384.0f;
 constexpr float kSurroundGridAspect = 16.0f / 9.0f;
-constexpr float kDefaultStereoAspect = 32.0f / 9.0f;
 
 VideoTilePlacement MakePlacement(VideoTileId tile,
                                  const VideoRect& rect,
@@ -31,7 +31,8 @@ VideoRect FitBottomRight(float canvas_width,
       kPictureInPictureInset, std::max(0.0f, (canvas_height - 1.0f) * 0.5f));
   const float max_width =
       std::max(1.0f, std::min(canvas_width - inset_x,
-                              canvas_width * kPictureInPictureWidthRatio));
+                  std::min(kPictureInPictureMaxWidth,
+                       canvas_width * kPictureInPictureWidthRatio)));
   const float max_height =
       std::max(1.0f, std::min(canvas_height - inset_y,
                               canvas_height * kPictureInPictureHeightRatio));
@@ -100,11 +101,8 @@ VideoCompositeLayout ComputeVideoCompositeLayout(bool binocular_mode,
 
   AppendGrid(VideoRect{0.0f, 0.0f, width, height}, false,
              &layout.placements);
-  layout.picture_in_picture_bounds = FitBottomRight(
-      width, height,
-      stereo_aspect > 0.0f ? stereo_aspect : kDefaultStereoAspect);
-  layout.placements.push_back(MakePlacement(
-      VideoTileId::Stereo, layout.picture_in_picture_bounds, true));
+  (void)stereo_aspect;
+  layout.picture_in_picture_bounds = VideoRect{0, 0, 0, 0};
   return layout;
 }
 

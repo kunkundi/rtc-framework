@@ -2,6 +2,7 @@ if vtsrtc_on_linux() then
     target("rtc_edge")
         set_kind("binary")
         vtsrtc_add_client_dependency()
+        vtsrtc_add_webrtc_config()
         add_deps(
             "rtc_camera",
             "rtc_camera_converter",
@@ -118,5 +119,6 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "apps", "rtc_edge", "video_send_planner.cpp"),
             vtsrtc_path("client", "apps", "rtc_edge", "video_send_planner_tests.cpp")
         )
-        add_includedirs(vtsrtc_path("client", "apps", "rtc_edge"))
+        add_includedirs(vtsrtc_path("client", "apps", "rtc_edge"),
+                vtsrtc_path("client", "protocols", "vision", "include"))
 end

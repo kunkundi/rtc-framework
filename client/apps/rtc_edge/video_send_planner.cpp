@@ -8,16 +8,17 @@ VideoSendPlanner::VideoSendPlanner(
 }
 
 VideoSendPlan VideoSendPlanner::Next(
-    bool binocular_enabled,
+    vts_rtc::vision::ViewMode mode,
     std::chrono::steady_clock::time_point now) {
-  (void)binocular_enabled;
   (void)now;
   VideoSendPlan plan;
-  plan.stereo.continuous = true;
-  plan.front.continuous = true;
-  plan.rear.continuous = true;
-  plan.left.continuous = true;
-  plan.right.continuous = true;
+  using vts_rtc::vision::ViewMode;
+  plan.stereo.continuous = mode == ViewMode::Binocular;
+  plan.grid.continuous = mode == ViewMode::Binocular || mode == ViewMode::Surround;
+  plan.front.continuous = mode == ViewMode::SurroundFront;
+  plan.rear.continuous = mode == ViewMode::SurroundRear;
+  plan.left.continuous = mode == ViewMode::SurroundLeft;
+  plan.right.continuous = mode == ViewMode::SurroundRight;
   return plan;
 }
 

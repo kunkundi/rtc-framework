@@ -50,27 +50,18 @@ void TestBinocularLayoutUsesSurroundGridOverlay() {
         "surround grid is in the bottom-right corner");
 }
 
-void TestSurroundLayoutUsesStereoOverlay() {
+void TestSurroundLayoutStopsStereoOverlay() {
   const rtc_console::VideoCompositeLayout layout =
       rtc_console::ComputeVideoCompositeLayout(false, 1000.0f, 600.0f,
                                                32.0f / 9.0f);
-  Check(layout.placements.size() == 5, "surround layout tile count");
+  Check(layout.placements.size() == 4, "surround layout tile count");
   for (size_t i = 0; i < 4; ++i) {
     Check(!layout.placements[i].picture_in_picture,
           "surround tile is part of the main grid");
   }
 
-  const rtc_console::VideoTilePlacement& stereo = layout.placements[4];
-  Check(stereo.tile == rtc_console::VideoTileId::Stereo,
-        "stereo is surround overlay");
-  Check(stereo.picture_in_picture, "stereo is marked as overlay");
-  Check(NearlyEqual(stereo.rect.x, layout.picture_in_picture_bounds.x) &&
-            NearlyEqual(stereo.rect.y, layout.picture_in_picture_bounds.y),
-        "stereo uses overlay bounds");
-  Check(stereo.rect.x > 500.0f && stereo.rect.y > 300.0f,
-        "stereo is in the bottom-right corner");
-  Check(NearlyEqual(stereo.rect.width / stereo.rect.height, 32.0f / 9.0f),
-        "stereo overlay keeps its aspect ratio");
+    Check(layout.picture_in_picture_bounds.width == 0 &&
+      layout.picture_in_picture_bounds.height == 0, "no inactive stereo overlay");
 }
 
 void TestLayoutFitsCompactCanvas() {
@@ -84,12 +75,34 @@ void TestLayoutFitsCompactCanvas() {
   }
 }
 
+void TestSurroundPreviewPreservesDrivingView() {
+  const float sizes[][2] = {{240.0f, 120.0f}, {640.0f, 360.0f},
+           {1280.0f, 720.0f}, {1920.0f, 1080.0f},
+           {2560.0f, 720.0f}};
+  for (const auto& size : sizes) {
+    const auto layout = rtc_console::ComputeVideoCompositeLayout(
+    true, size[0], size[1], 32.0f / 9.0f);
+    const auto& preview = layout.picture_in_picture_bounds;
+    Check(preview.width <= size[0] * 0.28f + 0.01f,
+      "surround preview uses at most 28 percent of canvas width");
+    Check(preview.height <= size[1] * 0.30f + 0.01f,
+      "surround preview uses at most 30 percent of canvas height");
+    Check(preview.width <= 384.01f, "surround preview has a desktop size cap");
+    Check(NearlyEqual(preview.width / preview.height, 16.0f / 9.0f),
+      "surround preview preserves grid aspect ratio");
+    Check(NearlyEqual(preview.x + preview.width, size[0] - 8.0f) &&
+      NearlyEqual(preview.y + preview.height, size[1] - 8.0f),
+      "surround preview remains anchored at bottom right");
+  }
+}
+
 }  // 匿名命名空间
 
 int main() {
   TestBinocularLayoutUsesSurroundGridOverlay();
-  TestSurroundLayoutUsesStereoOverlay();
+  TestSurroundLayoutStopsStereoOverlay();
   TestLayoutFitsCompactCanvas();
+  TestSurroundPreviewPreservesDrivingView();
   std::cout << "rtc_console_video_composite_layout_tests passed" << std::endl;
   return 0;
 }

@@ -1,6 +1,9 @@
 #include "edge_application.h"
 
 #include "video_send_planner.h"
+#include "rtc_camera/single/frame_converter.h"
+#include <third_party/libyuv/include/libyuv.h>
+#include <array>
 
 #include "rtc_audio/audio_device.h"
 #include "rtc_edge/camera_video_sources.h"
@@ -20,6 +23,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -38,7 +42,8 @@ rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
     const SurroundCameraOptions& surround,
     const std::string& device,
     const char* video_source_id,
-    const char* camera_name) {
+    const char* camera_name,
+    std::function<bool(RtcSession*, const rtc_camera::single::ConvertedCameraFrame&)> handler) {
   rtc_edge::SingleCameraStreamingModuleOptions options;
   options.capture.device = device;
   options.capture.width = surround.width;
@@ -50,6 +55,7 @@ rtc_edge::SingleCameraStreamingModuleOptions MakeSurroundCameraOptions(
   options.video_source_id = video_source_id;
   options.camera_name = camera_name;
   options.frame_wait = surround.frame_wait;
+  options.frame_handler = std::move(handler);
   return options;
 }
 
@@ -65,17 +71,24 @@ class EdgeCameraModules {
         stereo_camera_(options.camera),
         front_camera_(MakeSurroundCameraOptions(
             options.surround_camera, options.surround_camera.front_device,
-            rtc_edge::kSurroundFrontVideoSourceId, "surround front camera")),
+            rtc_edge::kSurroundFrontVideoSourceId, "surround front camera",
+            [this](RtcSession* session, const rtc_camera::single::ConvertedCameraFrame& frame) { return SubmitSurround(session, frame, 0); })),
         rear_camera_(MakeSurroundCameraOptions(
             options.surround_camera, options.surround_camera.rear_device,
-            rtc_edge::kSurroundRearVideoSourceId, "surround rear camera")),
+            rtc_edge::kSurroundRearVideoSourceId, "surround rear camera",
+            [this](RtcSession* session, const rtc_camera::single::ConvertedCameraFrame& frame) { return SubmitSurround(session, frame, 1); })),
         left_camera_(MakeSurroundCameraOptions(
             options.surround_camera, options.surround_camera.left_device,
-            rtc_edge::kSurroundLeftVideoSourceId, "surround left camera")),
+            rtc_edge::kSurroundLeftVideoSourceId, "surround left camera",
+            [this](RtcSession* session, const rtc_camera::single::ConvertedCameraFrame& frame) { return SubmitSurround(session, frame, 2); })),
         right_camera_(MakeSurroundCameraOptions(
             options.surround_camera, options.surround_camera.right_device,
             rtc_edge::kSurroundRightVideoSourceId,
-            "surround right camera")) {}
+            "surround right camera",
+            [this](RtcSession* session, const rtc_camera::single::ConvertedCameraFrame& frame) { return SubmitSurround(session, frame, 3); })) {
+    grid_frame_.assign(640 * 360 * 3 / 2, 128);
+    std::fill(grid_frame_.begin(), grid_frame_.begin() + 640 * 360, 16);
+  }
 
   ~EdgeCameraModules() {
     Stop();
@@ -233,16 +246,23 @@ class EdgeCameraModules {
     return true;
   }
 
-  void SetEnabledView(vts_rtc::vision::ViewMode enabled_view) {
-    if (enabled_view != vts_rtc::vision::ViewMode::Binocular &&
-        enabled_view != vts_rtc::vision::ViewMode::Surround) {
+  void SetEnabledView(vts_rtc::vision::ViewMode enabled_view,
+                      RtcSessionId sessionid = 0, uint64_t seq = 0) {
+    if (enabled_view < vts_rtc::vision::ViewMode::Binocular ||
+      enabled_view > vts_rtc::vision::ViewMode::SurroundRight) {
       return;
     }
     bool changed = false;
     {
       std::lock_guard<std::mutex> lock(video_view_mutex_);
+      if (sessionid != 0) {
+        const auto previous = view_sequences_.find(sessionid);
+        if (previous != view_sequences_.end() && seq <= previous->second) return;
+        view_sequences_[sessionid] = seq;
+      }
       if (enabled_view_ != enabled_view) {
         enabled_view_ = enabled_view;
+        grid_updated_.fill(false);
         send_plan_dirty_ = true;
         changed = true;
       }
@@ -252,7 +272,56 @@ class EdgeCameraModules {
     }
   }
 
+  void ResetViewSession(RtcSessionId sessionid) {
+    {
+      std::lock_guard<std::mutex> lock(video_view_mutex_);
+      view_sequences_.erase(sessionid);
+    }
+    SetEnabledView(vts_rtc::vision::ViewMode::Binocular);
+  }
+
  private:
+  bool SubmitSurround(RtcSession* session,
+                      const rtc_camera::single::ConvertedCameraFrame& frame,
+                      size_t index) {
+    std::lock_guard<std::mutex> lock(video_view_mutex_);
+    using vts_rtc::vision::ViewMode;
+    const bool grid = enabled_view_ == ViewMode::Binocular || enabled_view_ == ViewMode::Surround;
+    if (!grid && static_cast<uint32_t>(enabled_view_) != index + 3) {
+      return true;
+    }
+    const int width = grid ? 640 : 1280;
+    const int height = grid ? 360 : 720;
+    std::vector<uint8_t> single;
+    if (!grid) single.resize(width * height * 3 / 2);
+    uint8_t* output = grid ? grid_frame_.data() : single.data();
+    const int offset_x = grid ? static_cast<int>(index % 2) * 320 : 0;
+    const int offset_y = grid ? static_cast<int>(index / 2) * 180 : 0;
+    if (libyuv::I420Scale(frame.data, frame.stride_y,
+                         frame.data + frame.stride_y * frame.height, frame.stride_u,
+                         frame.data + frame.stride_y * frame.height + frame.stride_u * (frame.height / 2), frame.stride_v,
+                         frame.width, frame.height,
+                         output + offset_y * width + offset_x, width,
+                         output + width * height + (offset_y / 2) * (width / 2) + offset_x / 2, width / 2,
+                         output + width * height * 5 / 4 + (offset_y / 2) * (width / 2) + offset_x / 2, width / 2,
+                         grid ? 320 : width, grid ? 180 : height, libyuv::kFilterBox) != 0) {
+      return false;
+    }
+    if (grid) {
+      grid_updated_[index] = true;
+      const bool ready = (!front_enabled_ || grid_updated_[0]) &&
+                         (!rear_enabled_ || grid_updated_[1]) &&
+                         (!left_enabled_ || grid_updated_[2]) &&
+                         (!right_enabled_ || grid_updated_[3]);
+      if (!ready) return true;
+      grid_updated_.fill(false);
+    }
+    const char* sources[] = {rtc_edge::kSurroundFrontVideoSourceId, rtc_edge::kSurroundRearVideoSourceId,
+                             rtc_edge::kSurroundLeftVideoSourceId, rtc_edge::kSurroundRightVideoSourceId};
+    return session->SendI420Frame(grid ? "surround_grid" : sources[index], output,
+                                 width * height * 3 / 2, width, height, width, width / 2, width / 2);
+  }
+
   struct CameraWorkerState {
     bool continuous = false;
     bool pending_send = false;
@@ -294,9 +363,11 @@ class EdgeCameraModules {
       if (!force && !send_plan_dirty_ && now < next_send_plan_update_) {
         return;
       }
-      const bool binocular_enabled =
-          enabled_view_ == vts_rtc::vision::ViewMode::Binocular;
-      send_plan = video_send_planner_.Next(binocular_enabled, now);
+      send_plan = video_send_planner_.Next(enabled_view_, now);
+      if (send_plan.grid.continuous) {
+        send_plan.front.continuous = send_plan.rear.continuous = true;
+        send_plan.left.continuous = send_plan.right.continuous = true;
+      }
       send_plan_dirty_ = false;
       next_send_plan_update_ =
           now + std::chrono::milliseconds(kInactiveVideoViewSendIntervalMs);
@@ -404,6 +475,9 @@ class EdgeCameraModules {
   CameraWorkerState left_worker_;
   CameraWorkerState right_worker_;
   std::mutex video_view_mutex_;
+  std::map<RtcSessionId, uint64_t> view_sequences_;
+  std::vector<uint8_t> grid_frame_;
+  std::array<bool, 4> grid_updated_{{false, false, false, false}};
   vts_rtc::vision::ViewMode enabled_view_ =
       vts_rtc::vision::ViewMode::Binocular;
   bool send_plan_dirty_ = true;
@@ -513,8 +587,7 @@ RtcSession::ExternalVideoSourceConfig MakeVideoSource(
     const char* source_id) {
   RtcSession::ExternalVideoSourceConfig source;
   source.source_id = source_id;
-  // 双目主画面保持 High，环视辅助画面降低带宽竞争，优先保证主画面升到 1080p。
-  source.priority = RtcPriorityType::VeryLow;
+  source.priority = RtcPriorityType::High;
   return source;
 }
 
@@ -545,6 +618,10 @@ RtcSession::Features MakeVehicleRtcFeatures(
     features.additional_data_channels.push_back(MakeDataChannel(
         vts_rtc::vision::kVisionDetectionChannelLabel,
         RtcPriorityType::Medium, false, 0));
+  }
+  if (!surround.front_device.empty() || !surround.rear_device.empty() ||
+      !surround.left_device.empty() || !surround.right_device.empty()) {
+    features.additional_external_video_sources.push_back(MakeVideoSource("surround_grid"));
   }
   if (!surround.front_device.empty()) {
     features.additional_external_video_sources.push_back(
@@ -611,7 +688,8 @@ void HandleReceivedMessage(
                             decoded.error_message);
       return;
     }
-    camera_modules->SetEnabledView(decoded.envelope.command.enable_view);
+    camera_modules->SetEnabledView(decoded.envelope.command.enable_view,
+                     remote_sessionid, decoded.envelope.seq);
     rtc_logging::LogInfo(
         std::string("Video view enabled: ") +
         vts_rtc::vision::ViewModeText(decoded.envelope.command.enable_view));
@@ -681,9 +759,13 @@ RtcSession::Callbacks MakeVehicleRtcCallbacks(
         HandleP2PState(control_module, remote_sessionid, state);
       };
   callbacks.datachannel_state =
-      [control_module](RtcSessionId remote_sessionid,
+      [control_module, camera_modules](RtcSessionId remote_sessionid,
                        RtcDataChannelLabel label,
                        RtcDataChannelState state) {
+        if (camera_modules && label && state == DataChannelClosed &&
+            std::string(label) == vts_rtc::vision::kVideoViewControlChannelLabel) {
+          camera_modules->ResetViewSession(remote_sessionid);
+        }
         HandleDataChannelState(control_module, remote_sessionid, label, state);
       };
   callbacks.server_connection_state =

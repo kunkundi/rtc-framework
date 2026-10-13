@@ -25,6 +25,12 @@ void TestSessionIsolation() {
         "switch selected session to surround");
   Check(state.Get(202) == vts_rtc::vision::ViewMode::Binocular,
         "keep other session binocular");
+      for (uint32_t value = 3; value <= 6; ++value) {
+            const auto mode = static_cast<vts_rtc::vision::ViewMode>(value);
+            state.Set(101, mode);
+            Check(state.Get(101) == mode, "store individual surround selection");
+            Check(state.Get(202) == vts_rtc::vision::ViewMode::Binocular, "isolate individual selection");
+      }
 }
 
 void TestEraseAndClear() {

@@ -197,6 +197,9 @@ bool SingleCameraStreamingModule::Tick(
     return false;
   }
 
+  if (options_.frame_handler) {
+    return options_.frame_handler(rtc_session, converted);
+  }
   if (!rtc_session->SendI420Frame(
           options_.video_source_id.c_str(), converted.data,
           converted.data_size, converted.width, converted.height,
@@ -311,6 +314,17 @@ bool SingleCameraStreamingModule::TickLocalYuvFile(
     return true;
   }
 
+  if (options_.frame_handler) {
+    rtc_camera::single::ConvertedCameraFrame converted;
+    converted.data = local_i420_frame_.data();
+    converted.data_size = local_i420_frame_.size();
+    converted.width = local_width_;
+    converted.height = local_height_;
+    converted.stride_y = local_stride_y_;
+    converted.stride_u = local_stride_u_;
+    converted.stride_v = local_stride_v_;
+    return options_.frame_handler(rtc_session, converted);
+  }
   if (!rtc_session->SendI420Frame(
           options_.video_source_id.c_str(), local_i420_frame_.data(),
           local_i420_frame_.size(), local_width_, local_height_,

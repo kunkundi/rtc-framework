@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,6 +12,7 @@
 namespace rtc_camera {
 namespace single {
 class CameraFrameConverter;
+struct ConvertedCameraFrame;
 }  // 命名空间 single
 }  // 命名空间 rtc_camera
 
@@ -25,6 +27,7 @@ struct SingleCameraStreamingModuleOptions {
   std::string video_source_id;
   std::string camera_name;
   std::chrono::milliseconds frame_wait{10};
+  std::function<bool(rtc_runtime::RtcSession*, const rtc_camera::single::ConvertedCameraFrame&)> frame_handler;
 };
 
 class SingleCameraStreamingModule {
