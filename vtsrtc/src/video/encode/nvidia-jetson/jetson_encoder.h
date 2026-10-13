@@ -57,6 +57,7 @@ class JetsonEncoder {
 
  private:
   NvVideoEncoder* encoder_;
+  bool capture_thread_started_ = false;
   std::atomic<bool> abort_;
   std::atomic<bool> stopping_;
   std::atomic<bool> awaiting_resolution_idr_;

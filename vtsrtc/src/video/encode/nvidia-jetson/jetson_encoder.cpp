@@ -772,7 +772,11 @@ bool JetsonEncoder::Start() {
   LogQueueState("start:capture-streamon");
 
   encoder_->capture_plane.setDQThreadCallback(EncoderCapturePlaneDqCallback);
-  encoder_->capture_plane.startDQThread(this);
+  if (encoder_->capture_plane.startDQThread(this) < 0) {
+    LOG_ERROR("[JetsonEnc][start] Failed to start capture DQ thread");
+    return false;
+  }
+  capture_thread_started_ = true;
   LogQueueState("start:capture-dq-thread-started");
 
   if (!PrepareCaptureBuffer()) {
@@ -1254,7 +1258,9 @@ void JetsonEncoder::StopEncoderIo(bool send_eos) {
 
   // In blocking mode stopDQThread() does not actively stop the thread; streamoff
   // is required to unblock dqBuffer() and let the callback thread exit.
-  encoder_->capture_plane.stopDQThread();
+  if (capture_thread_started_) {
+    encoder_->capture_plane.stopDQThread();
+  }
   LogQueueState("stop:capture-dq-thread-stop-requested");
 
   if (encoder_->output_plane.setStreamStatus(false) < 0) {
@@ -1272,16 +1278,17 @@ void JetsonEncoder::StopEncoderIo(bool send_eos) {
   }
   LogQueueState("stop:capture-streamoff");
 
-  if (encoder_->capture_plane.waitForDQThread(DQ_THREAD_WAIT_TIMEOUT_MS) < 0) {
+  if (capture_thread_started_ &&
+      encoder_->capture_plane.waitForDQThread(DQ_THREAD_WAIT_TIMEOUT_MS) < 0) {
     LOG_WARN(
         "Timed out waiting for capture DQ thread to stop, forcing encoder "
         "abort");
     encoder_->abort();
-    if (encoder_->capture_plane.waitForDQThread(DQ_THREAD_WAIT_TIMEOUT_MS) <
-        0) {
-      LOG_WARN("Capture DQ thread still running after abort");
+    while (encoder_->capture_plane.waitForDQThread(DQ_THREAD_WAIT_TIMEOUT_MS) < 0) {
+      LOG_WARN("Capture DQ thread still running after abort; retaining encoder resources");
     }
   }
+  capture_thread_started_ = false;
   LogQueueState("stop:complete");
 }
 

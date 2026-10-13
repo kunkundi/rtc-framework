@@ -21,6 +21,7 @@
 #include "media/base/codec.h"
 #include "rtc_types.h"
 #include "video/encode/nvidia-jetson/jetsonh264_encoder_impl.h"
+#include "video/encode/nvidia-jetson/jetson_encoder.h"
 
 namespace {
 
@@ -407,6 +408,18 @@ int main(int argc, char** argv) {
   LogInst->init("/tmp/rtc_jetson_h264_encoder_integration_tests");
 
   const int iterations = ParseIterations(argc, argv);
+  for (int cycle = 0; cycle < 20; ++cycle) {
+    webrtc::JetsonEncoder::StrategyConfig strategy;
+    const int width = cycle % 2 == 0 ? 1280 : 960;
+    const int height = cycle % 2 == 0 ? 720 : 540;
+    auto idle_encoder = webrtc::JetsonEncoder::Create(
+        width, height, V4L2_PIX_FMT_H264, false, strategy, 60, 2500000);
+    if (!idle_encoder) {
+      std::cerr << "IDLE_ENCODER_RELEASE create failed" << std::endl;
+      return 8;
+    }
+  }
+  std::cout << "IDLE_ENCODER_RELEASE cycles=20 result=ok" << std::endl;
   const std::vector<Resolution> resolutions = {
       {1920, 1200}, {1280, 800}, {960, 600}, {640, 400},
       {960, 600},   {1280, 800}, {1920, 1200},
