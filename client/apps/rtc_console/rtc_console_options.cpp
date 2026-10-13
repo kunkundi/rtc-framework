@@ -1,6 +1,8 @@
 #include "rtc_console_options.h"
+#include "rtc_runtime/device_identity.h"
 
 #include <fstream>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -76,6 +78,67 @@ AppConfig LoadConfig(const std::string& config_path) {
           "config field must be a boolean: console.auto_open_room");
     }
     config.auto_open_room = auto_open_room.get<bool>();
+  }
+  if (console.contains("device_slots")) {
+    const auto& slots = console.at("device_slots");
+    if (!slots.is_array() || slots.size() != 4) {
+      throw std::runtime_error("console.device_slots must contain four IDs");
+    }
+    for (size_t index = 0; index < config.device_slots.size(); ++index) {
+      if (!slots[index].is_string()) {
+        throw std::runtime_error("console.device_slots must contain strings");
+      }
+      const auto id = slots[index].get<std::string>();
+      if (!id.empty() && !rtc_runtime::IsValidDeviceId(id)) {
+        throw std::runtime_error("invalid ID in console.device_slots");
+      }
+      for (size_t previous = 0; previous < index; ++previous) {
+        if (!id.empty() && config.device_slots[previous] == id) {
+          throw std::runtime_error("duplicate ID in console.device_slots");
+        }
+      }
+      config.device_slots[index] = id;
+    }
+  }
+  if (console.contains("steering")) {
+    const auto& steering = console.at("steering");
+    if (!steering.is_object()) {
+      throw std::runtime_error("console.steering must be an object");
+    }
+    const auto read_angle = [](const nlohmann::json& object,
+                               const char* key) {
+      if (!object.contains(key) || !object.at(key).is_number()) {
+        throw std::runtime_error(std::string("invalid console.steering angle: ") + key);
+      }
+      const double angle = object.at(key).get<double>();
+      if (!std::isfinite(angle)) {
+        throw std::runtime_error(std::string("non-finite console.steering angle: ") + key);
+      }
+      return angle;
+    };
+    if (steering.contains("wheel_range_deg")) {
+      config.steering_wheel_range_deg = read_angle(steering, "wheel_range_deg");
+      if (config.steering_wheel_range_deg <= 0.0) {
+        throw std::runtime_error("console.steering.wheel_range_deg must be positive");
+      }
+    }
+    if (steering.contains("servo")) {
+      const auto& servo = steering.at("servo");
+      if (!servo.is_object()) {
+        throw std::runtime_error("console.steering.servo must be an object");
+      }
+      config.steering_servo_left_deg = read_angle(servo, "left_deg");
+      config.steering_servo_center_deg = read_angle(servo, "center_deg");
+      config.steering_servo_right_deg = read_angle(servo, "right_deg");
+      const double left = config.steering_servo_left_deg;
+      const double center = config.steering_servo_center_deg;
+      const double right = config.steering_servo_right_deg;
+      if (!((left < center && center < right) ||
+            (right < center && center < left))) {
+        throw std::runtime_error("console.steering.servo center must lie strictly between limits");
+      }
+      config.steering_servo_calibrated = true;
+    }
   }
   return config;
 }

@@ -658,6 +658,22 @@ void TestInvalidPayloadBoundaryStopsVehicle() {
 }  // 匿名命名空间
 
 int main() {
+  rtc_vehicle::DebugVehicleControlInterface debug_control(nullptr);
+  Check(!debug_control.SendGearCommand(VehicleGear::Forward).accepted,
+    "closed debug interface rejects gear");
+  std::string debug_error;
+  Check(debug_control.Open(&debug_error), "open debug interface");
+  Check(debug_control.SendDriveCommand(DriveCommand()).accepted,
+    "debug interface accepts valid drive");
+  for (const auto gear : {VehicleGear::Forward, VehicleGear::Neutral, VehicleGear::Reverse}) {
+    Check(debug_control.SendGearCommand(gear).accepted, "debug interface accepts valid gear");
+  }
+  Check(!debug_control.SendGearCommand(static_cast<VehicleGear>(99)).accepted,
+    "debug interface rejects unknown gear");
+  debug_control.SendStop();
+  debug_control.Close();
+  Check(!debug_control.SendDriveCommand(DriveCommand()).accepted,
+    "closed debug interface rejects drive");
   TestControlFlow();
   TestMalformedMessageStopsVehicle();
   TestInvalidPayloadBoundaryStopsVehicle();

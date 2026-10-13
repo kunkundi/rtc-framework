@@ -68,6 +68,10 @@ void TestThrottleClamp() {
 
 void TestEmergencyStop() {
   rtc_console::VehicleControlInput input;
+      const auto initial = rtc_console::MakeVehicleDriveCommand(input);
+      Check(initial.drive_direction == vts_rtc::vehicle::DriveDirection::Stop,
+                        "cleared takeover input does not request movement");
+      Check(initial.brake == 0.0f, "cleared takeover input does not apply brake");
   input.forward = true;
   input.left = true;
   input.emergency_stop = true;
@@ -215,6 +219,18 @@ void TestVehicleEventAckTracker() {
 }  // namespace
 
 int main() {
+  Check(rtc_console::UpdateSteeringAngle(0, true, false, 0.1, 900) == -18,
+        "left decreases angle");
+  Check(rtc_console::UpdateSteeringAngle(0, false, true, 0.1, 900) == 18,
+        "right increases angle");
+  Check(rtc_console::UpdateSteeringAngle(42, false, false, 0.1, 900) == 42,
+        "release holds angle");
+  Check(rtc_console::UpdateSteeringAngle(42, true, true, 0.1, 900) == 42,
+        "conflicting arrows hold angle");
+  Check(rtc_console::UpdateSteeringAngle(449, false, true, 0.1, 900) == 450,
+        "clamp right angle");
+  Check(rtc_console::UpdateSteeringAngle(-449, true, false, 0.1, 900) == -450,
+        "clamp left angle");
   TestForwardLeft();
   TestConflictingInputsStop();
   TestThrottleClamp();

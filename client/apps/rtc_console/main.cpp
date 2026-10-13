@@ -1,6 +1,8 @@
 #include "c_rtc.h"
 #include "rtc_audio/audio_device.h"
+#include "rtc_runtime/device_identity.h"
 #include "rtc_console_options.h"
+#include "device_slot_registry.h"
 #include "video_composite_layout.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
@@ -603,6 +605,8 @@ class RtcConsoleApp {
                     options_.room_id.c_str());
     }
     auto_open_room_ = config.auto_open_room;
+    steering_wheel_range_deg_ = config.steering_wheel_range_deg;
+    device_slots_.Configure(config.device_slots);
     AppendLog(std::string("Target room: ") + options_.room_id);
     AppendLog(std::string("Room auto-open: ") +
               (auto_open_room_ ? "enabled" : "disabled"));
@@ -838,6 +842,15 @@ class RtcConsoleApp {
     }
     AppendLog("RtcAddDataChannel(video.view_control.v1) success");
 
+    const auto identity_dc_code = RtcAddDataChannel(
+        rtc_runtime::kDeviceIdentityChannelLabel, RtcPriorityType::Medium,
+        true, -1);
+    if (identity_dc_code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcAddDataChannel(device.identity.v1)",
+                        identity_dc_code);
+      return false;
+    }
+
     rtc_inited_ = true;
     if (!options_.no_render) {
       LoadVideoSourceList();
@@ -1058,18 +1071,8 @@ class RtcConsoleApp {
     if (active_page_ == 0) {
       UpdateVehicleInputFromKeyboard();
       MergeVehicleInputs();
-      const float status_height = std::min(160.0f, layout.viewport_size.y * 0.3f);
-      layout.video_size.y = std::max(1.0f, layout.viewport_size.y - status_height - kPanelGap - 2 * kPanelMargin);
-      layout.control_pos.y = layout.video_pos.y + layout.video_size.y + kPanelGap;
-      layout.control_size.y = status_height;
+      layout.video_size.y = std::max(1.0f, layout.viewport_size.y - 2 * kPanelMargin);
       DrawVideoPanel(layout);
-      ImGui::SetNextWindowPos(layout.control_pos, ImGuiCond_Always);
-      ImGui::SetNextWindowSize(layout.control_size, ImGuiCond_Always);
-      ImGui::Begin("Vehicle Status", nullptr, navigation_flags);
-      DrawVehicleControlTargetSelector();
-      ImGui::Separator();
-      DrawEdgeFeedbackPanel(true);
-      ImGui::End();
       DrawFullscreenVideoOverlay();
     } else if (active_page_ == 1) {
       layout.control_pos = layout.video_pos;
@@ -1273,16 +1276,38 @@ class RtcConsoleApp {
     ImGui::End();
   }
 
+  std::mutex device_identity_mutex_;
+  rtc_console::DeviceSlotRegistry device_slots_;
+
+  std::array<rtc_console::DeviceSlot, 4> SnapshotDeviceSlots() {
+    std::lock_guard<std::mutex> lock(device_identity_mutex_);
+    return device_slots_.Snapshot();
+  }
+
+  bool IsBoundSession(RtcSessionId sessionid) {
+    if (sessionid == 0) return false;
+    const auto slots = SnapshotDeviceSlots();
+    return std::any_of(slots.begin(), slots.end(),
+        [sessionid](const rtc_console::DeviceSlot& slot) {
+          return slot.session_id == sessionid;
+        });
+  }
+
+  std::string DeviceLabel(RtcSessionId sessionid) {
+    std::lock_guard<std::mutex> lock(device_identity_mutex_);
+    return device_slots_.Label(sessionid);
+  }
+
   void DrawVehicleControlTargetSelector() {
     const uint32_t selected =
         vehicle_control_targets_.selected_target();
     const std::string preview =
         selected == 0 ? "(none)"
-                      : std::string("session ") + std::to_string(selected);
+              : DeviceLabel(selected);
 
     ImGui::TextDisabled("Vehicle target");
     ImGui::SameLine();
-    ImGui::TextUnformatted(preview.c_str());
+    ImGui::TextWrapped("%s", preview.c_str());
   }
 
   void DrawEdgeFeedbackPanel(bool compact = false) {
@@ -1347,12 +1372,12 @@ class RtcConsoleApp {
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Session");
+      ImGui::TextDisabled("Device");
       ImGui::TableSetColumnIndex(1);
       if (selected_target == 0) {
         ImGui::TextDisabled("Not selected");
       } else {
-        ImGui::Text("%u", selected_target);
+        ImGui::TextWrapped("%s", DeviceLabel(selected_target).c_str());
       }
 
       ImGui::TableNextRow();
@@ -1428,6 +1453,7 @@ class RtcConsoleApp {
 
   void ClearVehicleInput() {
     vehicle_takeover_active_ = false;
+    steering_wheel_angle_deg_ = 0.0;
     vehicle_keyboard_input_ = rtc_console::VehicleControlInput();
     vehicle_gamepad_input_ = rtc_console::VehicleControlInput();
     vehicle_input_ = rtc_console::VehicleControlInput();
@@ -1483,12 +1509,12 @@ class RtcConsoleApp {
                              viewed_session_);
         break;
       }
-      const auto sessions = SnapshotVideoSessions();
-      if (slot >= sessions.size()) {
+      const auto slots = SnapshotDeviceSlots();
+      if (slots[slot].session_id == 0) {
         AppendLog("Vehicle takeover skipped: empty video slot");
         return;
       }
-      const auto target = sessions[slot].remote_sessionid;
+      const auto target = slots[slot].session_id;
       const auto next_view = viewed_session_ == target ? 0 : target;
       if (!vehicle_takeover_active_) {
         viewed_session_ = next_view;
@@ -1525,16 +1551,24 @@ class RtcConsoleApp {
       }
       return;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_C, false) && !vehicle_takeover_active_) {
+    const bool brake_takeover = !ImGui::GetIO().WantTextInput &&
+      ImGui::IsKeyPressed(ImGuiKey_B, false);
+    if ((ImGui::IsKeyPressed(ImGuiKey_C, false) || brake_takeover) &&
+      !vehicle_takeover_active_) {
       const auto targets = vehicle_control_targets_.AvailableTargets();
-      if (viewed_session_ == 0 ||
+      if (!IsBoundSession(viewed_session_) ||
           std::find(targets.begin(), targets.end(), viewed_session_) == targets.end()) {
         AppendLog("Vehicle takeover skipped: viewed target is not ready");
         return;
       }
       if (vehicle_control_targets_.SelectTarget(viewed_session_) &&
           vehicle_control_targets_.selected_target_ready()) {
-        SetVehicleEmergencyStop();
+        ClearVehicleInput();
+        if (brake_takeover) {
+          vehicle_keyboard_input_.emergency_stop = true;
+          vehicle_keyboard_active_ = true;
+          MergeVehicleInputs();
+        }
         if (SendVehicleDriveCommand(true)) {
           vehicle_takeover_active_ = true;
           vehicle_control_enabled_ = true;
@@ -1546,6 +1580,18 @@ class RtcConsoleApp {
 
     if (!vehicle_takeover_active_) {
       return;
+    }
+    if (ImGui::GetIO().WantTextInput) {
+      vehicle_keyboard_input_ = rtc_console::VehicleControlInput();
+      vehicle_keyboard_active_ = false;
+      return;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+      SendVehicleGear(vts_rtc::vehicle::VehicleGear::Forward);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_N, false)) {
+      SendVehicleGear(vts_rtc::vehicle::VehicleGear::Neutral);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_R, false)) {
+      SendVehicleGear(vts_rtc::vehicle::VehicleGear::Reverse);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Equal, true)) {
       AdjustVehicleThrottle(kVehicleThrottleStep);
@@ -1561,11 +1607,15 @@ class RtcConsoleApp {
       return;
     }
 
-    const bool forward = ImGui::IsKeyDown(ImGuiKey_W);
+    const bool forward = ImGui::IsKeyDown(ImGuiKey_UpArrow);
     const bool reverse = ImGui::IsKeyDown(ImGuiKey_DownArrow);
-    const bool left = ImGui::IsKeyDown(ImGuiKey_A);
-    const bool right = ImGui::IsKeyDown(ImGuiKey_D);
-    const bool emergency_stop = ImGui::IsKeyDown(ImGuiKey_Space);
+    const bool left = ImGui::IsKeyDown(ImGuiKey_LeftArrow);
+    const bool right = ImGui::IsKeyDown(ImGuiKey_RightArrow);
+    steering_wheel_angle_deg_ = rtc_console::UpdateSteeringAngle(
+      steering_wheel_angle_deg_, left, right, ImGui::GetIO().DeltaTime,
+      steering_wheel_range_deg_);
+    const bool emergency_stop = ImGui::IsKeyDown(ImGuiKey_B) ||
+      ImGui::IsKeyDown(ImGuiKey_Space);
     const bool any_key =
         forward || reverse || left || right || emergency_stop;
     if (!any_key) {
@@ -1734,6 +1784,11 @@ class RtcConsoleApp {
   }
 
   void MergeVehicleInputs() {
+    if (vehicle_keyboard_input_.emergency_stop || vehicle_gamepad_input_.emergency_stop) {
+      vehicle_input_ = rtc_console::VehicleControlInput();
+      vehicle_input_.emergency_stop = true;
+      return;
+    }
     if (vehicle_gamepad_active_) {
       vehicle_input_ = vehicle_gamepad_input_;
       return;
@@ -1780,7 +1835,7 @@ class RtcConsoleApp {
   bool SendVehicleDriveCommand(bool force_log) {
     const RtcSessionId target =
         vehicle_control_targets_.selected_target();
-    if (target == 0) {
+    if (!IsBoundSession(target)) {
       if (force_log) {
         AppendLog("Vehicle control skipped: select a vehicle target");
       }
@@ -1834,12 +1889,41 @@ class RtcConsoleApp {
     return true;
   }
 
+  bool SendVehicleGear(vts_rtc::vehicle::VehicleGear gear) {
+    const RtcSessionId target = vehicle_control_targets_.selected_target();
+    if (!vehicle_takeover_active_ || !IsBoundSession(target) ||
+        !vehicle_control_targets_.selected_target_ready()) {
+      AppendLog("Gear change skipped: takeover target is not ready");
+      return false;
+    }
+
+    vts_rtc::vehicle::SetGear command;
+    command.request_id = vehicle_event_request_id_++;
+    command.gear = gear;
+    const auto encoded =
+        vts_rtc::vehicle::EncodeSetGear(vehicle_control_seq_++, command);
+    if (!encoded) {
+      AppendLog(std::string("Gear change encode failed: ") + encoded.error_message);
+      return false;
+    }
+    const RtcErrorCode code = RtcSendData(
+        target, vts_rtc::vehicle::kVehicleEventChannelLabel,
+        reinterpret_cast<const char*>(encoded.payload.data()),
+        encoded.payload.size());
+    if (code != RtcErrorCode::OK) {
+      AppendLogWithCode("RtcSendData(vehicle.event.v1 set_gear)", code);
+      return false;
+    }
+    AppendLog(std::string("Gear change queued: ") + VehicleGearText(gear));
+    return true;
+  }
+
   bool SendVehicleDogAction(vts_rtc::vehicle::DogActionType action,
                             float speed,
                             bool log_success = true) {
     const RtcSessionId target =
         vehicle_control_targets_.selected_target();
-    if (target == 0) {
+    if (!IsBoundSession(target)) {
       AppendLog("Dog action skipped: select a vehicle target");
       return false;
     }
@@ -1880,6 +1964,7 @@ class RtcConsoleApp {
   bool SendVideoViewControl(vts_rtc::vision::ViewMode enable_view,
                             RtcSessionId target = 0) {
     if (target == 0) target = vehicle_control_targets_.selected_target();
+    if (!IsBoundSession(target)) return false;
     if (target == 0) {
       AppendLog("Video view control skipped: select a vehicle target");
       return false;
@@ -1916,6 +2001,8 @@ class RtcConsoleApp {
 
   struct VideoSessionSnapshot {
     RtcSessionId remote_sessionid = 0;
+    std::string device_id;
+    bool identity_conflict = false;
     vts_rtc::vision::ViewMode mode = vts_rtc::vision::ViewMode::Binocular;
     VideoFramesByTile frames_by_tile;
     std::shared_ptr<VideoFrameView> surround_grid;
@@ -1992,7 +2079,20 @@ class RtcConsoleApp {
       }
     }
 
-    return sessions;
+    const auto slots = SnapshotDeviceSlots();
+    std::vector<VideoSessionSnapshot> fixed_sessions(4);
+    for (size_t index = 0; index < slots.size(); ++index) {
+      const auto found = std::find_if(sessions.begin(), sessions.end(),
+          [&slots, index](const VideoSessionSnapshot& session) {
+            return slots[index].session_id != 0 &&
+                   session.remote_sessionid == slots[index].session_id;
+          });
+      if (found != sessions.end()) fixed_sessions[index] = *found;
+      fixed_sessions[index].remote_sessionid = slots[index].session_id;
+      fixed_sessions[index].device_id = slots[index].device_id;
+      fixed_sessions[index].identity_conflict = slots[index].conflict;
+    }
+    return fixed_sessions;
   }
 
   const std::shared_ptr<VideoFrameView>* FindVideoFrame(
@@ -2060,38 +2160,170 @@ class RtcConsoleApp {
               static_cast<float>(column) * (cell_width + style.ItemSpacing.x),
           grid_origin.y +
               static_cast<float>(row) * (cell_height + style.ItemSpacing.y)));
-      if (i >= sessions.size()) {
-        const ImVec2 origin = ImGui::GetCursorScreenPos();
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        draw_list->AddRectFilled(origin,
-            ImVec2(origin.x + cell_width, origin.y + cell_height),
+      const auto& session = sessions[i];
+      const ImVec2 device_origin = ImGui::GetCursorScreenPos();
+      const ImVec2 device_size = focus_takeover ? panel_avail : ImVec2(cell_width, cell_height);
+      const bool has_video = session.remote_sessionid != 0 &&
+          (!session.frames_by_tile.empty() || session.surround_grid);
+      ImDrawList* draw_list = ImGui::GetWindowDrawList();
+      if (has_video) {
+        DrawVideoComposite(session, device_size);
+      } else {
+        draw_list->AddRectFilled(device_origin,
+            ImVec2(device_origin.x + device_size.x, device_origin.y + device_size.y),
             IM_COL32(24, 26, 28, 255));
-        const char* message = u8"\u65e0\u8bbe\u5907\u63a5\u5165";
-        const ImVec2 text_size = ImGui::CalcTextSize(message);
-        draw_list->AddText(ImVec2(origin.x + std::max(0.0f, (cell_width - text_size.x) * 0.5f),
-                                 origin.y + std::max(0.0f, (cell_height - text_size.y) * 0.5f)),
-                          IM_COL32(150, 155, 160, 255), message);
-        continue;
       }
-        const ImVec2 device_origin = ImGui::GetCursorScreenPos();
-        const float device_title_height = video_debug_enabled_ ? ImGui::GetTextLineHeight() + 6.0f : 0.0f;
-        const ImVec2 device_size = focus_takeover ? panel_avail : ImVec2(cell_width, cell_height);
-        ImGui::SetCursorScreenPos(ImVec2(device_origin.x, device_origin.y + device_title_height));
-        DrawVideoComposite(sessions[i], ImVec2(device_size.x,
-          std::max(1.0f, device_size.y - device_title_height)));
-        if (video_debug_enabled_ && i < 4) {
-        const std::string label = std::to_string(i + 1) + "  session " +
-          std::to_string(sessions[i].remote_sessionid);
-        const ImVec2 label_pos(
-          device_origin.x + 4.0f,
-          device_origin.y);
-        const ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
-        ImGui::GetWindowDrawList()->AddRectFilled(label_pos,
-          ImVec2(label_pos.x + label_size.x + 8.0f, label_pos.y + label_size.y + 4.0f),
-          IM_COL32(0, 0, 0, 200));
-        ImGui::GetWindowDrawList()->AddText(ImVec2(label_pos.x + 4.0f, label_pos.y + 2.0f),
-          IM_COL32(255, 255, 255, 255), label.c_str());
+      const bool takeover = vehicle_takeover_active_ &&
+          session.remote_sessionid != 0 &&
+          session.remote_sessionid == vehicle_control_targets_.selected_target();
+      EdgeFeedbackView feedback;
+      bool has_feedback = false;
+      {
+        std::lock_guard<std::mutex> lock(edge_feedback_mutex_);
+        const auto found = edge_feedback_by_session_.find(session.remote_sessionid);
+        if (found != edge_feedback_by_session_.end()) {
+          feedback = found->second;
+          has_feedback = true;
         }
+      }
+      const auto ready_targets = vehicle_control_targets_.AvailableTargets();
+      const bool ready = session.remote_sessionid != 0 &&
+          std::find(ready_targets.begin(), ready_targets.end(),
+                    session.remote_sessionid) != ready_targets.end();
+      std::ostringstream feedback_age;
+      if (has_feedback) {
+        feedback_age << std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - feedback.updated_at).count()
+                    << " ms";
+      } else {
+        feedback_age << "-";
+      }
+      const std::string label = session.device_id.empty() ? "-" : session.device_id;
+      const float badge_width = std::max(1.0f, (device_size.x - 20.0f) * 0.5f);
+      draw_list->PushClipRect(device_origin,
+          ImVec2(device_origin.x + device_size.x, device_origin.y + device_size.y), true);
+      const auto draw_badge = [&](const char* text, bool right, ImU32 color) {
+        const ImVec2 measured = ImGui::CalcTextSize(text);
+        const float text_width = std::max(1.0f, badge_width - 8.0f);
+        const float scale = std::min(1.0f, std::min(
+          text_width / std::max(1.0f, measured.x),
+          std::max(1.0f, device_size.y - 12.0f) / std::max(1.0f, measured.y)));
+        const float width = measured.x * scale + 8.0f;
+        const float height = measured.y * scale + 4.0f;
+        const ImVec2 position(
+            right ? device_origin.x + device_size.x - 4.0f - width
+                  : device_origin.x + 4.0f,
+            device_origin.y + 4.0f);
+        draw_list->AddRectFilled(position,
+            ImVec2(position.x + width, position.y + height), IM_COL32(0, 0, 0, 180));
+        draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize() * scale,
+            ImVec2(position.x + 4.0f, position.y + 2.0f), color, text);
+      };
+      draw_badge(label.c_str(), false, IM_COL32(255, 255, 255, 255));
+        const bool selected = session.remote_sessionid != 0 &&
+          session.remote_sessionid == viewed_session_;
+        if (selected || takeover) {
+        const float row_height = ImGui::GetFontSize() + 7.0f;
+        const float panel_height = row_height * 8.0f + 28.0f;
+        const float panel_scale = std::min(1.0f, std::min(
+          badge_width / 200.0f,
+          std::max(1.0f, device_size.y - 12.0f) / panel_height));
+        const float panel_width = 200.0f * panel_scale;
+        const ImVec2 panel_origin(device_origin.x + device_size.x - panel_width - 6.0f,
+                    device_origin.y + 6.0f);
+        const ImVec2 panel_end(panel_origin.x + panel_width,
+                   panel_origin.y + panel_height * panel_scale);
+        const ImU32 muted = IM_COL32(160, 168, 176, 255);
+        const ImU32 normal = IM_COL32(235, 239, 242, 255);
+        const ImU32 green = IM_COL32(107, 218, 154, 255);
+        const ImU32 warning = IM_COL32(245, 187, 91, 255);
+        const ImU32 danger = IM_COL32(255, 115, 115, 255);
+        const ImU32 blue = IM_COL32(100, 190, 255, 255);
+        draw_list->AddRectFilled(panel_origin, panel_end, IM_COL32(17, 20, 24, 72),
+                     4.0f * panel_scale);
+        draw_list->AddRect(panel_origin, panel_end, IM_COL32(110, 122, 134, 45),
+                 4.0f * panel_scale);
+        const auto panel_text = [&](const char* text, float top, bool right,
+                      ImU32 color, float inset) {
+        const float available = std::max(1.0f, 200.0f - inset - 12.0f);
+        const float text_scale = std::min(1.0f,
+          available / std::max(1.0f, ImGui::CalcTextSize(text).x));
+        const float font_size = ImGui::GetFontSize() * panel_scale * text_scale;
+        const float width = ImGui::CalcTextSize(text).x * panel_scale * text_scale;
+        draw_list->AddText(ImGui::GetFont(), font_size,
+          ImVec2(right ? panel_end.x - 12.0f * panel_scale - width
+                 : panel_origin.x + inset * panel_scale,
+               panel_origin.y + top * panel_scale), color, text);
+        };
+        const ImU32 connection_color = ready ? green : danger;
+        draw_list->AddCircleFilled(
+          ImVec2(panel_origin.x + 15.0f * panel_scale,
+             panel_origin.y + (12.0f + ImGui::GetFontSize() * 0.5f) * panel_scale),
+          3.0f * panel_scale, connection_color);
+        panel_text(ready ? "CONTROL READY" : "CONTROL UNAVAILABLE",
+             12.0f, false, connection_color, 25.0f);
+          panel_text(takeover ? "TAKEOVER" : "STANDBY", 12.0f + row_height,
+               false, takeover ? blue : muted, 12.0f);
+        const float divider_y = panel_origin.y + (12.0f + row_height * 2.0f) * panel_scale;
+        draw_list->AddLine(ImVec2(panel_origin.x + 12.0f * panel_scale, divider_y),
+          ImVec2(panel_end.x - 12.0f * panel_scale, divider_y),
+          IM_COL32(110, 122, 134, 70));
+        const std::string age = feedback_age.str();
+        const bool brake_requested = takeover && vehicle_input_.emergency_stop;
+        const std::string throttle =
+          std::to_string(static_cast<int>(vehicle_throttle_ * 100.0f + 0.5f)) + "%";
+        const auto steering = CurrentVehicleDriveCommand().steering_direction;
+        const char* steering_text = !takeover ? "-"
+          : steering == vts_rtc::vehicle::SteeringDirection::Left ? "Left"
+          : steering == vts_rtc::vehicle::SteeringDirection::Right ? "Right" : "Center";
+        const char* names[] = {"GEAR", "SAFETY", "THROTTLE SET", "WHEEL SIM", "BRAKE INPUT", "FEEDBACK AGE"};
+        const char* values[] = {
+          has_feedback ? VehicleGearText(feedback.state.active_gear) : "-",
+          !has_feedback ? "Unknown" : feedback.state.watchdog_stopped ? "Protected" : "Clear",
+          throttle.c_str(),
+          steering_text,
+          brake_requested ? "Applied" : "Released",
+          age.c_str()};
+        const ImU32 colors[] = {normal,
+          !has_feedback ? muted : feedback.state.watchdog_stopped ? warning : green,
+          takeover ? blue : muted,
+          takeover ? blue : muted,
+          brake_requested ? warning : muted, muted};
+        for (size_t row = 0; row < 6; ++row) {
+        const float top = 20.0f + row_height * static_cast<float>(row + 2);
+        panel_text(names[row], top, false, muted, 12.0f);
+        if (row == 3) {
+          const float track_left = panel_origin.x + 112.0f * panel_scale;
+          const float track_right = panel_end.x - 12.0f * panel_scale;
+          const float track_center = (track_left + track_right) * 0.5f;
+          const float track_y = panel_origin.y +
+              (top + ImGui::GetFontSize() * 0.5f) * panel_scale;
+          const float tick_height = 5.0f * panel_scale;
+          draw_list->AddRectFilled(
+              ImVec2(track_left, track_y - 2.0f * panel_scale),
+              ImVec2(track_right, track_y + 2.0f * panel_scale),
+              IM_COL32(160, 168, 176, 90), 2.0f * panel_scale);
+          for (const float tick_x : {track_left, track_center, track_right}) {
+            draw_list->AddLine(ImVec2(tick_x, track_y - tick_height),
+                ImVec2(tick_x, track_y + tick_height),
+                tick_x == track_center ? normal : muted,
+                std::max(1.0f, panel_scale));
+          }
+          if (takeover) {
+            const float cursor_x = track_center +
+              static_cast<float>(steering_wheel_angle_deg_ / steering_wheel_range_deg_) *
+              (track_right - track_left);
+            draw_list->AddRectFilled(
+                ImVec2(cursor_x - 2.0f * panel_scale, track_y - 7.0f * panel_scale),
+                ImVec2(cursor_x + 2.0f * panel_scale, track_y + 7.0f * panel_scale),
+                blue, panel_scale);
+          }
+        } else {
+          panel_text(values[row], top, true, colors[row], 112.0f);
+        }
+        }
+      }
+      draw_list->PopClipRect();
     }
     ImGui::SetCursorScreenPos(grid_origin);
     ImGui::Dummy(ImVec2(std::max(1.0f, panel_avail.x),
@@ -3117,6 +3349,12 @@ class RtcConsoleApp {
   }
 
   void ApplyPendingUiActions() {
+    if ((viewed_session_ != 0 && !IsBoundSession(viewed_session_)) ||
+        (vehicle_takeover_active_ &&
+         !IsBoundSession(vehicle_control_targets_.selected_target()))) {
+      viewed_session_ = 0;
+      ResetVehicleControlOnUi(false);
+    }
     if (pending_reset_session_state_.exchange(false)) {
       ResetSessionStateOnUi();
     }
@@ -3161,7 +3399,12 @@ class RtcConsoleApp {
   }
 
   void ResetVehicleControlOnUi(bool clear_targets) {
+    vehicle_takeover_active_ = false;
     if (clear_targets) {
+      {
+        std::lock_guard<std::mutex> lock(device_identity_mutex_);
+        device_slots_.Clear();
+      }
       viewed_session_ = 0;
       vehicle_control_targets_.Clear();
       video_view_state_.Clear();
@@ -3432,12 +3675,30 @@ class RtcConsoleApp {
     }
     if (state == RtcP2PState::P2PDisconnected || state == RtcP2PState::P2PClosed ||
         state == RtcP2PState::P2PFailed) {
+      {
+        std::lock_guard<std::mutex> lock(instance_->device_identity_mutex_);
+        instance_->device_slots_.Disconnect(sessionid);
+      }
+      {
+        std::lock_guard<std::mutex> lock(instance_->video_mutex_);
+        for (auto frame = instance_->remote_video_frames_by_source_.begin();
+             frame != instance_->remote_video_frames_by_source_.end();) {
+          if (frame->second && frame->second->remote_sessionid == sessionid) {
+            frame = instance_->remote_video_frames_by_source_.erase(frame);
+          } else {
+            ++frame;
+          }
+        }
+      }
+      {
+        std::lock_guard<std::mutex> lock(instance_->edge_feedback_mutex_);
+        instance_->edge_feedback_by_session_.erase(sessionid);
+      }
       instance_->video_view_state_.Erase(sessionid);
       if (instance_->vehicle_control_targets_.SetP2PConnected(sessionid,
                                                                false)) {
         instance_->RequestVehicleControlReset();
       }
-      instance_->RequestSessionStateReset();
     }
   }
 
@@ -3466,6 +3727,12 @@ class RtcConsoleApp {
     instance_->server_state_.store(state);
     if (state != ServerLogined) {
       instance_->auto_room_opened_.store(false);
+      {
+        std::lock_guard<std::mutex> lock(instance_->device_identity_mutex_);
+        instance_->device_slots_.Clear();
+      }
+      instance_->RequestVehicleControlReset();
+      instance_->RequestSessionStateReset();
     }
     std::ostringstream oss;
     oss << "Server state: " << ServerStateText(state);
@@ -3475,6 +3742,27 @@ class RtcConsoleApp {
   static void OnRecvMessage(RtcSessionId remote_sessionid, RtcDataChannelLabel label,
                             const char* msg, size_t msg_size) {
     if (!instance_) {
+      return;
+    }
+    if (label &&
+        std::strcmp(label, rtc_runtime::kDeviceIdentityChannelLabel) == 0) {
+      if (msg == nullptr || msg_size == 0 || msg_size > 64) {
+        return;
+      }
+      const std::string device_id(msg, msg_size);
+      if (!rtc_runtime::IsValidDeviceId(device_id)) {
+        return;
+      }
+      {
+        std::lock_guard<std::mutex> lock(instance_->device_identity_mutex_);
+        instance_->device_slots_.Identify(remote_sessionid, device_id);
+      }
+      const auto selected = instance_->vehicle_control_targets_.selected_target();
+      if (selected != 0 && !instance_->IsBoundSession(selected)) {
+        instance_->RequestVehicleControlReset();
+      }
+      instance_->AppendLog("Device identity: " + device_id + " session=" +
+                           std::to_string(remote_sessionid));
       return;
     }
     if (label &&
@@ -3801,6 +4089,8 @@ class RtcConsoleApp {
   bool vehicle_keyboard_active_ = false;
   bool vehicle_gamepad_active_ = false;
   float vehicle_throttle_ = 0.5f;
+  double steering_wheel_range_deg_ = 900.0;
+  double steering_wheel_angle_deg_ = 0.0;
   rtc_console::VehicleControlInput vehicle_keyboard_input_;
   rtc_console::VehicleControlInput vehicle_gamepad_input_;
   rtc_console::VehicleControlInput vehicle_input_;

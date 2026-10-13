@@ -93,10 +93,60 @@ void MakeDirectory(const std::string& path) {
 
 void TestValidConfig() {
   const std::string path = "/tmp/rtc_edge_options_valid.json";
-  WriteConfig(path, MakeValidConfig());
+  nlohmann::json config = MakeValidConfig();
+  config["edge"]["device_id"] = "car_1";
+  WriteConfig(path, config);
 
   const rtc_edge_app::EdgeOptions options =
       rtc_edge_app::LoadEdgeOptions(path);
+  Check(options.device_id == "car_1", "load device id");
+  Check(!options.vehicle_debug_mode, "debug mode defaults off");
+  config["edge"]["vehicle_control"]["debug_mode"] = true;
+  WriteConfig(path, config);
+  Check(rtc_edge_app::LoadEdgeOptions(path).vehicle_debug_mode, "load debug mode");
+  config["edge"]["vehicle_control"]["debug_mode"] = "true";
+  WriteConfig(path, config);
+  bool debug_rejected = false;
+  try {
+    rtc_edge_app::LoadEdgeOptions(path);
+  } catch (const std::runtime_error&) {
+    debug_rejected = true;
+  }
+  Check(debug_rejected, "reject non-boolean debug mode");
+  config["edge"]["vehicle_control"]["debug_mode"] = true;
+  config["edge"]["dog_control"] = {
+      {"enabled", true}, {"rosbridge_url", "ws://127.0.0.1:9090"},
+      {"reconnect_interval_ms", 3000}, {"max_forward_speed", 1.0},
+      {"max_angular_speed", 1.0}};
+  WriteConfig(path, config);
+  debug_rejected = false;
+  try {
+    rtc_edge_app::LoadEdgeOptions(path);
+  } catch (const std::runtime_error&) {
+    debug_rejected = true;
+  }
+  Check(debug_rejected, "reject debug and hardware control together");
+  config["edge"].erase("dog_control");
+  config["edge"]["vehicle_control"].erase("debug_mode");
+  config["edge"].erase("device_id");
+  WriteConfig(path, config);
+  Check(rtc_edge_app::LoadEdgeOptions(path).device_id.empty(),
+        "missing device id preserves legacy config");
+  for (const auto& invalid : {nlohmann::json(""), nlohmann::json(123),
+                             nlohmann::json("car 1"),
+                             nlohmann::json("car\n1"),
+                             nlohmann::json(std::string(65, 'a'))}) {
+    config["edge"]["device_id"] = invalid;
+    WriteConfig(path, config);
+    bool rejected = false;
+    try {
+      rtc_edge_app::LoadEdgeOptions(path);
+    } catch (const std::runtime_error& error) {
+      rejected = std::string(error.what()).find("edge.device_id") !=
+                 std::string::npos;
+    }
+    Check(rejected, "reject invalid device id");
+  }
   Check(options.log_path == "/tmp/rtc_edge_logs", "load log path");
   Check(options.rtc.room_id == "test-room", "load room");
   Check(options.rtc.join_retry_ms == 1200, "load join retry");

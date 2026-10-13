@@ -49,6 +49,13 @@ xmake b rtc_vehicle_control_protocol_tests
 xmake r rtc_vehicle_control_protocol_tests
 ```
 
+### xmake 编译注意事项
+
+- `xmake b` 每次只接受一个目标名，不能写成 `xmake b rtc_edge rtc_console`，否则会报 `invalid argument`。需要构建多个目标时逐个执行；Linux 下可使用 `xmake b rtc_edge && xmake b rtc_console`，确保前一个目标失败时停止后续步骤。
+- 局部验证优先沿用工作区现有的平台和依赖配置，不要无条件执行上面的 `xmake f -m release --enable_cuda=n` 示例。该命令用于不需要 CUDA 的构建；Jetson 摄像头、CUDA 和 TensorRT 相关目标应保留对应配置。
+- 新增跨模块公共头文件引用时，应在使用方的 xmake 目标中通过 `add_deps()` 声明对应模块依赖，以获得模块公开的包含路径和链接依赖。例如使用 `rtc_runtime/...` 时应依赖 `rtc_runtime`，不要通过硬编码头文件绝对路径绕过依赖声明。
+- 测试目标也应分别构建和运行，例如 `xmake b rtc_edge_options_tests && xmake r rtc_edge_options_tests`。应用构建成功不等于测试通过，也不等于已经完成实机或跨平台验证，交付时应分别说明。
+
 Linux 构建脚本要求系统已安装 `libasio-dev`，或者通过 `ASIO_PATH` 指定 standalone Asio。摄像头、CUDA、TensorRT、NVENC 和 Jetson 目标需要对应的硬件与 SDK。如果无法完成全量构建，应构建并测试受影响的最小目标，并在交付说明中写明缺失的环境依赖。
 
 ## 编码约定

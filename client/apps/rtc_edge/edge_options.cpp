@@ -1,5 +1,6 @@
 #include "edge_options.h"
 
+#include "rtc_runtime/device_identity.h"
 #include "rtc_runtime/process_runtime.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 
@@ -280,6 +281,12 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
 
   EdgeOptions options;
   options.log_path = ReadString(root, "log_path", "");
+  if (edge.contains("device_id")) {
+    options.device_id = ReadString(edge, "device_id", "edge");
+    if (!rtc_runtime::IsValidDeviceId(options.device_id)) {
+      throw std::runtime_error("Invalid config field: edge.device_id");
+    }
+  }
   options.rtc.config_path = resolved_path;
   options.rtc.room_id = ReadString(rtc, "room", "edge.rtc");
   options.rtc.join_retry_ms = ReadInteger(
@@ -396,6 +403,9 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
       std::numeric_limits<int>::max());
   options.control.max_pending_events =
       static_cast<size_t>(max_pending_events);
+  if (control.contains("debug_mode")) {
+    options.vehicle_debug_mode = ReadBoolean(control, "debug_mode", "edge.vehicle_control");
+  }
 
   // dog_control 为可选配置段，不存在时保持默认禁用。
   if (edge.contains("dog_control")) {
@@ -415,6 +425,9 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
     }
   }
 
+  if (options.vehicle_debug_mode && options.dog_control.enabled) {
+    throw std::runtime_error("edge.vehicle_control.debug_mode conflicts with edge.dog_control.enabled");
+  }
   return options;
 }
 

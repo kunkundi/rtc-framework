@@ -5,6 +5,17 @@
 
 namespace rtc_console {
 
+double UpdateSteeringAngle(double angle, bool left, bool right,
+                           double elapsed_seconds, double wheel_range_deg) {
+  if (!std::isfinite(wheel_range_deg) || wheel_range_deg <= 0.0) return 0.0;
+  if (!std::isfinite(angle)) angle = 0.0;
+  const double limit = wheel_range_deg * 0.5;
+  if (left != right && std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0) {
+    angle += (right ? 1.0 : -1.0) * 180.0 * std::min(elapsed_seconds, 0.1);
+  }
+  return std::max(-limit, std::min(limit, angle));
+}
+
 float ClampVehicleThrottle(float throttle) {
   if (!std::isfinite(throttle)) {
     return 0.0f;

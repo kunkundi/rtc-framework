@@ -1,4 +1,5 @@
 #include "rtc_console_options.h"
+#include "device_slot_registry.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -77,6 +78,30 @@ void TestConfig() {
   Check(default_config.room_id == "zhejianglab", "default configured room");
   Check(!default_config.auto_open_room,
         "default room auto-open to disabled");
+    Check(default_config.steering_wheel_range_deg == 900.0 &&
+      !default_config.steering_servo_calibrated, "default steering is uncalibrated");
+    for (const auto& limits : {"\"left_deg\":60,\"right_deg\":120",
+               "\"left_deg\":120,\"right_deg\":60"}) {
+      WriteConfig(path, std::string("{\"console\":{\"steering\":{\"wheel_range_deg\":1080,") +
+      "\"servo\":{\"center_deg\":90," + limits + "}}}}");
+      const auto calibrated = rtc_console::LoadConfig(path);
+      Check(calibrated.steering_wheel_range_deg == 1080.0 &&
+        calibrated.steering_servo_calibrated &&
+        calibrated.steering_servo_center_deg == 90.0 &&
+        calibrated.steering_servo_left_deg + calibrated.steering_servo_right_deg == 180.0,
+        "load steering calibration including reversed installation");
+    }
+    for (const auto& steering : {"[]", "{\"wheel_range_deg\":0}",
+    "{\"wheel_range_deg\":-900}", "{\"wheel_range_deg\":\"900\"}",
+    "{\"servo\":null}", "{\"servo\":{\"center_deg\":90}}",
+    "{\"servo\":{\"left_deg\":90,\"center_deg\":90,\"right_deg\":120}}",
+    "{\"servo\":{\"left_deg\":60,\"center_deg\":130,\"right_deg\":120}}"}) {
+      WriteConfig(path, std::string("{\"console\":{\"steering\":") + steering + "}}");
+      bool rejected = false;
+      try { rtc_console::LoadConfig(path); }
+      catch (const std::runtime_error&) { rejected = true; }
+      Check(rejected, "reject invalid steering calibration");
+    }
 
   WriteConfig(path, "{\"console\":{\"room\":1}}");
   bool invalid_room_rejected = false;
@@ -106,6 +131,48 @@ void TestHelp() {
   Check(options.show_help, "parse help");
 }
 
+void TestDeviceSlots() {
+  const std::string path = "rtc_console_slots_test.json";
+  WriteConfig(path, "{\"console\":{\"device_slots\":[\"car_2\",\"car_1\",\"\",\"car_4\"]}}");
+  const auto config = rtc_console::LoadConfig(path);
+  rtc_console::DeviceSlotRegistry registry;
+  registry.Configure(config.device_slots);
+  registry.Identify(20, "car_1");
+  registry.Identify(10, "car_2");
+  registry.Identify(30, "unbound");
+  auto slots = registry.Snapshot();
+  Check(slots[0].session_id == 10 && slots[1].session_id == 20,
+    "arrival order does not change bindings");
+  Check(slots[2].session_id == 0 && slots[3].session_id == 0,
+    "unbound peers do not occupy empty slots");
+  registry.Disconnect(10);
+  Check(registry.Snapshot()[0].session_id == 0 &&
+    registry.Snapshot()[1].session_id == 20, "offline slot does not compact");
+  registry.Identify(40, "car_2");
+  registry.Disconnect(10);
+  Check(registry.Snapshot()[0].session_id == 40, "reconnect retains slot");
+  registry.Identify(50, "car_2");
+  Check(registry.Snapshot()[0].conflict &&
+    registry.Snapshot()[0].session_id == 0, "duplicate identity blocks slot");
+  registry.Disconnect(50);
+  Check(registry.Snapshot()[0].session_id == 40, "conflict clears on disconnect");
+  registry.Clear();
+  Check(registry.Snapshot()[0].session_id == 0 &&
+    registry.Snapshot()[0].device_id == "car_2", "reset preserves bindings");
+  for (const auto& content : {
+  "{\"console\":{\"device_slots\":[\"car_1\"]}}",
+  "{\"console\":{\"device_slots\":[\"car_1\",\"car_1\",\"\",\"\"]}}",
+  "{\"console\":{\"device_slots\":[1,\"\",\"\",\"\"]}}",
+  "{\"console\":{\"device_slots\":[\"car 1\",\"\",\"\",\"\"]}}"}) {
+    WriteConfig(path, content);
+    bool rejected = false;
+    try { rtc_console::LoadConfig(path); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "reject invalid slot configuration");
+  }
+  std::remove(path.c_str());
+}
+
 void TestInvalidArguments() {
   bool missing_room_rejected = false;
   try {
@@ -132,6 +199,7 @@ int main() {
   TestHelp();
   TestInvalidArguments();
   TestConfig();
+  TestDeviceSlots();
   std::cout << "rtc_console options tests passed" << std::endl;
   return 0;
 }

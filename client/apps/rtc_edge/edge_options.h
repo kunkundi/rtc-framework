@@ -42,12 +42,14 @@ struct AudioOptions {
 
 struct EdgeOptions {
   std::string log_path;
+  std::string device_id;
   rtc_runtime::SessionOptions rtc;
   int frame_limit = 0;
   rtc_edge::DualCameraStreamingModuleOptions camera;
   SurroundCameraOptions surround_camera;
   AudioOptions audio;
   rtc_vehicle::VehicleControlModuleOptions control;
+  bool vehicle_debug_mode = false;
   DogControlOptions dog_control;
 };
 

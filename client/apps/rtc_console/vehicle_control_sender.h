@@ -20,6 +20,8 @@ struct VehicleControlInput {
 };
 
 float ClampVehicleThrottle(float throttle);
+double UpdateSteeringAngle(double angle, bool left, bool right,
+                           double elapsed_seconds, double wheel_range_deg);
 vts_rtc::vehicle::DriveCommand MakeVehicleDriveCommand(
     const VehicleControlInput& input);
 

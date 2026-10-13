@@ -11,6 +11,7 @@
 #include "rtc_logging/rtc_logging.h"
 #include "rtc_runtime/process_runtime.h"
 #include "rtc_runtime/rtc_session.h"
+#include "rtc_runtime/device_identity.h"
 #include "rtc_vehicle/vehicle_control_interface.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
@@ -603,6 +604,9 @@ RtcSession::Features MakeVehicleRtcFeatures(
   features.external_video_source_id = rtc_edge::kStereoCameraVideoSourceId;
   features.room_action = RtcSession::RoomAction::Join;
   features.additional_data_channels.push_back(MakeDataChannel(
+      rtc_runtime::kDeviceIdentityChannelLabel, RtcPriorityType::Medium,
+      true, -1));
+  features.additional_data_channels.push_back(MakeDataChannel(
       vts_rtc::vehicle::kVehicleControlChannelLabel, RtcPriorityType::High,
       false, 0));
   features.additional_data_channels.push_back(MakeDataChannel(
@@ -842,9 +846,13 @@ int RunEdgeApplication(const EdgeOptions& options) {
   std::unique_ptr<rtc_vehicle::PlaceholderVehicleControlInterface>
       placeholder_control;
   rtc_vehicle::VehicleControlInterface* vehicle_interface = nullptr;
+  std::unique_ptr<rtc_vehicle::DebugVehicleControlInterface> debug_control;
 
   rtc_vehicle::VehicleControlModuleOptions control_options = options.control;
-  if (options.dog_control.enabled) {
+  if (options.vehicle_debug_mode) {
+    debug_control = std::make_unique<rtc_vehicle::DebugVehicleControlInterface>(&WriteInfoLog);
+    vehicle_interface = debug_control.get();
+  } else if (options.dog_control.enabled) {
     rtc_dog::DogCommandForwarder::Config dog_config;
     dog_config.rosbridge_url = options.dog_control.rosbridge_url;
     dog_config.reconnect_interval_ms =
@@ -870,8 +878,25 @@ int RunEdgeApplication(const EdgeOptions& options) {
 
   EdgeCameraModules camera_modules(options);
   EdgeAudioModule audio_module(options.audio);
-  const RtcSession::Callbacks callbacks =
+  RtcSession::Callbacks callbacks =
       MakeVehicleRtcCallbacks(&control_module, &camera_modules, &audio_module);
+  const auto datachannel_state = callbacks.datachannel_state;
+  callbacks.datachannel_state =
+      [datachannel_state, &options](RtcSessionId remote_sessionid,
+                                   RtcDataChannelLabel label,
+                                   RtcDataChannelState state) {
+        datachannel_state(remote_sessionid, label, state);
+        if (state == DataChannelOpen && label != nullptr &&
+            std::string(label) == rtc_runtime::kDeviceIdentityChannelLabel &&
+            !options.device_id.empty()) {
+          const auto result = RtcSendData(
+              remote_sessionid, rtc_runtime::kDeviceIdentityChannelLabel,
+              options.device_id.data(), options.device_id.size());
+          if (result != RtcErrorCode::OK) {
+            rtc_logging::LogError("Failed to send device identity");
+          }
+        }
+      };
   RtcSession rtc_session(
       options.rtc,
       MakeVehicleRtcFeatures(options.surround_camera, options.audio,

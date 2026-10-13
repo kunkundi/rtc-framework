@@ -3,6 +3,7 @@ target("rtc_console")
     vtsrtc_add_client_dependency()
     add_deps(
         "rtc_audio",
+        "rtc_runtime",
         "rtc_vehicle_control_protocol",
         "rtc_vision_detection_protocol"
     )
@@ -47,6 +48,7 @@ target("rtc_console")
 target("rtc_console_options_tests")
     set_kind("binary")
     set_default(false)
+    add_deps("rtc_runtime")
     add_files(
         vtsrtc_path("client", "apps", "rtc_console", "rtc_console_options.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "rtc_console_options_tests.cpp")

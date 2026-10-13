@@ -36,6 +36,23 @@ class VehicleControlInterface {
   virtual void SendStop() = 0;
 };
 
+class DebugVehicleControlInterface final : public VehicleControlInterface {
+ public:
+    using LogCallback = std::function<void(const std::string&)>;
+    explicit DebugVehicleControlInterface(const LogCallback& logger);
+    bool Open(std::string* error_message) override;
+    void Close() override;
+    VehicleCommandResult SendDriveCommand(
+            const vts_rtc::vehicle::DriveCommand& command) override;
+    VehicleCommandResult SendGearCommand(vts_rtc::vehicle::VehicleGear gear) override;
+    VehicleCommandResult SendDogAction(const vts_rtc::vehicle::DogAction& action) override;
+    void SendStop() override;
+
+ private:
+    LogCallback logger_;
+    bool opened_ = false;
+};
+
 // 车辆控制链路尚未接入时使用的占位实现。它允许主程序运行摄像头和 RTC，
 // 但会拒绝所有运动及换档指令，避免误报设备已经执行。
 class PlaceholderVehicleControlInterface final
