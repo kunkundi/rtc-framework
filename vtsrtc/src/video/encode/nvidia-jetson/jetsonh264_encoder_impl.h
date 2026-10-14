@@ -143,6 +143,7 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   unsigned int session_width_ = 0;
   unsigned int session_height_ = 0;
   unsigned int hardware_framerate_ = 30;
+  int64_t framerate_stable_since_ms_ = 0;
   int64_t switch_deadline_ms_ = 0;
   unsigned int fps_ = 30;
   unsigned int bitrate_ = 25000000;

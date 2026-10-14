@@ -49,6 +49,7 @@ class JetsonEncoder {
   void ForceKeyFrame();
   void SetBitrate(int bitrate_bps);
   void SetFramerate(int framerate);
+  int framerate() const { return framerate_; }
   bool Reconfigure(int new_width, int new_height);
   bool CanReconfigure() const;
   bool IsHealthy() const;
@@ -72,6 +73,7 @@ class JetsonEncoder {
   int bitrate_bps_;
   uint32_t applied_peak_bitrate_ = 0;
   int64_t next_bitrate_retry_ms_ = 0;
+  int64_t next_framerate_retry_ms_ = 0;
   uint32_t src_pix_fmt_;
   uint32_t dst_pix_fmt_;
   bool is_dma_src_;

@@ -738,16 +738,19 @@ void JetsonEncoder::SetBitrate(int adjusted_bitrate_bps) {
 }
 
 void JetsonEncoder::SetFramerate(int adjusted_framerate) {
-  if (!encoder_ || adjusted_framerate < 1 || framerate_ == adjusted_framerate) {
+  if (!encoder_ || adjusted_framerate < 1 || framerate_ == adjusted_framerate ||
+      SteadyTimeMillis() < next_framerate_retry_ms_) {
     return;
   }
 
   const int ret = encoder_->setFrameRate(adjusted_framerate, 1);
   if (ret < 0) {
     LOG_ERROR("Could not set encoder framerate ret=%d errno=%d", ret, errno);
+    next_framerate_retry_ms_ = SteadyTimeMillis() + 1000;
     return;
   }
   framerate_ = adjusted_framerate;
+  next_framerate_retry_ms_ = 0;
 }
 
 void JetsonEncoder::ForceKeyFrame() {

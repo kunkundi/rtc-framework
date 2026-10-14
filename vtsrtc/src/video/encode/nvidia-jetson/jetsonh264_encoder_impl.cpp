@@ -118,10 +118,18 @@ void JetsonH264EncoderImpl::ApplyRatesToEncoder(JetsonEncoder* encoder) {
     return;
   }
 
-  // Jetson 编码会话运行中只更新码率。WebRTC 的输入帧率估计在启动和
-  // 资源自适应阶段会快速摆动，频繁下发 VIDIOC_S_PARM 会增加多会话竞争。
   if (bitrate_ > 0) {
     encoder->SetBitrate(bitrate_);
+  }
+  const int64_t now_ms = SteadyTimeMillis();
+  if (framerate_stable_since_ms_ > 0 &&
+      now_ms - framerate_stable_since_ms_ >= 1000) {
+    if (hardware_framerate_ != fps_) {
+      hardware_framerate_ = fps_;
+    }
+  }
+  if (encoder->framerate() != static_cast<int>(hardware_framerate_)) {
+    encoder->SetFramerate(hardware_framerate_);
   }
 }
 
@@ -1068,6 +1076,9 @@ void JetsonH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
   const auto previous_fps = fps_;
   const auto previous_bitrate = bitrate_;
   fps_ = fps;
+  if (previous_fps != fps_) {
+    framerate_stable_since_ms_ = SteadyTimeMillis();
+  }
   bitrate_ =
       static_cast<unsigned int>(std::min<uint64_t>(bitrate, bitrate_cap_bps_));
 
