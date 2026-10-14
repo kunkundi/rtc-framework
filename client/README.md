@@ -28,13 +28,20 @@ xmake r rtc_console
 xmake r rtc_console --room my-room
 ```
 
-是否在登录 RTC 服务后自动打开房间由 `rtc.cfg` 控制，默认关闭：
+配置按用途拆分，构建时三个文件一起复制到程序目录：
+
+- `config/rtc.cfg`：网络、ICE、编码器、分辨率和应用配置文件引用。
+- `config/console.cfg`：房间、设备格位、按键和方向盘参数。
+- `config/edge.cfg`：设备身份、摄像头、音频、视觉和车辆接口。
+
+主配置使用 `"console": {"config": "console.cfg"}` 和 `"edge": {"config": "edge.cfg"}` 引用。外部文件根对象直接写该角色的字段，不再包裹 `console` 或 `edge`。路径相对于主配置所在目录解析，支持绝对路径；媒体资源路径仍相对于主配置目录。每个应用只加载自己的配置段。只允许一层引用，文件缺失、JSON 无效、嵌套引用或引用与内联字段并存均报错，不静默回退。部署时应携带三个文件；修改后重启应用。旧的单文件内联配置继续支持。
+
+是否在登录 RTC 服务后自动打开房间由 `console.cfg` 的 `auto_open_room` 控制，代码默认关闭。以下为兼容的旧内联格式示例：
 
 ```json
 {
   "console": {
     "room": "zhejianglab",
-    "auto_open_room": false,
     "device_slots": ["car_1", "car_2", "car_3", "car_4"]
   }
 }
@@ -47,6 +54,20 @@ xmake r rtc_console --room my-room
 配置修改后需要重启控制台。
 
 #### 键盘操作
+
+应用快捷键通过 `console.cfg` 的 `key_bindings` 配置，仓库 `config/console.cfg` 列出了完整默认映射。修改后重启 console 生效；省略动作保留默认键，省略整个配置保留当前全部操作。以下表格描述默认键。`select_1` 至 `select_4` 同时用于设备格位选择和环视摄像头选择，`escape` 同时用于返回双目和关闭全屏，`brake_takeover` 同时用于制动接管和按住制动。
+
+每个动作可使用一个键名字符串或非空键名数组，例如 `"forward": ["W", "UpArrow"]`。键名区分大小写，支持 `A`–`Z`、`0`–`9`、`F1`–`F12`，以及 `UpArrow`、`DownArrow`、`LeftArrow`、`RightArrow`、`Space`、`Escape`、`Enter`、`Tab`、`Backspace`、`Insert`、`Delete`、`Home`、`End`、`PageUp`、`PageDown`、`Equal`、`Minus`、`Comma`、`Period`、`Slash`、`Semicolon`、`Apostrophe`、`LeftBracket`、`RightBracket`、`Backslash`、`GraveAccent`。不支持组合键、空绑定或禁用安全动作；未知动作、无效键名、重复键（包括与未覆盖默认动作冲突）会阻止启动并报错。ImGui 文本编辑和界面导航内置按键、鼠标及手柄不受此配置影响，驾驶安全逻辑保持不变。
+
+例如只修改前进、后退和接管键：
+
+```json
+"key_bindings": {
+  "forward": ["W", "UpArrow"],
+  "reverse": "DownArrow",
+  "takeover": "T"
+}
+```
 
 以下业务快捷键主要在驾驶页生效；无渲染模式不支持这些界面操作。
 

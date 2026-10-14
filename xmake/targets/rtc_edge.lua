@@ -68,7 +68,9 @@ if vtsrtc_on_linux() then
         end
 
         after_buildcmd(function(target, batchcmds)
-            batchcmds:cp(path.join(os.projectdir(), "config", "rtc.cfg"), target:targetdir())
+            for _, name in ipairs({"rtc.cfg", "console.cfg", "edge.cfg"}) do
+                batchcmds:cp(path.join(os.projectdir(), "config", name), target:targetdir())
+            end
             local yuv_path = path.join(os.projectdir(), "test_data", "zjlabs.yuv")
             if os.isfile(yuv_path) then
                 local test_data_dir = path.join(target:targetdir(), "test_data")

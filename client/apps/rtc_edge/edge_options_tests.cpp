@@ -457,6 +457,22 @@ void TestInvalidDogSpeed() {
 }  // 匿名命名空间
 
 int main() {
+  {
+    const std::string main_path = "/tmp/rtc_edge_external_main.json";
+    const std::string edge_path = "/tmp/rtc_edge_external.json";
+    auto root = MakeValidConfig();
+    WriteConfig(edge_path, root.at("edge"));
+    root["edge"] = {{"config", "rtc_edge_external.json"}};
+    root["console"] = {{"config", "missing-console.json"}};
+    WriteConfig(main_path, root);
+    const auto options = rtc_edge_app::LoadEdgeOptions(main_path);
+    Check(options.rtc.config_path == main_path,
+          "external edge preserves main RTC config path");
+    Check(options.rtc.room_id == MakeValidConfig()["edge"]["rtc"]["room"],
+          "external edge loads runtime settings without loading console");
+    std::remove(main_path.c_str());
+    std::remove(edge_path.c_str());
+  }
   TestValidConfig();
   TestRepositoryConfig();
   TestMissingAudioSection();

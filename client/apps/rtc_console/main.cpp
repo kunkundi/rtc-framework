@@ -608,6 +608,21 @@ class RtcConsoleApp {
                     options_.room_id.c_str());
     }
     auto_open_room_ = config.auto_open_room;
+    for (const auto& action : config.key_bindings) {
+      for (const auto& name : action.second) {
+        ImGuiKey resolved = ImGuiKey_None;
+        for (int key = ImGuiKey_Tab; key < ImGuiKey_COUNT; ++key) {
+          if (name == ImGui::GetKeyName(static_cast<ImGuiKey>(key))) {
+            resolved = static_cast<ImGuiKey>(key);
+            break;
+          }
+        }
+        if (resolved == ImGuiKey_None) {
+          throw std::runtime_error("unsupported console key: " + name);
+        }
+        key_bindings_[action.first].push_back(resolved);
+      }
+    }
     steering_wheel_range_deg_ = config.steering_wheel_range_deg;
     device_slots_.Configure(config.device_slots);
     AppendLog(std::string("Target room: ") + options_.room_id);
@@ -1485,14 +1500,28 @@ class RtcConsoleApp {
     }
   }
 
+  bool ActionPressed(const std::string& action, bool repeat = false) const {
+    for (const auto key : key_bindings_.at(action)) {
+      if (ImGui::IsKeyPressed(key, repeat)) return true;
+    }
+    return false;
+  }
+
+  bool ActionDown(const std::string& action) const {
+    for (const auto key : key_bindings_.at(action)) {
+      if (ImGui::IsKeyDown(key)) return true;
+    }
+    return false;
+  }
+
   void UpdateVehicleInputFromKeyboard() {
-    if (ImGui::IsKeyPressed(ImGuiKey_I, false)) {
+    if (ActionPressed("toggle_interleave")) {
       render_lr_pixel_interleave_ = !render_lr_pixel_interleave_;
     }
 
-    const ImGuiKey selection_keys[] = {
-        ImGuiKey_1, ImGuiKey_2, ImGuiKey_3, ImGuiKey_4};
-    if (viewed_session_ != 0 && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+    const std::string selection_actions[] = {
+      "select_1", "select_2", "select_3", "select_4"};
+    if (viewed_session_ != 0 && ActionPressed("toggle_view")) {
       const auto mode = video_view_state_.Get(viewed_session_);
       SendVideoViewControl(mode == vts_rtc::vision::ViewMode::Binocular
                                ? vts_rtc::vision::ViewMode::Surround
@@ -1500,7 +1529,7 @@ class RtcConsoleApp {
                            viewed_session_);
     }
     for (size_t slot = 0; slot < 4; ++slot) {
-      if (!ImGui::IsKeyPressed(selection_keys[slot], false)) {
+      if (!ActionPressed(selection_actions[slot])) {
         continue;
       }
       if (viewed_session_ != 0 &&
@@ -1542,7 +1571,7 @@ class RtcConsoleApp {
       return;
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) {
+    if (ActionPressed("release_takeover")) {
       if (vehicle_takeover_active_) {
         gamepad_dog_actions_.StopForDisconnect(
             [this](vts_rtc::vehicle::DogActionType action, float speed, bool log_success) {
@@ -1556,8 +1585,8 @@ class RtcConsoleApp {
       return;
     }
     const bool brake_takeover = !ImGui::GetIO().WantTextInput &&
-      ImGui::IsKeyPressed(ImGuiKey_B, false);
-    if ((ImGui::IsKeyPressed(ImGuiKey_C, false) || brake_takeover) &&
+      ActionPressed("brake_takeover");
+    if ((ActionPressed("takeover") || brake_takeover) &&
       !vehicle_takeover_active_) {
       const auto targets = vehicle_control_targets_.AvailableTargets();
       if (!IsBoundSession(viewed_session_) ||
@@ -1590,20 +1619,20 @@ class RtcConsoleApp {
       vehicle_keyboard_active_ = false;
       return;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+    if (ActionPressed("gear_forward")) {
       SendVehicleGear(vts_rtc::vehicle::VehicleGear::Forward);
-    } else if (ImGui::IsKeyPressed(ImGuiKey_N, false)) {
+    } else if (ActionPressed("gear_neutral")) {
       SendVehicleGear(vts_rtc::vehicle::VehicleGear::Neutral);
-    } else if (ImGui::IsKeyPressed(ImGuiKey_R, false)) {
+    } else if (ActionPressed("gear_reverse")) {
       SendVehicleGear(vts_rtc::vehicle::VehicleGear::Reverse);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Equal, true)) {
+    if (ActionPressed("throttle_up", true)) {
       AdjustVehicleThrottle(kVehicleThrottleStep);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Minus, true)) {
+    if (ActionPressed("throttle_down", true)) {
       AdjustVehicleThrottle(-kVehicleThrottleStep);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_X, false)) {
+    if (ActionPressed("stop_and_release")) {
       SetVehicleEmergencyStop();
       SendVehicleDriveCommand(true);
       ClearVehicleInput();
@@ -1611,15 +1640,15 @@ class RtcConsoleApp {
       return;
     }
 
-    const bool forward = ImGui::IsKeyDown(ImGuiKey_UpArrow);
-    const bool reverse = ImGui::IsKeyDown(ImGuiKey_DownArrow);
-    const bool left = ImGui::IsKeyDown(ImGuiKey_LeftArrow);
-    const bool right = ImGui::IsKeyDown(ImGuiKey_RightArrow);
+    const bool forward = ActionDown("forward");
+    const bool reverse = ActionDown("reverse");
+    const bool left = ActionDown("left");
+    const bool right = ActionDown("right");
     steering_wheel_angle_deg_ = rtc_console::UpdateSteeringAngle(
       steering_wheel_angle_deg_, left, right, ImGui::GetIO().DeltaTime,
       steering_wheel_range_deg_);
-    const bool emergency_stop = ImGui::IsKeyDown(ImGuiKey_B) ||
-      ImGui::IsKeyDown(ImGuiKey_Space);
+    const bool emergency_stop = ActionDown("brake_takeover") ||
+      ActionDown("emergency_stop");
     const bool any_key =
         forward || reverse || left || right || emergency_stop;
     if (!any_key) {
@@ -2351,7 +2380,7 @@ class RtcConsoleApp {
     ImGui::SetCursorScreenPos(grid_origin);
     ImGui::Dummy(ImVec2(std::max(1.0f, panel_avail.x),
                         std::max(1.0f, panel_avail.y)));
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (ActionPressed("escape", true)) {
       for (const auto& session : sessions) {
         if (video_view_state_.Get(session.remote_sessionid) >= vts_rtc::vision::ViewMode::SurroundFront) {
           SendVideoViewControl(vts_rtc::vision::ViewMode::Binocular, session.remote_sessionid);
@@ -3106,7 +3135,7 @@ class RtcConsoleApp {
       return;
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (ActionPressed("escape", true)) {
       CloseFullscreenVideo();
       return;
     }
@@ -4202,6 +4231,7 @@ class RtcConsoleApp {
   bool vehicle_takeover_active_ = false;
   bool video_debug_enabled_ = false;
   RtcSessionId viewed_session_ = 0;
+  std::map<std::string, std::vector<ImGuiKey>> key_bindings_;
   bool vehicle_keyboard_active_ = false;
   bool vehicle_gamepad_active_ = false;
   float vehicle_throttle_ = 0.5f;

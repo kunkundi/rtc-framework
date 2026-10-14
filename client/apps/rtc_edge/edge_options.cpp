@@ -16,6 +16,7 @@
 #include <string>
 
 #include <nlohmann/json.hpp>
+#include "rtc_runtime/config_section.h"
 
 namespace rtc_edge_app {
 namespace {
@@ -236,7 +237,7 @@ std::string ReadOptionValue(int argc,
 void PrintUsage(const char* program) {
   std::cout
       << "用法：" << program << " [--config rtc.cfg]\n\n"
-      << "边缘端所有运行参数都从 rtc.cfg 的 edge 配置段读取。\n\n"
+      << "边缘端参数从 rtc.cfg 的 edge 配置段或其 config 引用文件读取。\n\n"
       << "选项：\n"
       << "  --config rtc.cfg    配置文件，默认使用可执行程序附近的 rtc.cfg\n"
       << "  --help              显示帮助\n"
@@ -268,7 +269,8 @@ std::string ParseConfigPath(int argc, char** argv) {
 EdgeOptions LoadEdgeOptions(const std::string& config_path) {
   const std::string resolved_path =
       rtc_runtime::ResolveConfigPath(config_path);
-  const nlohmann::json root = ReadConfigFile(resolved_path);
+  nlohmann::json root = ReadConfigFile(resolved_path);
+  rtc_runtime::LoadConfigSection(root, "edge", resolved_path);
   const nlohmann::json& edge = ReadObject(root, "edge", "");
   const nlohmann::json& rtc = ReadObject(edge, "rtc", "edge");
   const nlohmann::json& camera =

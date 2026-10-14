@@ -30,9 +30,8 @@ target("rtc_console")
 
     if vtsrtc_on_linux() then
         after_buildcmd(function(target, batchcmds)
-            local config_file = path.join(os.projectdir(), "config", "rtc.cfg")
-            if os.exists(config_file) then
-                batchcmds:cp(config_file, target:targetdir())
+            for _, name in ipairs({"rtc.cfg", "console.cfg", "edge.cfg"}) do
+                batchcmds:cp(path.join(os.projectdir(), "config", name), target:targetdir())
             end
 
             local test_data = path.join(os.projectdir(), "test_data")

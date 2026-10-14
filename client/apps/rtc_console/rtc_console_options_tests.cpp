@@ -131,6 +131,61 @@ void TestHelp() {
   Check(options.show_help, "parse help");
 }
 
+void TestKeyBindings() {
+  const std::string path = "rtc_console_keys_test.json";
+  WriteConfig(path, "{}");
+  const auto defaults = rtc_console::LoadConfig(path);
+  Check(defaults.key_bindings.at("forward") == std::vector<std::string>{"UpArrow"},
+    "preserve default driving keys");
+  Check(defaults.key_bindings.size() == 21, "cover all application keyboard actions");
+  WriteConfig(path, "{\"console\":{\"key_bindings\":{\"forward\":[\"W\",\"F1\"],\"takeover\":\"T\"}}}");
+  const auto changed = rtc_console::LoadConfig(path);
+  Check(changed.key_bindings.at("forward") == std::vector<std::string>({"W", "F1"}) &&
+    changed.key_bindings.at("takeover")[0] == "T" &&
+    changed.key_bindings.at("brake_takeover")[0] == "B",
+    "override selected actions and keep omitted defaults");
+  for (const auto& bindings : {"[]", "{\"unknown\":\"W\"}",
+   "{\"forward\":\"w\"}", "{\"forward\":\"Ctrl+W\"}",
+   "{\"forward\":[]}", "{\"forward\":[1]}", "{\"forward\":null}",
+   "{\"forward\":\"B\"}", "{\"forward\":[\"W\",\"W\"]}"}) {
+    WriteConfig(path, std::string("{\"console\":{\"key_bindings\":") + bindings + "}}");
+    bool rejected = false;
+    try { rtc_console::LoadConfig(path); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "reject invalid or conflicting keyboard bindings");
+  }
+  std::remove(path.c_str());
+}
+
+void TestExternalConfig() {
+  const std::string path = "rtc_console_external_main.json";
+  const std::string external = "rtc_console_external.json";
+  WriteConfig(external, "{\"room\":\"external-room\",\"key_bindings\":{\"takeover\":\"T\"}}");
+  WriteConfig(path, "{\"console\":{\"config\":\"rtc_console_external.json\"},\"edge\":{\"config\":\"missing.json\"}}");
+  const auto loaded = rtc_console::LoadConfig("./" + path);
+  Check(loaded.room_id == "external-room" && loaded.key_bindings.at("takeover")[0] == "T",
+        "load relative external config without loading other role");
+  for (const auto& reference : {"{\"config\":\"missing.json\"}",
+       "{\"config\":\"\"}", "{\"config\":1}",
+       "{\"config\":\"rtc_console_external.json\",\"room\":\"inline\"}"}) {
+    WriteConfig(path, std::string("{\"console\":") + reference + "}");
+    bool rejected = false;
+    try { rtc_console::LoadConfig(path); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "reject missing, invalid or mixed external config");
+  }
+  WriteConfig(path, "{\"console\":{\"config\":\"rtc_console_external.json\"}}");
+  for (const auto& content : {"[]", "{", "{\"config\":\"nested.json\"}"}) {
+    WriteConfig(external, content);
+    bool rejected = false;
+    try { rtc_console::LoadConfig(path); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "reject invalid or nested external file");
+  }
+  std::remove(path.c_str());
+  std::remove(external.c_str());
+}
+
 void TestDeviceSlots() {
   const std::string path = "rtc_console_slots_test.json";
   WriteConfig(path, "{\"console\":{\"device_slots\":[\"car_2\",\"car_1\",\"\",\"car_4\"]}}");
@@ -199,6 +254,8 @@ int main() {
   TestHelp();
   TestInvalidArguments();
   TestConfig();
+  TestKeyBindings();
+  TestExternalConfig();
   TestDeviceSlots();
   std::cout << "rtc_console options tests passed" << std::endl;
   return 0;

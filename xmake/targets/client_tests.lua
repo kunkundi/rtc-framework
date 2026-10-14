@@ -55,7 +55,9 @@ if vtsrtc_on_linux() then
         end
 
         after_buildcmd(function(target, batchcmds)
-            batchcmds:cp(path.join(os.projectdir(), "config", "rtc.cfg"), target:targetdir())
+            for _, name in ipairs({"rtc.cfg", "console.cfg", "edge.cfg"}) do
+                batchcmds:cp(path.join(os.projectdir(), "config", name), target:targetdir())
+            end
             if get_config("enable_yolo") then
                 local model_path = path.join(os.projectdir(), "models", "yolo26n.onnx")
                 if os.isfile(model_path) then

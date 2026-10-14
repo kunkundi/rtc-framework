@@ -1,9 +1,11 @@
 #include "rtc_console_options.h"
 #include "rtc_runtime/device_identity.h"
+#include "rtc_runtime/config_section.h"
 
 #include <fstream>
 #include <cmath>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 
 #include <nlohmann/json.hpp>
@@ -52,6 +54,7 @@ AppConfig LoadConfig(const std::string& config_path) {
   if (!root.is_object()) {
     throw std::runtime_error("config root must be an object");
   }
+  rtc_runtime::LoadConfigSection(root, "console", config_path);
 
   AppConfig config;
   if (!root.contains("console")) {
@@ -61,6 +64,57 @@ AppConfig LoadConfig(const std::string& config_path) {
   const nlohmann::json& console = root.at("console");
   if (!console.is_object()) {
     throw std::runtime_error("config field must be an object: console");
+  }
+  if (console.contains("key_bindings")) {
+    const auto& bindings = console.at("key_bindings");
+    if (!bindings.is_object()) {
+      throw std::runtime_error("console.key_bindings must be an object");
+    }
+    const std::set<std::string> named_keys{
+        "UpArrow", "DownArrow", "LeftArrow", "RightArrow", "Space",
+        "Escape", "Enter", "Tab", "Backspace", "Insert", "Delete",
+        "Home", "End", "PageUp", "PageDown", "Equal", "Minus",
+        "Comma", "Period", "Slash", "Semicolon", "Apostrophe",
+        "LeftBracket", "RightBracket", "Backslash", "GraveAccent"};
+    for (auto entry = bindings.begin(); entry != bindings.end(); ++entry) {
+      auto action = config.key_bindings.find(entry.key());
+      if (action == config.key_bindings.end()) {
+        throw std::runtime_error("unknown console.key_bindings action: " + entry.key());
+      }
+      std::vector<std::string> keys;
+      if (entry.value().is_string()) {
+        keys.push_back(entry.value().get<std::string>());
+      } else if (entry.value().is_array() && !entry.value().empty()) {
+        for (const auto& key : entry.value()) {
+          if (!key.is_string()) {
+            throw std::runtime_error("console.key_bindings keys must be strings: " + entry.key());
+          }
+          keys.push_back(key.get<std::string>());
+        }
+      } else {
+        throw std::runtime_error("console.key_bindings requires a key or non-empty key array: " + entry.key());
+      }
+      for (const auto& key : keys) {
+        const bool character = key.size() == 1 &&
+            ((key[0] >= 'A' && key[0] <= 'Z') || (key[0] >= '0' && key[0] <= '9'));
+        const bool function = key.size() >= 2 && key[0] == 'F' &&
+            (key == "F1" || key == "F2" || key == "F3" || key == "F4" ||
+             key == "F5" || key == "F6" || key == "F7" || key == "F8" ||
+             key == "F9" || key == "F10" || key == "F11" || key == "F12");
+        if (!character && !function && named_keys.count(key) == 0) {
+          throw std::runtime_error("invalid console.key_bindings key: " + key);
+        }
+      }
+      action->second = std::move(keys);
+    }
+    std::set<std::string> assigned;
+    for (const auto& action : config.key_bindings) {
+      for (const auto& key : action.second) {
+        if (!assigned.insert(key).second) {
+          throw std::runtime_error("duplicate console.key_bindings key: " + key);
+        }
+      }
+    }
   }
   if (console.contains("room")) {
     const nlohmann::json& room = console.at("room");

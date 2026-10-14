@@ -83,6 +83,8 @@ target(vtsrtc_target)
 
     add_installfiles(vtsrtc_path("vtsrtc", "src", "c_rtc.h"), {prefixdir = "vtsrtc/include"})
     add_installfiles(vtsrtc_path("config", "rtc.cfg"), {prefixdir = "vtsrtc"})
+    add_installfiles(vtsrtc_path("config", "console.cfg"), {prefixdir = "vtsrtc"})
+    add_installfiles(vtsrtc_path("config", "edge.cfg"), {prefixdir = "vtsrtc"})
 
     after_build(function(target)
         local lib_dir = path.join(os.projectdir(), "lib")
