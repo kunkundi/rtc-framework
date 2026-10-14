@@ -76,6 +76,7 @@ class EncodedCallback final : public webrtc::EncodedImageCallback {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       ++count_;
+      bytes_ += image.size();
       width_ = image._encodedWidth;
       height_ = image._encodedHeight;
       callback_time_ = Clock::now();
@@ -105,6 +106,11 @@ class EncodedCallback final : public webrtc::EncodedImageCallback {
   uint64_t count() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return count_;
+  }
+
+  uint64_t bytes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return bytes_;
   }
 
   Clock::time_point callback_time() const {
@@ -143,6 +149,7 @@ class EncodedCallback final : public webrtc::EncodedImageCallback {
   mutable std::mutex mutex_;
   std::condition_variable condition_;
   uint64_t count_ = 0;
+  uint64_t bytes_ = 0;
   int width_ = 0;
   int height_ = 0;
   Clock::time_point callback_time_;
@@ -829,6 +836,51 @@ int main(int argc, char** argv) {
     }
   }
   std::cout << "AUXILIARY_UPSCALE result=ok" << std::endl;
+  encoder.Release();
+  std::this_thread::sleep_for(std::chrono::milliseconds(650));
+  encoder.RegisterEncodeCompleteCallback(&callback);
+  codec_settings.width = 1280;
+  codec_settings.height = 720;
+  codec_settings.startBitrate = 150;
+  if (encoder.InitEncode(&codec_settings, settings) != WEBRTC_VIDEO_CODEC_OK) {
+    return 40;
+  }
+  const uint32_t bitrate_steps[] = {6000000, 300000, 150000, 6000000};
+  const int framerate_steps[] = {30, 24, 15, 30};
+  for (size_t step = 0; step < 4; ++step) {
+    webrtc::VideoBitrateAllocation allocation;
+    allocation.SetBitrate(0, 0, bitrate_steps[step]);
+    encoder.SetRates(webrtc::VideoEncoder::RateControlParameters(
+        allocation, framerate_steps[step]));
+    const uint64_t previous_bytes = callback.bytes();
+    const uint64_t previous_count = callback.count();
+    const auto stage_start = Clock::now();
+    const int frame_count = framerate_steps[step] * 2;
+    for (int frame = 0; frame < frame_count; ++frame) {
+      std::this_thread::sleep_until(
+          stage_start + std::chrono::microseconds(
+              static_cast<int64_t>(frame) * 1000000 / framerate_steps[step]));
+      if (encoder.Encode(BuildFrame({1280, 720}, frame_index++),
+                         &frame_types) != WEBRTC_VIDEO_CODEC_OK) {
+        std::cerr << "码率阶跃期间编码失败" << std::endl;
+        return 38;
+      }
+    }
+    if (!EncodeUntilOutput(&encoder, &callback, {1280, 720}, &frame_index,
+                           &ignored_gap) || callback.count() == previous_count) {
+      std::cerr << "码率阶跃后没有编码输出" << std::endl;
+      return 39;
+    }
+    const double elapsed_seconds =
+        std::chrono::duration<double>(Clock::now() - stage_start).count();
+    std::cout << "RATE_STEP target_bps=" << bitrate_steps[step]
+              << " fps=" << framerate_steps[step]
+              << " frames=" << callback.count() - previous_count
+              << " measured_bps="
+              << (callback.bytes() - previous_bytes) * 8 / elapsed_seconds
+              << " cumulative_average_qp=" << callback.average_qp()
+              << std::endl;
+  }
   encoder.Release();
   return 0;
 }
