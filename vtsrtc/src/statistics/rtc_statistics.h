@@ -5,6 +5,7 @@
 
 #include "api/stats/rtc_stats_report.h"
 #include "rtc_types.h"
+#include "statistics/video_delay.h"
 
 class RtcStatistics {
  public:
@@ -66,4 +67,7 @@ class RtcStatistics {
       outbound_video_history_;
   std::map<std::pair<vts_rtc::SessionId, uint32_t>, int64_t>
       last_pacer_diagnosis_us_;
+    std::map<std::pair<vts_rtc::SessionId, uint32_t>,
+                     std::pair<vts_rtc::VideoDelayWindow, vts_rtc::VideoDelayWindow>>
+            video_delay_windows_;
 };

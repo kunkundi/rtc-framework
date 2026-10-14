@@ -22,6 +22,7 @@ void RtcStatistics::Reset() {
   prev_jitter_buffer_emitted_count_.clear();
   outbound_video_history_.clear();
   last_pacer_diagnosis_us_.clear();
+  video_delay_windows_.clear();
 }
 
 void RtcStatistics::SetStatisticsReportCallback(
@@ -43,6 +44,13 @@ void RtcStatistics::AddSessionReceiversMediaSsrcVsId(
 
 void RtcStatistics::RemoveSessionMediaSsrcVsId(
     vts_rtc::SessionId remote_sessionid) {
+  for (auto it = video_delay_windows_.begin(); it != video_delay_windows_.end();) {
+    if (it->first.first == remote_sessionid) {
+      it = video_delay_windows_.erase(it);
+    } else {
+      ++it;
+    }
+  }
   for (auto it = session_sender_media_ssrc_vs_id_.begin();
        it != session_sender_media_ssrc_vs_id_.end();) {
     if (it->first == remote_sessionid) {
@@ -893,11 +901,12 @@ void RtcStatistics::OnStatisticsReport(
                   ? *media_stats->decoder_implementation
                   : 0;
 
-          // 计算端到端延时统计
-          unsigned int network_delay_ms = 0;
-          unsigned int jitter_buffer_delay_ms = 0;
-          unsigned int total_decode_time_ms = 0;
-          unsigned int e2e_delay_ms = 0;
+          auto& delay_windows = video_delay_windows_[
+              std::make_pair(session_id, id_vs_ssrc.second)];
+          net_stats_out.video_stats.network_delay_ms = -1;
+          net_stats_out.video_stats.buffer_delay_ms = -1;
+          net_stats_out.video_stats.decode_delay_ms = -1;
+          net_stats_out.video_stats.estimated_delay_ms = -1;
 
           // 获取网络延时（RTT/2）
           bool transport_id_defined =
@@ -927,9 +936,9 @@ void RtcStatistics::OnStatisticsReport(
                   double rtt_value =
                       rtt_defined ? *candidate_stats->current_round_trip_time
                                   : 0.0;
-                  if (rtt_defined && rtt_value > 0) {
-                    network_delay_ms =
-                        static_cast<unsigned int>(rtt_value / 2 * 1000);
+                  if (rtt_defined && std::isfinite(rtt_value) && rtt_value >= 0) {
+                    net_stats_out.video_stats.network_delay_ms =
+                        rtt_value * 500;
                   }
                 }
               }
@@ -955,35 +964,12 @@ void RtcStatistics::OnStatisticsReport(
                   jitter_emitted_defined
                       ? *track_stats->jitter_buffer_emitted_count
                       : 0;
-              const auto& source_id = id_vs_ssrc.first;
-
-              if (jitter_delay_defined && jitter_delay_value > 0 &&
-                  jitter_emitted_count > 0) {
-                double prev_jitter_delay =
-                    prev_jitter_buffer_delay_[source_id];
-                uint64_t prev_jitter_emitted_count =
-                    prev_jitter_buffer_emitted_count_[source_id];
-                double jitter_delay_increment =
-                    jitter_delay_value - prev_jitter_delay;
-                uint64_t jitter_emitted_increment =
-                    jitter_emitted_count >= prev_jitter_emitted_count
-                        ? (jitter_emitted_count - prev_jitter_emitted_count)
-                        : 0;
-
-                if (jitter_delay_increment >= 0 &&
-                    jitter_emitted_increment > 0) {
-                  jitter_buffer_delay_ms = static_cast<unsigned int>(
-                      (jitter_delay_increment / jitter_emitted_increment) *
-                      1000);
-                } else {
-                  jitter_buffer_delay_ms = static_cast<unsigned int>(
-                      (jitter_delay_value / jitter_emitted_count) * 1000);
-                }
-
-                prev_jitter_buffer_delay_[source_id] = jitter_delay_value;
-                prev_jitter_buffer_emitted_count_[source_id] =
-                    jitter_emitted_count;
+              if (jitter_delay_defined && jitter_emitted_defined) {
+                net_stats_out.video_stats.buffer_delay_ms =
+                    delay_windows.first.Update(jitter_delay_value,
+                                               jitter_emitted_count);
               }
+
             }
           }
 
@@ -992,55 +978,31 @@ void RtcStatistics::OnStatisticsReport(
               (&media_stats->total_decode_time)->is_defined();
           double decode_time_value =
               decode_time_defined ? *media_stats->total_decode_time : 0.0;
-          if (decode_time_defined && decode_time_value > 0) {
-            // total_decode_time是累积值，需要除以帧数得到平均解码时间
-            uint32_t frames_decoded =
-                (&media_stats->frames_decoded)->is_defined()
-                    ? *media_stats->frames_decoded
-                    : 0;
-            if (frames_decoded > 0) {
-              // 使用平均解码时间
-              total_decode_time_ms = static_cast<unsigned int>(
-                  (decode_time_value / frames_decoded) * 1000);
-            } else {
-              total_decode_time_ms =
-                  static_cast<unsigned int>(decode_time_value * 1000);
-            }
+          if (decode_time_defined && media_stats->frames_decoded.is_defined()) {
+            net_stats_out.video_stats.decode_delay_ms =
+                delay_windows.second.Update(decode_time_value,
+                                             *media_stats->frames_decoded);
           }
+          net_stats_out.video_stats.estimated_delay_ms =
+              vts_rtc::EstimateVideoDelay(
+                  net_stats_out.video_stats.network_delay_ms,
+                  net_stats_out.video_stats.buffer_delay_ms,
+                  net_stats_out.video_stats.decode_delay_ms);
+          net_stats_out.video_stats.delay_ms =
+              net_stats_out.video_stats.estimated_delay_ms >= 0
+                  ? static_cast<unsigned int>(
+                        net_stats_out.video_stats.estimated_delay_ms)
+                  : 0;
 
-          // 计算端到端延时估算
-          // 包括：网络延时 + jitter buffer延时 + 解码时间
-          // 注意：这仍然不包括采集时间和渲染时间，因为需要video-timing
-          // extension
-          e2e_delay_ms =
-              network_delay_ms + jitter_buffer_delay_ms + total_decode_time_ms;
-
-          // 设置总延时：优先使用jitter
-          // buffer延时（最准确），否则使用网络延时+解码时间
-          if (jitter_buffer_delay_ms > 0) {
-            // jitter buffer延时已经包含了网络传输和缓冲的延时
-            net_stats_out.video_stats.delay_ms =
-                jitter_buffer_delay_ms + total_decode_time_ms;
-          } else if (network_delay_ms > 0) {
-            net_stats_out.video_stats.delay_ms =
-                network_delay_ms + total_decode_time_ms;
-          } else if (total_decode_time_ms > 0) {
-            net_stats_out.video_stats.delay_ms = total_decode_time_ms;
-          } else {
-            net_stats_out.video_stats.delay_ms = 0;
-          }
-
-          // 打印接收端延时统计日志
-          // 注意：EstimatedE2EDelay 包括网络延时 + jitter buffer + 解码时间
-          // 但实际端到端延时还应该包括：发送端采集时间 + 发送端编码时间 +
-          // 发送端包发送延时 + 接收端渲染时间
           LOG_INFO(
-              "[VideoStats-Recv] SourceID: %s, SessionID: %u, NetworkDelay: %u "
-              "ms, JitterBufferDelay: %u ms, DecodeTime: %u ms, "
-              "EstimatedE2EDelay: %u ms, ReportedDelay: %u ms",
+              "[VideoStats-Recv] SourceID: %s, SessionID: %u, NetworkDelay: %.1f "
+              "ms, JitterBufferDelay: %.1f ms, DecodeTime: %.1f ms, "
+              "EstimatedReceiveDelay: %.1f ms",
               net_stats_out.video_stats.sourceid.c_str(), session_id,
-              network_delay_ms, jitter_buffer_delay_ms, total_decode_time_ms,
-              e2e_delay_ms, net_stats_out.video_stats.delay_ms);
+              net_stats_out.video_stats.network_delay_ms,
+              net_stats_out.video_stats.buffer_delay_ms,
+              net_stats_out.video_stats.decode_delay_ms,
+              net_stats_out.video_stats.estimated_delay_ms);
         }
 
         auto media_stream_id = "RTCMediaStream_" + id_vs_ssrc.first;

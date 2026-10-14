@@ -100,6 +100,20 @@ target(vtsrtc_target)
         end
     end)
 
+target("rtc_video_delay_tests")
+    set_kind("binary")
+    set_default(false)
+    add_files(vtsrtc_path("vtsrtc", "tests", "rtc_video_delay_tests.cpp"))
+    add_includedirs(vtsrtc_path("vtsrtc", "src"))
+    add_undefines("NDEBUG")
+
+target("rtc_video_delay_abi_tests")
+    set_kind("binary")
+    set_default(false)
+    vtsrtc_add_client_dependency()
+    add_files(vtsrtc_path("vtsrtc", "tests", "rtc_video_delay_abi_tests.cpp"))
+    vtsrtc_add_linux_runtime_rpath()
+
 target("rtc_external_audio_device_tests")
     set_kind("binary")
     set_default(false)

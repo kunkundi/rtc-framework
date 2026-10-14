@@ -13,7 +13,7 @@ namespace rtc_camera_headless {
 namespace {
 
 constexpr uint32_t kClassMapVersion = 1;
-constexpr const char* kSourceId = "merged_image";
+constexpr const char* kSourceId = "stereo";
 constexpr int kVisionMetadataRefreshSeconds = 5;
 
 constexpr const char* kCocoLabels[] = {

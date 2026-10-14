@@ -83,6 +83,10 @@ struct VideoNetStats {
 	unsigned int fps = 0;
 	unsigned int loss_rate = 0;
 	unsigned int delay_ms = 0;
+	double network_delay_ms = -1;
+	double buffer_delay_ms = -1;
+	double decode_delay_ms = -1;
+	double estimated_delay_ms = -1;
 	unsigned int key_frame_count = 0;
 
 	unsigned int fir_count = 0;

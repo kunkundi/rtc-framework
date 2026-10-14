@@ -203,6 +203,18 @@ typedef void (*RecvFrameHandler)(RtcSessionId, RtcVideoSourceId,
 // RtcMediaChannelType, RtcMeidaSourceId, RtcNetStats
 typedef void (*ChannelNetworkStatsHandler)(RtcSessionId, RtcNetStats);
 
+typedef struct RtcVideoDelayStatsV1 {
+  size_t struct_size;
+  double network_ms;
+  double jitter_buffer_ms;
+  double decode_ms;
+  double estimated_receive_ms;
+} RtcVideoDelayStatsV1;
+
+typedef void (*VideoDelayStatsHandlerV1)(RtcSessionId, RtcVideoSourceId,
+                                       const RtcVideoDelayStatsV1*);
+
+
 /**
  * @param config_filepath Rtc配置文件
  * @param room_handler 房间事件通知的回调函数
@@ -232,6 +244,7 @@ typedef struct RtcInitParams {
 
 #ifdef __cplusplus
 extern "C" {
+RTC_API void RtcSetVideoDelayStatsHandlerV1(VideoDelayStatsHandlerV1 handler);
 #endif
 
 /**

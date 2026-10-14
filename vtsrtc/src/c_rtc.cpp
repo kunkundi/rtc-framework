@@ -2,11 +2,30 @@
 #include "rtc.h"
 #include <iostream>
 #include <limits>
+#include <atomic>
 
 #define CHECK_RTCAGENT_INITED if (!rtc_agent) { return RtcErrorCode::AgentNotInited; }
 
 std::shared_ptr<vts_rtc::RtcAgent> rtc_agent = nullptr;
 static RtcInitParams gst_params;
+static std::atomic<VideoDelayStatsHandlerV1> video_delay_handler{nullptr};
+
+void RtcSetVideoDelayStatsHandlerV1(VideoDelayStatsHandlerV1 handler) {
+	video_delay_handler.store(handler);
+}
+
+static void ReportVideoDelay(RtcSessionId session_id,
+                            const vts_rtc::NetStats& stats) {
+	const auto handler = video_delay_handler.load();
+	if (!handler || !stats.input || stats.video_stats.sourceid.empty()) {
+		return;
+	}
+	const auto& video = stats.video_stats;
+	RtcVideoDelayStatsV1 delay{sizeof(RtcVideoDelayStatsV1),
+		video.network_delay_ms, video.buffer_delay_ms,
+		video.decode_delay_ms, video.estimated_delay_ms};
+	handler(session_id, video.sourceid.c_str(), &delay);
+}
 
 std::map<RtcErrorCode, const char*> rtcerrorcode_map = {
 	{ RtcErrorCode::OK, "OK" },
@@ -139,6 +158,7 @@ RtcErrorCode RtcInitAgent(const char* config_filepath,
 			rtc_net_stats.video_stats.codec_name = net_stats.video_stats.codec_name.c_str();
 
 			gst_params.channel_network_stats_handler(session_id, rtc_net_stats);
+			ReportVideoDelay(session_id, net_stats);
 		};
 	}
 
@@ -298,6 +318,7 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 			rtc_net_stats.video_stats.codec_name = net_stats.video_stats.codec_name.c_str();
 
 			gst_params.channel_network_stats_handler(session_id, rtc_net_stats);
+			ReportVideoDelay(session_id, net_stats);
 		};
 	}
 
@@ -319,6 +340,7 @@ RtcErrorCode RtcInitAgentV2(RtcInitParams& st_params) {
 }
 
 void RtcDestoryAgent() {
+	video_delay_handler.store(nullptr);
 	if (rtc_agent) {
 		RtcLeaveRoom();
 		rtc_agent = nullptr;

@@ -143,7 +143,7 @@ rtc_runtime::RtcSession::Features MakeRtcFeatures() {
   rtc_runtime::RtcSession::Features features;
   features.enable_data_channel = true;
   features.enable_external_video_source = true;
-  features.external_video_source_id = "merged_image";
+  features.external_video_source_id = "stereo";
   rtc_runtime::RtcSession::DataChannelConfig vision_channel;
   vision_channel.label = vts_rtc::vision::kVisionDetectionChannelLabel;
   vision_channel.priority = RtcPriorityType::Medium;

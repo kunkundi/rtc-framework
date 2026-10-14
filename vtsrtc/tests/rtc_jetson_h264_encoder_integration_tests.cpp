@@ -436,7 +436,7 @@ int main(int argc, char** argv) {
   rtc_config.encode_params.bitrate_minmum = 150000;
   rtc_config.encode_params.bitrate_maxmum = 12000000;
   rtc_config.encode_params.I_frame_interval = 3000;
-  rtc_config.resolution_limit["merged_image"] = {1920, 1200};
+  rtc_config.resolution_limit["stereo"] = {1920, 1200};
 
   webrtc::JetsonH264EncoderImpl encoder(cricket_codec, rtc_config);
   if (!ValidateEncoderAdaptationInfo(encoder.GetEncoderInfo())) {

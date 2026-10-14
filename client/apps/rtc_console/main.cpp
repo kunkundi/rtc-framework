@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -52,7 +53,7 @@ namespace {
 
 constexpr const char* kDataChannelLabel = "datachannel";
 constexpr const char* kExternalAudioSource = "console_audio";
-constexpr const char* kExternalVideoSource = "merged_image";
+constexpr const char* kExternalVideoSource = "stereo";
 constexpr const char* kSurroundFrontVideoSource = "surround_front";
 constexpr const char* kSurroundRearVideoSource = "surround_rear";
 constexpr const char* kSurroundLeftVideoSource = "surround_left";
@@ -83,6 +84,8 @@ void HandleStopSignal(int) {
 }
 
 struct NetStatsView {
+  RtcSessionId session_id = 0;
+  RtcVideoDelayStatsV1 delay{sizeof(RtcVideoDelayStatsV1), -1, -1, -1, -1};
   bool input = false;
   std::string source_id;
   unsigned long bitrate_bps = 0;
@@ -784,6 +787,7 @@ class RtcConsoleApp {
       return false;
     }
     AppendLog("RtcInitAgentV2 success");
+    RtcSetVideoDelayStatsHandlerV1(&RtcConsoleApp::OnVideoDelayStats);
 
     const RtcErrorCode dc_code =
         RtcAddDataChannel(kDataChannelLabel, RtcPriorityType::High, true, -1);
@@ -2224,7 +2228,7 @@ class RtcConsoleApp {
           session.remote_sessionid == viewed_session_;
         if (selected || takeover) {
         const float row_height = ImGui::GetFontSize() + 7.0f;
-        const float panel_height = row_height * 8.0f + 28.0f;
+        const float panel_height = row_height * 9.0f + 28.0f;
         const float panel_scale = std::min(1.0f, std::min(
           badge_width / 200.0f,
           std::max(1.0f, device_size.y - 12.0f) / panel_height));
@@ -2276,20 +2280,39 @@ class RtcConsoleApp {
         const char* steering_text = !takeover ? "-"
           : steering == vts_rtc::vehicle::SteeringDirection::Left ? "Left"
           : steering == vts_rtc::vehicle::SteeringDirection::Right ? "Right" : "Center";
-        const char* names[] = {"GEAR", "SAFETY", "THROTTLE SET", "WHEEL SIM", "BRAKE INPUT", "FEEDBACK AGE"};
+        double video_delay_ms = -1;
+        {
+          std::lock_guard<std::mutex> lock(stats_mutex_);
+          for (const auto& item : net_stats_) {
+            const auto& stats = item.second;
+            if (stats.input && stats.session_id == session.remote_sessionid &&
+                stats.delay.estimated_receive_ms >= 0) {
+              video_delay_ms = std::max(video_delay_ms, stats.delay.estimated_receive_ms);
+            }
+          }
+        }
+        std::ostringstream video_delay;
+        if (video_delay_ms >= 0) {
+          video_delay << std::fixed << std::setprecision(1) << video_delay_ms << " ms";
+        } else {
+          video_delay << "--";
+        }
+        const std::string video_delay_text = video_delay.str();
+        const char* names[] = {"GEAR", "SAFETY", "THROTTLE SET", "WHEEL SIM", "BRAKE INPUT", "FEEDBACK AGE", "VIDEO DELAY"};
         const char* values[] = {
           has_feedback ? VehicleGearText(feedback.state.active_gear) : "-",
           !has_feedback ? "Unknown" : feedback.state.watchdog_stopped ? "Protected" : "Clear",
           throttle.c_str(),
           steering_text,
           brake_requested ? "Applied" : "Released",
-          age.c_str()};
+          age.c_str(), video_delay_text.c_str()};
         const ImU32 colors[] = {normal,
           !has_feedback ? muted : feedback.state.watchdog_stopped ? warning : green,
           takeover ? blue : muted,
           takeover ? blue : muted,
-          brake_requested ? warning : muted, muted};
-        for (size_t row = 0; row < 6; ++row) {
+          brake_requested ? warning : muted, muted,
+          video_delay_ms >= 0 ? normal : muted};
+        for (size_t row = 0; row < 7; ++row) {
         const float top = 20.0f + row_height * static_cast<float>(row + 2);
         panel_text(names[row], top, false, muted, 12.0f);
         if (row == 3) {
@@ -3247,23 +3270,40 @@ class RtcConsoleApp {
     ImGui::Begin("##NetStatsHint", nullptr, hint_flags);
 
     ImGui::TextDisabled("NET STATS");
+    double video_delay_ms = -1;
+    for (const NetStatsView& stats : stats_snapshot) {
+      if (stats.input && stats.delay.estimated_receive_ms >= 0) {
+        video_delay_ms =
+            std::max(video_delay_ms, stats.delay.estimated_receive_ms);
+      }
+    }
+    if (video_delay_ms >= 0) {
+      ImGui::Text("Video delay: %.1f ms", video_delay_ms);
+    } else {
+      ImGui::TextDisabled("Video delay: --");
+    }
     if (stats_snapshot.empty()) {
       ImGui::TextUnformatted("No stats yet");
       ImGui::End();
       return hint_y + hint_height;
     }
 
-    if (ImGui::BeginTable("NetStatsHintTable", 5,
+    if (ImGui::BeginTable("NetStatsHintTable", 9,
                           ImGuiTableFlags_SizingStretchProp |
                               ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_BordersInnerV |
+                              ImGuiTableFlags_ScrollX |
                               ImGuiTableFlags_ScrollY,
                           ImVec2(-FLT_MIN, ImGui::GetContentRegionAvail().y))) {
-      ImGui::TableSetupColumn("Source");
-      ImGui::TableSetupColumn("Type");
-      ImGui::TableSetupColumn("Bitrate");
-      ImGui::TableSetupColumn("FPS");
-      ImGui::TableSetupColumn("Delay");
+      ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed, 150);
+      ImGui::TableSetupColumn("Peer", ImGuiTableColumnFlags_WidthFixed, 65);
+      ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 45);
+      ImGui::TableSetupColumn("Bitrate", ImGuiTableColumnFlags_WidthFixed, 85);
+      ImGui::TableSetupColumn("FPS", ImGuiTableColumnFlags_WidthFixed, 40);
+      ImGui::TableSetupColumn("Net ms", ImGuiTableColumnFlags_WidthFixed, 80);
+      ImGui::TableSetupColumn("Buffer ms", ImGuiTableColumnFlags_WidthFixed, 85);
+      ImGui::TableSetupColumn("Decode ms", ImGuiTableColumnFlags_WidthFixed, 85);
+      ImGui::TableSetupColumn("Recv ms", ImGuiTableColumnFlags_WidthFixed, 85);
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableHeadersRow();
 
@@ -3272,13 +3312,23 @@ class RtcConsoleApp {
         ImGui::TableSetColumnIndex(0);
         ImGui::TextUnformatted(s.source_id.c_str());
         ImGui::TableSetColumnIndex(1);
-        ImGui::TextUnformatted(s.input ? "in" : "out");
+        ImGui::Text("%u", s.session_id);
         ImGui::TableSetColumnIndex(2);
-        ImGui::Text("%lu", s.bitrate_bps);
+        ImGui::TextUnformatted(s.input ? "in" : "out");
         ImGui::TableSetColumnIndex(3);
-        ImGui::Text("%u", s.fps);
+        ImGui::Text("%lu", s.bitrate_bps);
         ImGui::TableSetColumnIndex(4);
-        ImGui::Text("%u ms", s.delay_ms);
+        ImGui::Text("%u", s.fps);
+        const double delays[] = {s.delay.network_ms, s.delay.jitter_buffer_ms,
+                                 s.delay.decode_ms, s.delay.estimated_receive_ms};
+        for (int index = 0; index < 4; ++index) {
+          ImGui::TableSetColumnIndex(5 + index);
+          if (delays[index] >= 0) {
+            ImGui::Text("%.1f", delays[index]);
+          } else {
+            ImGui::TextDisabled("--");
+          }
+        }
       }
       ImGui::EndTable();
     }
@@ -4018,12 +4068,27 @@ class RtcConsoleApp {
     }
   }
 
-  static void OnChannelNetworkStats(RtcSessionId, RtcNetStats stats) {
+  static void OnVideoDelayStats(RtcSessionId session_id, RtcVideoSourceId source,
+                               const RtcVideoDelayStatsV1* delay) {
+    if (!instance_ || !source || !delay ||
+        delay->struct_size != sizeof(RtcVideoDelayStatsV1)) {
+      return;
+    }
+    const std::string key = std::to_string(session_id) + "|" + source + "|in";
+    std::lock_guard<std::mutex> lock(instance_->stats_mutex_);
+    auto found = instance_->net_stats_.find(key);
+    if (found != instance_->net_stats_.end()) {
+      found->second.delay = *delay;
+    }
+  }
+
+  static void OnChannelNetworkStats(RtcSessionId session_id, RtcNetStats stats) {
     if (!instance_) {
       return;
     }
 
     NetStatsView view;
+    view.session_id = session_id;
     view.input = stats.input;
     if (stats.video_stats.sourceid) {
       view.source_id = stats.video_stats.sourceid;
@@ -4050,7 +4115,8 @@ class RtcConsoleApp {
 
     if (!view.source_id.empty()) {
       const std::string source_key =
-          view.source_id + (view.input ? "|in" : "|out");
+          std::to_string(session_id) + "|" + view.source_id +
+          (view.input ? "|in" : "|out");
       std::lock_guard<std::mutex> lock(instance_->stats_mutex_);
       instance_->net_stats_[source_key] = view;
     }
