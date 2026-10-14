@@ -17,6 +17,31 @@ public:
 		: source_id_(std::move(source_id)) {}
 	virtual ~RtcVideoSource() = default;
 
+	static std::pair<int, int> FitFrameSize(int width, int height,
+		int max_width, int max_height) {
+		if (width <= 0 || height <= 0 || max_width <= 0 || max_height <= 0 ||
+			(width <= max_width && height <= max_height)) {
+			return {width, height};
+		}
+		int divisor = width;
+		int remainder = height;
+		while (remainder != 0) {
+			const int next_remainder = divisor % remainder;
+			divisor = remainder;
+			remainder = next_remainder;
+		}
+		const int ratio_width = width / divisor;
+		const int ratio_height = height / divisor;
+		const int width_multiple = max_width / ratio_width;
+		const int height_multiple = max_height / ratio_height;
+		int multiple = width_multiple < height_multiple ? width_multiple : height_multiple;
+		multiple -= multiple % 2;
+		if (multiple == 0) {
+			return {width, height};
+		}
+		return {ratio_width * multiple, ratio_height * multiple};
+	}
+
 	void OnFrame(const webrtc::VideoFrame& frame) {
 		int cropped_width = 0, cropped_height = 0;
 		int out_width = 0, out_height = 0;
@@ -30,11 +55,12 @@ public:
 			LogDroppedFrame(frame_wanted);
 			return;
 		}
+		const auto output_size = FitFrameSize(frame.width(), frame.height(),
+			out_width, out_height);
+		out_width = output_size.first;
+		out_height = output_size.second;
 
 		if (out_width != frame.width() || out_height != frame.height()) {
-			// Video adapter has requested a down-scale. Allocate a new buffer and return scaled version.
-			// For simplicity, only scale here without cropping.
-			// TO DO
 			auto scaled_buffer = webrtc::I420Buffer::Create(out_width, out_height);
 			scaled_buffer->ScaleFrom(*frame.video_frame_buffer()->ToI420());
 			auto new_frame_builder = webrtc::VideoFrame::Builder()

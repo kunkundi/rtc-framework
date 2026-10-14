@@ -1390,9 +1390,11 @@ webrtc::VideoFrame RtcConnectionManager::BuildAndLimitFrameSize(
 
   auto iter = rtc_config_.resolution_limit.find(video_sourceid);
   if (iter != rtc_config_.resolution_limit.end()) {
-    int out_width = iter->second.first;
-    int out_height = iter->second.second;
-    if (frame.width > out_width || frame.height > out_height) {
+    const auto output_size = RtcVideoSource::FitFrameSize(
+        frame.width, frame.height, iter->second.first, iter->second.second);
+    const int out_width = output_size.first;
+    const int out_height = output_size.second;
+    if (frame.width != out_width || frame.height != out_height) {
       auto scaled_buffer = webrtc::I420Buffer::Create(out_width, out_height);
       scaled_buffer->ScaleFrom(*I420buffer);
       auto frame_build = webrtc::VideoFrame::Builder()

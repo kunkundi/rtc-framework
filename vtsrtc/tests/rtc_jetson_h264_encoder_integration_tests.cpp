@@ -20,6 +20,7 @@
 #include "log/log_manager.h"
 #include "media/base/codec.h"
 #include "rtc_types.h"
+#include "rtc_videosource.hpp"
 #include "video/encode/nvidia-jetson/jetsonh264_encoder_impl.h"
 #include "video/encode/nvidia-jetson/jetson_encoder.h"
 
@@ -341,6 +342,23 @@ int ParseIterations(int argc, char** argv) {
 
 bool ValidateEncoderAdaptationInfo(
     const webrtc::VideoEncoder::EncoderInfo& info) {
+  if (RtcVideoSource::FitFrameSize(1920, 1200, 1280, 720) !=
+      std::make_pair(1152, 720) ||
+    RtcVideoSource::FitFrameSize(1600, 1200, 1280, 720) !=
+      std::make_pair(960, 720) ||
+    RtcVideoSource::FitFrameSize(1080, 1920, 1280, 720) !=
+        std::make_pair(396, 704) ||
+      RtcVideoSource::FitFrameSize(1920, 1080, 1000, 700) !=
+        std::make_pair(992, 558) ||
+      RtcVideoSource::FitFrameSize(641, 479, 320, 240) !=
+        std::make_pair(641, 479) ||
+    RtcVideoSource::FitFrameSize(1920, 1080, 1280, 720) !=
+      std::make_pair(1280, 720) ||
+    RtcVideoSource::FitFrameSize(640, 400, 1280, 720) !=
+      std::make_pair(640, 400)) {
+  std::cerr << "输入比例缩放尺寸不正确" << std::endl;
+  return false;
+  }
   if (!info.scaling_settings.thresholds.has_value() ||
       info.scaling_settings.thresholds->low != 32 ||
       info.scaling_settings.thresholds->high != 36 ||
