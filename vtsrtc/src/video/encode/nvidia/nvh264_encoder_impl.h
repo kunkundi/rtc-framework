@@ -66,6 +66,7 @@ class NvH264EncoderImpl : public VideoEncoder {
   CUcontext cuda_context_ = nullptr;
   std::unique_ptr<NvEncoder> nvh264_encoder_ = nullptr;
   std::vector<std::vector<uint8_t>> encoded_packets_;
+    std::vector<uint8_t> packed_frame_;
   EncodedImage encoded_image_;
 
   EncodedImageCallback* encoded_image_callback_ = nullptr;

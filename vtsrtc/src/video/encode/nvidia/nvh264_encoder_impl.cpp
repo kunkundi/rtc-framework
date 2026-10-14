@@ -10,6 +10,9 @@
 #include <nvEncodeAPI.h>
 
 #include <string>
+#include <cmath>
+#include <limits>
+#include <algorithm>
 
 #include "log/log_manager.h"
 #include "nvh264_encoder_impl.h"
@@ -133,7 +136,7 @@ int NvH264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 		NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_IYUV);
 
 	// Init encoder session
-	NV_ENC_INITIALIZE_PARAMS init_params;
+	NV_ENC_INITIALIZE_PARAMS init_params = {};
 	init_params.version = NV_ENC_INITIALIZE_PARAMS_VER;
 	NV_ENC_CONFIG encode_config = { NV_ENC_CONFIG_VER };
 	init_params.encodeConfig = &encode_config;
@@ -201,10 +204,16 @@ int32_t NvH264EncoderImpl::RegisterEncodeCompleteCallback(
 }
 
 void NvH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
-	auto fps = static_cast<uint32_t>(parameters.framerate_fps);
+	if (!std::isfinite(parameters.framerate_fps) ||
+		parameters.framerate_fps < 1.0 || parameters.bitrate.get_sum_bps() == 0) {
+		return;
+	}
+	auto fps = static_cast<uint32_t>(std::min<double>(
+		parameters.framerate_fps, std::numeric_limits<uint32_t>::max()));
 	codec_.maxFramerate = fps;
 
-	auto bitrate = parameters.bitrate.GetBitrate(0, 0);
+	auto bitrate = static_cast<uint32_t>(std::min<uint64_t>(
+		parameters.bitrate.get_sum_bps(), std::numeric_limits<uint32_t>::max()));
 	codec_.maxBitrate = bitrate;
 
 	LOG_INFO("[WebRTC] SetRates for Nvidia H264 encoder: fps: %d, bitrate: %d",
@@ -242,19 +251,40 @@ int32_t NvH264EncoderImpl::Encode(const VideoFrame& input_frame,
 // 	}
 
 	auto frame_buffer = input_frame.video_frame_buffer()->ToI420();
+	if (!frame_buffer || frame_buffer->width() != nvh264_encoder_->GetEncodeWidth() ||
+		frame_buffer->height() != nvh264_encoder_->GetEncodeHeight()) {
+		return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+	}
 
 	RTC_DCHECK_EQ(encoded_image_._encodedWidth, frame_buffer->width());
 	RTC_DCHECK_EQ(encoded_image_._encodedHeight, frame_buffer->height());
 
-	if (frame_types && (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
+	if (frame_types && !frame_types->empty() && (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
 		return WEBRTC_VIDEO_CODEC_OK;
 	}
 
 	const NvEncInputFrame* encoder_inputframe =
 		nvh264_encoder_->GetNextInputFrame();
+	const int width = frame_buffer->width();
+	const int height = frame_buffer->height();
+	const int chroma_width = (width + 1) / 2;
+	const int chroma_height = (height + 1) / 2;
+	packed_frame_.resize(static_cast<size_t>(width) * height +
+		2 * static_cast<size_t>(chroma_width) * chroma_height);
+	const uint8_t* source_planes[] = {frame_buffer->DataY(), frame_buffer->DataU(), frame_buffer->DataV()};
+	const int strides[] = {frame_buffer->StrideY(), frame_buffer->StrideU(), frame_buffer->StrideV()};
+	size_t offset = 0;
+	for (int plane = 0; plane < 3; ++plane) {
+		const int row_width = plane == 0 ? width : chroma_width;
+		const int rows = plane == 0 ? height : chroma_height;
+		for (int row = 0; row < rows; ++row) {
+			memcpy(packed_frame_.data() + offset, source_planes[plane] + row * strides[plane], row_width);
+			offset += row_width;
+		}
+	}
 
 	NvEncoderCuda::CopyToDeviceFrame(cuda_context_,
-		(void*)frame_buffer->DataY(), // NOLINT
+		packed_frame_.data(),
 		0,
 		(CUdeviceptr)encoder_inputframe->inputPtr,
 		encoder_inputframe->pitch,
@@ -266,7 +296,7 @@ int32_t NvH264EncoderImpl::Encode(const VideoFrame& input_frame,
 		encoder_inputframe->numChromaPlanes);
 
 	// Request Key frame
-	if (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
+	if (frame_types && !frame_types->empty() && (*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
 		LOG_INFO("[WebRTC] Encode a KEY frame");
 		this->ReconfigureEncoderIDR();
 	}
@@ -278,6 +308,10 @@ int32_t NvH264EncoderImpl::Encode(const VideoFrame& input_frame,
 	}
 
 	for (const auto& packet : encoded_packets_) {
+		if (packet.size() <= 4) {
+			continue;
+		}
+		encoded_image_.SetEncodedData(EncodedImageBuffer::Create(packet.size()));
 		encoded_image_.set_size(packet.size());
 		if (has_configured_playout_delay_) {
 			encoded_image_.playout_delay_.min_ms =
@@ -376,10 +410,10 @@ void NvH264EncoderImpl::OnLossNotification(
 }
 
 void NvH264EncoderImpl::ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate) {
-	NV_ENC_RECONFIGURE_PARAMS reconfig_params;
+	NV_ENC_RECONFIGURE_PARAMS reconfig_params = {};
 	reconfig_params.version = NV_ENC_RECONFIGURE_PARAMS_VER;
 
-	NV_ENC_INITIALIZE_PARAMS init_params;
+	NV_ENC_INITIALIZE_PARAMS init_params = {};
 	NV_ENC_CONFIG encode_config = { NV_ENC_CONFIG_VER };
 	init_params.encodeConfig = &encode_config;
 	nvh264_encoder_->GetInitializeParams(&init_params);
@@ -387,6 +421,7 @@ void NvH264EncoderImpl::ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate) 
 	init_params.frameRateDen = 1;
 	init_params.frameRateNum = init_params.frameRateDen * fps;
 	init_params.encodeConfig->rcParams.maxBitRate = bitrate;
+	init_params.encodeConfig->rcParams.averageBitRate = bitrate;
 
 	reconfig_params.reInitEncodeParams = init_params;
 
@@ -394,10 +429,10 @@ void NvH264EncoderImpl::ReconfigureEncoderRates(uint32_t fps, uint32_t bitrate) 
 }
 
 void NvH264EncoderImpl::ReconfigureEncoderIDR() {
-	NV_ENC_RECONFIGURE_PARAMS reconfig_params;
+	NV_ENC_RECONFIGURE_PARAMS reconfig_params = {};
 	reconfig_params.version = NV_ENC_RECONFIGURE_PARAMS_VER;
 
-	NV_ENC_INITIALIZE_PARAMS init_params;
+	NV_ENC_INITIALIZE_PARAMS init_params = {};
 	NV_ENC_CONFIG encode_config = { NV_ENC_CONFIG_VER };
 	init_params.encodeConfig = &encode_config;
 	nvh264_encoder_->GetInitializeParams(&init_params);
