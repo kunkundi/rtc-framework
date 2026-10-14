@@ -11,7 +11,7 @@ double UpdateSteeringAngle(double angle, bool left, bool right,
   if (!std::isfinite(angle)) angle = 0.0;
   const double limit = wheel_range_deg * 0.5;
   if (left != right && std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0) {
-    angle += (right ? 1.0 : -1.0) * 180.0 * std::min(elapsed_seconds, 0.1);
+    angle += (right ? 1.0 : -1.0) * 360.0 * std::min(elapsed_seconds, 0.1);
   }
   return std::max(-limit, std::min(limit, angle));
 }

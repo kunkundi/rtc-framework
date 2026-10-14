@@ -219,9 +219,9 @@ void TestVehicleEventAckTracker() {
 }  // namespace
 
 int main() {
-  Check(rtc_console::UpdateSteeringAngle(0, true, false, 0.1, 900) == -18,
+      Check(rtc_console::UpdateSteeringAngle(0, true, false, 0.1, 900) == -36,
         "left decreases angle");
-  Check(rtc_console::UpdateSteeringAngle(0, false, true, 0.1, 900) == 18,
+      Check(rtc_console::UpdateSteeringAngle(0, false, true, 0.1, 900) == 36,
         "right increases angle");
   Check(rtc_console::UpdateSteeringAngle(42, false, false, 0.1, 900) == 42,
         "release holds angle");
