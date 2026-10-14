@@ -353,6 +353,8 @@ bool JetsonEncoder::ApplyCodecSettings() {
     if (ret < 0) {
       LOG_WARN("[JetsonEnc][settings] Could not set encoder peak bitrate ret=%d errno=%d",
                ret, errno);
+    } else {
+      applied_peak_bitrate_ = peak_bitrate;
     }
   }
 
@@ -699,28 +701,36 @@ bool JetsonEncoder::ReclaimOutputBuffer() {
 }
 
 void JetsonEncoder::SetBitrate(int adjusted_bitrate_bps) {
-  if (!encoder_) {
+  if (!encoder_ || adjusted_bitrate_bps < 1 ||
+      SteadyTimeMillis() < next_bitrate_retry_ms_) {
     return;
   }
 
   if (bitrate_bps_ != adjusted_bitrate_bps) {
-    bitrate_bps_ = adjusted_bitrate_bps;
-    int ret = encoder_->setBitrate(adjusted_bitrate_bps);
+    const int ret = encoder_->setBitrate(adjusted_bitrate_bps);
     if (ret < 0) {
       LOG_ERROR("Could not set encoder bitrate ret=%d errno=%d", ret, errno);
+      next_bitrate_retry_ms_ = SteadyTimeMillis() + 100;
+      return;
     }
+    bitrate_bps_ = adjusted_bitrate_bps;
+  }
 
-    if (strategy_config_.bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR) {
-      const uint32_t peak_bitrate = std::max<uint32_t>(
-          static_cast<uint32_t>(bitrate_bps_),
-          static_cast<uint32_t>(bitrate_bps_ + bitrate_bps_ / 2));
-      ret = encoder_->setPeakBitrate(peak_bitrate);
+  if (strategy_config_.bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR) {
+    const uint32_t peak_bitrate = static_cast<uint32_t>(bitrate_bps_) +
+                                 static_cast<uint32_t>(bitrate_bps_) / 2;
+    if (applied_peak_bitrate_ != peak_bitrate) {
+      const int ret = encoder_->setPeakBitrate(peak_bitrate);
       if (ret < 0) {
         LOG_WARN("Could not set encoder peak bitrate ret=%d errno=%d", ret,
                  errno);
+        next_bitrate_retry_ms_ = SteadyTimeMillis() + 100;
+        return;
       }
+      applied_peak_bitrate_ = peak_bitrate;
     }
   }
+  next_bitrate_retry_ms_ = 0;
 }
 
 void JetsonEncoder::SetFramerate(int adjusted_framerate) {

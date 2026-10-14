@@ -69,6 +69,8 @@ class JetsonEncoder {
   int session_height_;
   int framerate_;
   int bitrate_bps_;
+  uint32_t applied_peak_bitrate_ = 0;
+  int64_t next_bitrate_retry_ms_ = 0;
   uint32_t src_pix_fmt_;
   uint32_t dst_pix_fmt_;
   bool is_dma_src_;
