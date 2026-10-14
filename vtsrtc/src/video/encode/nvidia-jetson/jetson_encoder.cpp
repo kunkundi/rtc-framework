@@ -1200,12 +1200,15 @@ bool JetsonEncoder::ConvertI420ToYUV420M(
       return false;
     }
     plane.bytesused = 0;
-    memset(dst_addr, padding_value, static_cast<size_t>(padded_size));
 
     for (int row = 0; row < visible_height; row++) {
       memcpy(dst_addr, src_addr + stride * row, row_size);
+      memset(dst_addr + row_size, padding_value, plane.fmt.stride - row_size);
       dst_addr += plane.fmt.stride;
     }
+    memset(dst_addr, padding_value,
+           static_cast<size_t>(plane.fmt.stride) *
+               (plane.fmt.height - visible_height));
 
     plane.bytesused = static_cast<uint32_t>(padded_size);
   }
