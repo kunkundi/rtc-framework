@@ -458,6 +458,14 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
     return true;
   }
 
+  if (new_width % 16 != 0 || new_height % 16 != 0) {
+    LOG_WARN(
+        "[JetsonEnc][reconfigure] Target size=%dx%d is not macroblock "
+        "aligned, recreate encoder to preserve SPS dimensions",
+        new_width, new_height);
+    return false;
+  }
+
   if (new_width > session_width_ || new_height > session_height_) {
     LOG_WARN(
         "[JetsonEnc][reconfigure] Target size=%dx%d exceeds session "

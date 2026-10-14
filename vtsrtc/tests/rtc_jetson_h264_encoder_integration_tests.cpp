@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
@@ -432,6 +433,79 @@ bool ValidateEncoderAdaptationInfo(
 int main(int argc, char** argv) {
   LogInst->init("/tmp/rtc_jetson_h264_encoder_integration_tests");
 
+  if (argc > 1 && std::string(argv[1]) == "--dump-drc") {
+    for (const Resolution target : {Resolution{960, 540}, Resolution{1440, 810}}) {
+      for (const bool dynamic : {false, true}) {
+        const Resolution initial = dynamic ? Resolution{1920, 1080} : target;
+        webrtc::JetsonEncoder::StrategyConfig strategy;
+        auto hardware = webrtc::JetsonEncoder::Create(
+            initial.width, initial.height, V4L2_PIX_FMT_H264, false,
+            strategy, 30, 6000000);
+        if (!hardware) return 30;
+        const std::string path = "/tmp/rtc_" +
+            std::string(dynamic ? "drc_" : "direct_") +
+            std::to_string(target.width) + "x" +
+            std::to_string(target.height) + ".h264";
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        if (!output) return 31;
+        std::mutex capture_mutex;
+        std::condition_variable captured;
+        unsigned int capture_count = 0;
+        bool save_output = !dynamic;
+        auto capture = [&](const uint8_t* data, size_t size, bool, uint64_t) {
+          std::lock_guard<std::mutex> lock(capture_mutex);
+          if (save_output) {
+            output.write(reinterpret_cast<const char*>(data), size);
+          }
+          ++capture_count;
+          captured.notify_all();
+        };
+        auto submit = [&](const Resolution& resolution) {
+          auto buffer = webrtc::I420Buffer::Create(resolution.width,
+                                                   resolution.height);
+          unsigned int previous = 0;
+          {
+            std::lock_guard<std::mutex> lock(capture_mutex);
+            previous = capture_count;
+          }
+          FillMovingPattern(buffer, previous);
+          hardware->EmplaceBuffer(buffer, capture);
+          std::unique_lock<std::mutex> lock(capture_mutex);
+          return captured.wait_for(lock, std::chrono::seconds(3), [&]() {
+            return capture_count > previous;
+          });
+        };
+        if (dynamic) {
+          if (!submit(initial)) {
+            hardware.reset();
+            return 32;
+          }
+          if (!hardware->Reconfigure(target.width, target.height)) {
+            hardware.reset();
+            hardware = webrtc::JetsonEncoder::Create(
+                target.width, target.height, V4L2_PIX_FMT_H264, false,
+                strategy, 30, 6000000);
+            if (!hardware) return 32;
+          }
+          std::lock_guard<std::mutex> lock(capture_mutex);
+          save_output = true;
+        }
+        hardware->ForceKeyFrame();
+        for (int frame_number = 0; frame_number < 12; ++frame_number) {
+          if (!submit(target)) {
+            hardware.reset();
+            return 33;
+          }
+        }
+        hardware.reset();
+        output.close();
+        if (!output) return 34;
+        std::cout << "DRC_DUMP path=" << path << " result=ok" << std::endl;
+      }
+    }
+    return 0;
+  }
+
   const int iterations = ParseIterations(argc, argv);
   for (int cycle = 0; cycle < 20; ++cycle) {
     webrtc::JetsonEncoder::StrategyConfig strategy;
@@ -846,7 +920,8 @@ int main(int argc, char** argv) {
     return 36;
   }
   for (const Resolution target : std::vector<Resolution>{
-           {640, 360}, {1280, 720}, {640, 360}, {1280, 720}}) {
+           {640, 360}, {960, 540}, {1440, 810}, {1920, 1080},
+           {1440, 810}, {960, 540}, {640, 360}, {1280, 720}}) {
     if (!EncodeUntilOutput(&encoder, &callback, target, &frame_index,
                            &ignored_gap) || !callback.has_decodable_keyframe()) {
       std::cerr << "16:9 后台升降档失败" << std::endl;

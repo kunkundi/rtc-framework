@@ -542,6 +542,10 @@ void JetsonH264EncoderImpl::StandbyWorkerLoop() {
       }
       width = session_width_;
       height = session_height_;
+      if (requested_width_ % 16 != 0 || requested_height_ % 16 != 0) {
+        width = requested_width_;
+        height = requested_height_;
+      }
       framerate = hardware_framerate_;
       bitrate = bitrate_;
       epoch = session_epoch_.load(std::memory_order_acquire);
@@ -607,6 +611,8 @@ JetsonH264EncoderImpl::EnsureEncoderResult
 JetsonH264EncoderImpl::EnsureEncoderForResolution(unsigned int width,
                                                   unsigned int height) {
   std::lock_guard<std::mutex> lock(encoder_mutex_);
+  requested_width_ = width;
+  requested_height_ = height;
 
   if (encoder_ && !encoder_->IsHealthy()) {
     LOG_WARN("[JetsonEnc][reuse] Active encoder is unhealthy, recreate it");
