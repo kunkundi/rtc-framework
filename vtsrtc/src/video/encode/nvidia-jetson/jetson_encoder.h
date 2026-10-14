@@ -63,6 +63,7 @@ class JetsonEncoder {
   std::atomic<bool> awaiting_resolution_idr_;
   std::atomic<bool> force_idr_before_next_frame_;
   std::atomic<bool> reconfigure_ready_;
+  std::atomic<int64_t> resolution_deadline_ms_{0};
   int width_;
   int height_;
   int session_width_;

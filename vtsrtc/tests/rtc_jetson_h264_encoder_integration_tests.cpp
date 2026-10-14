@@ -814,5 +814,21 @@ int main(int argc, char** argv) {
   std::cout << "REENTRANT_CALLBACK_SERIALIZATION blocked_ms=50 result=ok"
             << std::endl;
   encoder.Release();
+  encoder.RegisterEncodeCompleteCallback(&callback);
+  codec_settings.width = 640;
+  codec_settings.height = 360;
+  if (encoder.InitEncode(&codec_settings, settings) != WEBRTC_VIDEO_CODEC_OK) {
+    return 36;
+  }
+  for (const Resolution target : std::vector<Resolution>{
+           {640, 360}, {1280, 720}, {640, 360}, {1280, 720}}) {
+    if (!EncodeUntilOutput(&encoder, &callback, target, &frame_index,
+                           &ignored_gap) || !callback.has_decodable_keyframe()) {
+      std::cerr << "16:9 后台升降档失败" << std::endl;
+      return 37;
+    }
+  }
+  std::cout << "AUXILIARY_UPSCALE result=ok" << std::endl;
+  encoder.Release();
   return 0;
 }

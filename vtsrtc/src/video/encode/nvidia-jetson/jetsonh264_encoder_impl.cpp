@@ -418,7 +418,7 @@ void JetsonH264EncoderImpl::ReleaseHardwareResources() {
 }
 
 void JetsonH264EncoderImpl::RequestStandbyPrewarm() {
-  if (!standby_enabled_.load(std::memory_order_acquire)) {
+  if (codec_released_.load(std::memory_order_acquire)) {
     return;
   }
   {
@@ -550,7 +550,7 @@ void JetsonH264EncoderImpl::StandbyWorkerLoop() {
 
     {
       std::lock_guard<std::mutex> lock(encoder_mutex_);
-      if (!standby_enabled_.load(std::memory_order_acquire) ||
+      if (codec_released_.load(std::memory_order_acquire) ||
           epoch != session_epoch_.load(std::memory_order_acquire) ||
           standby_encoder_) {
         continue;
@@ -611,6 +611,7 @@ JetsonH264EncoderImpl::EnsureEncoderForResolution(unsigned int width,
 
   if (encoder_ && encoder_->width() == static_cast<int>(width) &&
       encoder_->height() == static_cast<int>(height)) {
+    switch_deadline_ms_ = 0;
     ApplyRatesToEncoder(encoder_.get());
     return EnsureEncoderResult::kReady;
   }
@@ -638,6 +639,7 @@ JetsonH264EncoderImpl::EnsureEncoderForResolution(unsigned int width,
   if (downscale) {
     encoder_->SetStrategyConfig(strategy_config);
     if (encoder_->Reconfigure(width, height)) {
+      switch_deadline_ms_ = 0;
       ApplyRatesToEncoder(encoder_.get());
       return EnsureEncoderResult::kReady;
     }
@@ -659,8 +661,11 @@ JetsonH264EncoderImpl::EnsureEncoderForResolution(unsigned int width,
       ApplyRatesToEncoder(standby_encoder_.get());
       std::unique_ptr<JetsonEncoder> retired = std::move(encoder_);
       encoder_ = std::move(standby_encoder_);
+      switch_deadline_ms_ = 0;
       RetireEncoder(std::move(retired));
-      RequestStandbyPrewarm();
+      if (standby_enabled_.load(std::memory_order_acquire)) {
+        RequestStandbyPrewarm();
+      }
       LOG_INFO("[JetsonEnc][switch] Switched to prewarmed encoder <%ux%u>",
                width, height);
       return EnsureEncoderResult::kReady;
@@ -670,8 +675,16 @@ JetsonH264EncoderImpl::EnsureEncoderForResolution(unsigned int width,
     RetireEncoder(std::move(standby_encoder_));
   }
 
-  RequestStandbyPrewarm();
-  if (!downscale && standby_enabled_.load(std::memory_order_acquire)) {
+  if (!downscale) {
+    if (switch_deadline_ms_ == 0) {
+      switch_deadline_ms_ = SteadyTimeMillis() + 2000;
+    }
+    if (SteadyTimeMillis() >= switch_deadline_ms_) {
+      switch_deadline_ms_ = 0;
+      LOG_ERROR("[JetsonEnc][switch] Background upscale timed out");
+      return EnsureEncoderResult::kError;
+    }
+    RequestStandbyPrewarm();
     LOG_WARN(
         "[JetsonEnc][switch] Standby encoder is not ready for upscale "
         "<%ux%u>, drop frame and wait for background prewarm",
@@ -687,9 +700,12 @@ JetsonH264EncoderImpl::EnsureEncoderForResolution(unsigned int width,
   }
   RetireEncoder(std::move(encoder_));
   encoder_ = std::move(replacement);
+  switch_deadline_ms_ = 0;
   ApplyRatesToEncoder(encoder_.get());
   encoder_->ForceKeyFrame();
-  RequestStandbyPrewarm();
+  if (standby_enabled_.load(std::memory_order_acquire)) {
+    RequestStandbyPrewarm();
+  }
   return EnsureEncoderResult::kReady;
 }
 

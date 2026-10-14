@@ -539,6 +539,8 @@ bool JetsonEncoder::Reconfigure(int new_width, int new_height) {
   reconfigure_ready_.store(false, std::memory_order_release);
   if (dst_pix_fmt_ == V4L2_PIX_FMT_H264) {
     awaiting_resolution_idr_.store(true, std::memory_order_release);
+    resolution_deadline_ms_.store(SteadyTimeMillis() + 2000,
+                    std::memory_order_release);
     force_idr_before_next_frame_.store(true, std::memory_order_release);
   }
 
@@ -577,8 +579,10 @@ bool JetsonEncoder::CanReconfigure() const {
 }
 
 bool JetsonEncoder::IsHealthy() const {
+  const int64_t deadline = resolution_deadline_ms_.load(std::memory_order_acquire);
   return encoder_ && !abort_.load(std::memory_order_acquire) &&
-         !stopping_.load(std::memory_order_acquire) && !encoder_->isInError();
+         !stopping_.load(std::memory_order_acquire) && !encoder_->isInError() &&
+         (deadline == 0 || SteadyTimeMillis() < deadline);
 }
 
 void JetsonEncoder::MarkUnhealthyAfterReconfigureFailure(const char* stage,
@@ -1120,6 +1124,7 @@ bool JetsonEncoder::EncoderCapturePlaneDqCallback(struct v4l2_buffer* v4l2_buf,
   thiz->buf_index_ = (thiz->buf_index_ + 1) % thiz->packets_num_;
   if (awaiting_resolution_idr) {
     thiz->awaiting_resolution_idr_.store(false, std::memory_order_release);
+    thiz->resolution_deadline_ms_.store(0, std::memory_order_release);
     is_keyframe = true;
   }
   // 无任务的额外 SPS 输出和 DRC 后不可交付的非 IDR 都不能解除 pending，
