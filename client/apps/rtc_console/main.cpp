@@ -2632,6 +2632,55 @@ class RtcConsoleApp {
     const float offset_y = title_height + (image_area_height - draw_height) * 0.5f;
     const ImVec2 image_min(box_min.x + offset_x, box_min.y + offset_y);
     const ImVec2 image_max(image_min.x + draw_width, image_min.y + draw_height);
+    const ImGuiIO& io = ImGui::GetIO();
+    std::ostringstream render_state;
+    render_state << std::fixed << std::setprecision(3)
+                 << "sid=" << frame.remote_sessionid
+                 << " source=" << frame.source_id
+                 << " stream=" << frame.stream_key
+                 << " tile=" << (tile_label ? tile_label : "frame")
+                 << " decoded=" << frame.width << "x" << frame.height
+                 << " aspect=" << (frame.height > 0
+                     ? static_cast<double>(frame.width) / frame.height : 0.0)
+                 << " box=" << box_min.x << "," << box_min.y << ","
+                 << box_max.x << "," << box_max.y
+                 << " image=" << image_min.x << "," << image_min.y << ","
+                 << image_max.x << "," << image_max.y
+                 << " draw=" << draw_width << "x" << draw_height
+                 << " uv=" << uv_min.x << "," << uv_min.y << ","
+                 << uv_max.x << "," << uv_max.y
+                 << " source_crop_x=" << frame.width * uv_min.x << ","
+                 << frame.width * uv_max.x
+                 << " stereo_mid_x=" << frame.width / 2.0
+                 << " framebuffer_scale=" << io.DisplayFramebufferScale.x
+                 << "," << io.DisplayFramebufferScale.y
+                 << " interleave=" << render_lr_pixel_interleave
+                 << " render_pixels=" << render_width_pixels << "x"
+                 << render_height_pixels
+                 << " fullscreen=" << fullscreen_mode
+                 << " compact=" << compact_mode
+                 << " debug=" << video_debug_enabled_;
+    const std::string render_key = frame.stream_key + ":" +
+        (tile_label ? tile_label : "frame") +
+        (fullscreen_mode ? ":fullscreen" : ":panel");
+    const std::string state = render_state.str();
+    auto& previous_state = video_render_log_states_[render_key];
+    if (previous_state != state) {
+      previous_state = state;
+      const auto timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      const std::string message = "[VideoRender] unix_ms=" +
+          std::to_string(timestamp_ms) + " " + state;
+      AppendLog(message);
+      if (video_render_log_file_) {
+        video_render_log_file_ << message << std::endl;
+      } else if (!video_render_log_error_reported_) {
+        video_render_log_error_reported_ = true;
+        AppendLog("[VideoRender] cannot write rtc_console_video_render.log");
+        std::cerr << "[VideoRender] cannot write rtc_console_video_render.log"
+                  << std::endl;
+      }
+    }
     draw_list->PushClipRect(box_min, box_max, true);
     draw_list->AddImage((ImTextureID)(intptr_t)tex_it->second.texture, image_min,
                         image_max, uv_min, uv_max);
@@ -3235,6 +3284,7 @@ class RtcConsoleApp {
       }
     }
     video_textures_.clear();
+    video_render_log_states_.clear();
   }
 
   float DrawNetStatsHint(const UiLayout& layout) {
@@ -4178,6 +4228,10 @@ class RtcConsoleApp {
   std::mutex video_mutex_;
   std::map<std::string, std::shared_ptr<VideoFrameView>> remote_video_frames_by_source_;
   std::map<std::string, VideoTextureView> video_textures_;
+  std::map<std::string, std::string> video_render_log_states_;
+  std::ofstream video_render_log_file_{"rtc_console_video_render.log",
+                                       std::ios::app};
+  bool video_render_log_error_reported_ = false;
   std::mutex vision_detection_mutex_;
   std::map<std::string, VisionDetectionOverlayView> vision_detections_by_source_;
   std::map<uint32_t, std::string> vision_class_labels_by_id_;

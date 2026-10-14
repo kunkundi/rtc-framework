@@ -81,6 +81,8 @@ xmake r rtc_console --room my-room
 
 桌面控制面板的 Audio Input 和 Audio Output 下拉框分别选择麦克风与播放设备。输入默认关闭，输出默认跟随系统设备；点击 Refresh Audio 可重新枚举设备。打开或加入房间时会自动注册音频轨道，之后仍可直接切换或关闭输入输出设备。
 
+图形模式将视频绘制参数变化追加到当前工作目录的 `rtc_console_video_render.log`，同时显示在界面日志中，不需要开启视频调试标题。每个视频流和显示区域首次绘制、解码尺寸或布局参数变化时输出 `[VideoRender]`；浮点字段保留三位小数用于变化去重。`unix_ms` 为 Unix 毫秒时间戳，`decoded` 为解码帧尺寸，`aspect` 为整帧宽高比，`box` 和 `image` 分别为显示区域与实际图像矩形的左上/右下坐标，`draw` 为实际绘制宽高。`uv` 和 `source_crop_x` 记录纹理范围及对应的源图水平边界，`stereo_mid_x` 为源图水平中点；`framebuffer_scale`、`interleave` 和 `render_pixels` 记录帧缓冲缩放、双目像素交叉显示状态和该模式的目标像素尺寸。矩形坐标使用 ImGui 逻辑坐标，非交叉模式的 `render_pixels` 为 `0x0`。文件按追加方式写入，不自动轮转；无渲染模式不会产生视频绘制记录。
+
 服务器无屏幕环境使用 `--no-render`，此模式不会创建 SDL 窗口或 OpenGL 上下文；`--headless` 是等价别名：
 
 无渲染模式没有手动开房界面，需要将 `console.auto_open_room` 设置为 `true` 才会在登录后自动打开房间。
