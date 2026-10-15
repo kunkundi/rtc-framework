@@ -1117,6 +1117,8 @@ class RtcConsoleApp {
     if (active_page_ == 0) {
       UpdateVehicleInputFromKeyboard();
       MergeVehicleInputs();
+      layout.video_pos.x = layout.viewport_pos.x;
+      layout.video_size.x = std::max(1.0f, layout.viewport_size.x);
       layout.video_size.y = std::max(1.0f, layout.viewport_size.y - 2 * kPanelMargin);
       DrawVideoPanel(layout);
       DrawFullscreenVideoOverlay();
