@@ -55,6 +55,20 @@ void TestNoRenderAndRoom() {
 void TestConfig() {
   const std::string path = "rtc_console_options_test_config.json";
 
+  WriteConfig(path, "{\"console\":{\"yolo\":{\"enabled\":false,\"max_fps\":12,\"model\":\"models/test.onnx\"}}}");
+  const auto yolo_config = rtc_console::LoadConfig(path);
+  Check(!yolo_config.yolo_enabled && yolo_config.yolo_max_fps == 12 &&
+        yolo_config.yolo_model_path == "models/test.onnx", "load console YOLO config");
+  for (const auto& yolo : {"[]", "{\"enabled\":1}", "{\"max_fps\":0}",
+                          "{\"max_fps\":241}", "{\"max_fps\":1.5}",
+                          "{\"model\":null}"}) {
+    WriteConfig(path, std::string("{\"console\":{\"yolo\":") + yolo + "}}");
+    bool rejected = false;
+    try { rtc_console::LoadConfig(path); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "reject invalid console YOLO config");
+  }
+
   WriteConfig(path,
               "{\"console\":{\"room\":\"configured-room\","
               "\"auto_open_room\":true}}");

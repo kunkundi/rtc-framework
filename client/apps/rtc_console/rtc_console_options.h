@@ -15,6 +15,9 @@ struct AppOptions {
 };
 
 struct AppConfig {
+  bool yolo_enabled = true;
+  int yolo_max_fps = 15;
+  std::string yolo_model_path;
   std::map<std::string, std::vector<std::string>> key_bindings{
       {"toggle_interleave", {"I"}}, {"toggle_view", {"S"}},
       {"select_1", {"1"}}, {"select_2", {"2"}},

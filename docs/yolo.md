@@ -1,6 +1,38 @@
 # YOLO 开发指南
 
-默认使用 YOLO26n、TensorRT FP16 和 `[2,3,512,512]` 输入。左右 UYVY/YUYV 由 CUDA 直转 RGB NCHW，一次 batch=2 enqueue 输出端到端 `[2,N,6]` 检测结果。
+正式应用默认在 `rtc_console` 接收解码帧后执行 YOLO26n 识别，Windows 和 Linux 使用 ONNX Runtime CPU 后端，不要求 CUDA/TensorRT。`edge.yolo.enabled` 默认关闭；下文 TensorRT 部分仅适用于保留的 edge/headless 兼容路径。
+
+## Console 本地识别
+
+```sh
+xmake require -y
+xmake b rtc_console
+xmake r rtc_console
+xmake b rtc_console_local_yolo_tests
+xmake r rtc_console_local_yolo_tests
+```
+
+上述命令适用于 Windows 和 Linux。需要对应平台的 WebRTC 和 console 图形依赖；xmake 下载 ONNX Runtime 1.17.1 和 libyuv。构建与安装会复制 ONNX Runtime DLL/共享库及已有的 `models/yolo26n.onnx`，模型仍需通过下文导出步骤生成，不提交二进制依赖。
+
+在 `config/console.cfg` 中配置：
+
+```json
+{
+    "yolo": {
+        "enabled": true,
+        "max_fps": 15,
+        "model": ""
+    }
+}
+```
+
+通过 `rtc.cfg` 内嵌配置时，上述内容放入 `console` 对象。`max_fps` 范围为 `1..240`，是每路接收流的上限，实际速率受 CPU 和流数量限制。`model` 留空时使用 `VTSRTC_YOLO_MODEL` 或默认模型搜索路径；非空时指定 ONNX 路径。
+
+接收线程仅提交每路最新帧，独立工作线程推理，不阻塞显示线程。双目左右画面和环视四格分别识别后映射回整帧坐标。固定 batch=1/2 模型均支持；batch=2 模型复制当前子画面输入并读取第一组结果。关闭房间时丢弃待处理帧和旧会话结果。模型加载失败会阻止 console 初始化，推理失败写入应用日志。
+
+本地识别启用时忽略 edge 检测元数据；关闭本地识别后保留旧数据通道叠加兼容行为。此路径不执行原 edge 的 ORB/RANSAC 双目融合、距离估计或跟踪平滑，交叉显示仍由已有 UI 完成。自定义非 COCO 模型应同步调整类别名称表。
+
+旧 TensorRT 路径使用 `[2,3,512,512]` 输入，左右 UYVY/YUYV 由 CUDA 直转 RGB NCHW，一次 batch=2 enqueue 输出端到端 `[2,N,6]` 检测结果。
 
 ## 导出 ONNX
 

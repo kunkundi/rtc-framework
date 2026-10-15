@@ -4,6 +4,7 @@ add_requires("asio 1.32.0")
 add_requires("spdlog 1.14.1")
 add_requires("nanopb 0.4.9", {configs = {generator = true}})
 add_requires("nlohmann_json 3.12.0")
+add_requires("onnxruntime 1.17.1", "libyuv")
 add_requires("openssl 1.1.1-h")
 
 function vtsrtc_webrtc_root_dir()

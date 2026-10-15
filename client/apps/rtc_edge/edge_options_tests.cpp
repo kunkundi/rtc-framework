@@ -197,7 +197,7 @@ void TestRepositoryConfig() {
       "load repository surround rear and left cameras");
     Check(options.surround_camera.right_device == "/dev/video5",
         "load enabled repository surround right camera");
-  Check(options.camera.yolo_enabled, "load repository YOLO enabled");
+  Check(!options.camera.yolo_enabled, "disable repository edge YOLO");
   Check(options.camera.yolo_max_fps == 15,
         "load repository YOLO max FPS");
   Check(options.camera.yolo_processing_downscale == 2,

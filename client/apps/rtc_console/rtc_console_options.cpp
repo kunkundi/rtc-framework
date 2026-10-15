@@ -65,6 +65,31 @@ AppConfig LoadConfig(const std::string& config_path) {
   if (!console.is_object()) {
     throw std::runtime_error("config field must be an object: console");
   }
+  if (console.contains("yolo")) {
+    const auto& yolo = console.at("yolo");
+    if (!yolo.is_object()) {
+      throw std::runtime_error("console.yolo must be an object");
+    }
+    if (yolo.contains("enabled")) {
+      if (!yolo.at("enabled").is_boolean()) {
+        throw std::runtime_error("console.yolo.enabled must be a boolean");
+      }
+      config.yolo_enabled = yolo.at("enabled").get<bool>();
+    }
+    if (yolo.contains("max_fps")) {
+      if (!yolo.at("max_fps").is_number_integer() ||
+          yolo.at("max_fps") < 1 || yolo.at("max_fps") > 240) {
+        throw std::runtime_error("console.yolo.max_fps must be in [1, 240]");
+      }
+      config.yolo_max_fps = yolo.at("max_fps").get<int>();
+    }
+    if (yolo.contains("model")) {
+      if (!yolo.at("model").is_string()) {
+        throw std::runtime_error("console.yolo.model must be a string");
+      }
+      config.yolo_model_path = yolo.at("model").get<std::string>();
+    }
+  }
   if (console.contains("key_bindings")) {
     const auto& bindings = console.at("key_bindings");
     if (!bindings.is_object()) {

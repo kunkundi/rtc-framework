@@ -1,4 +1,5 @@
 #include "rtc_vision/vision_detection_sender.h"
+#include "rtc_vision/coco_labels.h"
 
 #include "c_rtc.h"
 #include "rtc_logging/rtc_logging.h"
@@ -15,29 +16,6 @@ namespace {
 constexpr uint32_t kClassMapVersion = 1;
 constexpr const char* kSourceId = "stereo";
 constexpr int kVisionMetadataRefreshSeconds = 5;
-
-constexpr const char* kCocoLabels[] = {
-    "person",        "bicycle",      "car",           "motorcycle",
-    "airplane",      "bus",          "train",         "truck",
-    "boat",          "traffic light", "fire hydrant",  "stop sign",
-    "parking meter", "bench",        "bird",          "cat",
-    "dog",           "horse",        "sheep",         "cow",
-    "elephant",      "bear",         "zebra",         "giraffe",
-    "backpack",      "umbrella",     "handbag",       "tie",
-    "suitcase",      "frisbee",      "skis",          "snowboard",
-    "sports ball",   "kite",         "baseball bat",  "baseball glove",
-    "skateboard",    "surfboard",    "tennis racket", "bottle",
-    "wine glass",    "cup",          "fork",          "knife",
-    "spoon",         "bowl",         "banana",        "apple",
-    "sandwich",      "orange",       "broccoli",      "carrot",
-    "hot dog",       "pizza",        "donut",         "cake",
-    "chair",         "couch",        "potted plant",  "bed",
-    "dining table",  "toilet",       "tv",            "laptop",
-    "mouse",         "remote",       "keyboard",      "cell phone",
-    "microwave",     "oven",         "toaster",       "sink",
-    "refrigerator",  "book",         "clock",         "vase",
-    "scissors",      "teddy bear",   "hair drier",    "toothbrush",
-};
 
 std::atomic<uint32_t> g_vision_seq{1};
 std::atomic<uint64_t> g_detection_frame_id{1};

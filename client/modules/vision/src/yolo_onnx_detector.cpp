@@ -11,6 +11,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <codecvt>
+#include <locale>
 
 #include "rtc_runtime/process_runtime.h"
 
@@ -125,7 +127,7 @@ bool BuildInputTensor(const rtc_camera::dual::ImageFrame& frame,
     }
     return false;
   }
-  if (frame.empty() || frame.width == 0 || frame.height == 0 ||
+  if (!frame.data || frame.width == 0 || frame.height == 0 ||
       frame.stride_y == 0 || frame.stride_u == 0 || frame.stride_v == 0) {
     if (error_message) {
       *error_message = "invalid I420 frame";
@@ -468,6 +470,7 @@ struct YoloOnnxDetector::Impl {
   std::vector<std::string> input_names;
   std::vector<std::string> output_names;
   int input_width = kDefaultInputSize;
+  int64_t input_batch = 1;
   int input_height = kDefaultInputSize;
   std::vector<float> input_buffer;
 };
@@ -497,7 +500,13 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
     impl->session_options.SetGraphOptimizationLevel(
         GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
     impl->session.reset(
-        new Ort::Session(impl->env, model_path.c_str(), impl->session_options));
+        new Ort::Session(impl->env,
+      #ifdef _WIN32
+              std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>>().from_bytes(model_path).c_str(),
+      #else
+             model_path.c_str(),
+      #endif
+             impl->session_options));
 
     Ort::AllocatorWithDefaultOptions allocator;
     const size_t input_count = impl->session->GetInputCount();
@@ -527,6 +536,11 @@ std::unique_ptr<YoloOnnxDetector> YoloOnnxDetector::Create(
       return std::unique_ptr<YoloOnnxDetector>();
     }
 
+    impl->input_batch = input_shape[0] > 0 ? input_shape[0] : 1;
+    if (impl->input_batch > 2 || (input_shape[1] > 0 && input_shape[1] != 3)) {
+      if (error_message) *error_message = "expected batch 1 or 2 RGB YOLO input";
+      return std::unique_ptr<YoloOnnxDetector>();
+    }
     if (input_shape[2] > 0) {
       impl->input_height = static_cast<int>(input_shape[2]);
     }
@@ -580,7 +594,13 @@ bool YoloOnnxDetector::Detect(const rtc_camera::dual::ImageFrame& frame,
   }
 
   try {
-    std::array<int64_t, 4> input_shape = {1, 3, impl_->input_height,
+    const size_t single_size = impl_->input_buffer.size();
+    if (impl_->input_batch == 2) {
+      impl_->input_buffer.resize(single_size * 2);
+      std::copy_n(impl_->input_buffer.begin(), single_size,
+                  impl_->input_buffer.begin() + single_size);
+    }
+    std::array<int64_t, 4> input_shape = {impl_->input_batch, 3, impl_->input_height,
                                           impl_->input_width};
     Ort::MemoryInfo memory_info =
         Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
@@ -606,9 +626,14 @@ bool YoloOnnxDetector::Detect(const rtc_camera::dual::ImageFrame& frame,
                             output_names.data(), output_names.size());
 
     std::vector<Candidate> candidates;
+    bool parsed = false;
     for (const Ort::Value& output : outputs) {
       std::string parse_error;
-      ParseTensorOutput(output, preprocess, &candidates, &parse_error);
+      parsed = ParseTensorOutput(output, preprocess, &candidates, &parse_error) || parsed;
+    }
+    if (!parsed) {
+      if (error_message) *error_message = "unsupported YOLO output tensor";
+      return false;
     }
 
     const std::vector<Candidate> selected = ApplyNms(&candidates);

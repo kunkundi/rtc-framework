@@ -10,6 +10,8 @@
 #include "video_view_state.h"
 #include "vehicle_control_sender.h"
 #include "vehicle_state_log_limiter.h"
+#include "local_yolo.h"
+#include "rtc_vision/coco_labels.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
@@ -591,6 +593,7 @@ class RtcConsoleApp {
   }
 
   ~RtcConsoleApp() {
+    local_yolo_.Stop();
     StopMediaFeed();
     remote_audio_player_.Stop();
     DestroyRtc();
@@ -624,6 +627,30 @@ class RtcConsoleApp {
       }
     }
     steering_wheel_range_deg_ = config.steering_wheel_range_deg;
+    yolo_enabled_ = config.yolo_enabled;
+    if (yolo_enabled_) {
+      for (size_t index = 0; index < sizeof(rtc_camera_headless::kCocoLabels) /
+                                        sizeof(rtc_camera_headless::kCocoLabels[0]); ++index) {
+        vision_class_labels_by_id_[static_cast<uint32_t>(index)] =
+            rtc_camera_headless::kCocoLabels[index];
+      }
+      std::string error;
+      if (!local_yolo_.Start(config.yolo_model_path, config.yolo_max_fps,
+          [this](const rtc_console::LocalYoloFrame& frame,
+                 const vts_rtc::vision::FrameDetections& detections) {
+            VisionDetectionOverlayView overlay;
+            overlay.frame_detections = detections;
+            overlay.updated_at = frame.received;
+            std::lock_guard<std::mutex> lock(vision_detection_mutex_);
+            vision_detections_by_source_[frame.key] = std::move(overlay);
+          }, &error, [this](const std::string& error) {
+            AppendLog("Local YOLO inference failed: " + error);
+          })) {
+        AppendLog("Local YOLO initialization failed: " + error);
+        return false;
+      }
+      AppendLog("Local YOLO enabled (ONNX Runtime CPU)");
+    }
     device_slots_.Configure(config.device_slots);
     AppendLog(std::string("Target room: ") + options_.room_id);
     AppendLog(std::string("Room auto-open: ") +
@@ -3499,6 +3526,7 @@ class RtcConsoleApp {
   }
 
   void ResetSessionStateOnUi() {
+    local_yolo_.Clear();
     StopMediaFeed();
     remote_audio_player_.Clear();
     CloseFullscreenVideo();
@@ -4028,6 +4056,7 @@ class RtcConsoleApp {
   void HandleVisionDetectionMessage(RtcSessionId remote_sessionid,
                                     const char* msg,
                                     size_t msg_size) {
+    if (yolo_enabled_) return;
     if (!msg || msg_size == 0) {
       return;
     }
@@ -4126,10 +4155,6 @@ class RtcConsoleApp {
     if (!sourceid || !buffer || width == 0 || height == 0 || sz_buffer == 0) {
       return;
     }
-    if (instance_->options_.no_render) {
-      return;
-    }
-
     auto view = std::make_shared<VideoFrameView>();
     view->stream_key = MakeVideoStreamKey(remote_sessionid, sourceid);
     view->source_id = sourceid;
@@ -4140,6 +4165,19 @@ class RtcConsoleApp {
     view->dimension = dimension;
     view->frame_seq = instance_->remote_video_frame_seq_.fetch_add(1) + 1;
     view->buffer.assign(buffer, buffer + sz_buffer);
+
+    if (instance_->yolo_enabled_ && dimension == 4 && width <= 16384 && height <= 16384) {
+      rtc_console::LocalYoloFrame frame;
+      frame.key = view->stream_key;
+      frame.source = view->source_id;
+      frame.sequence = view->frame_seq;
+      frame.width = static_cast<int>(width);
+      frame.height = static_cast<int>(height);
+      frame.pixels = view->buffer;
+      frame.received = std::chrono::steady_clock::now();
+      instance_->local_yolo_.Submit(std::move(frame));
+    }
+    if (instance_->options_.no_render) return;
 
     {
       std::lock_guard<std::mutex> lock(instance_->video_mutex_);
@@ -4263,6 +4301,8 @@ class RtcConsoleApp {
                                        std::ios::app};
   bool video_render_log_error_reported_ = false;
   std::mutex vision_detection_mutex_;
+  rtc_console::LocalYolo local_yolo_;
+  bool yolo_enabled_ = false;
   std::map<std::string, VisionDetectionOverlayView> vision_detections_by_source_;
   std::map<uint32_t, std::string> vision_class_labels_by_id_;
   std::mutex edge_feedback_mutex_;
