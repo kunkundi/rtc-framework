@@ -4,6 +4,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <nlohmann/json.hpp>
 
 namespace rtc_console {
 
@@ -15,6 +16,7 @@ struct AppOptions {
 };
 
 struct AppConfig {
+  nlohmann::json rtc_settings = nlohmann::json::object();
   bool yolo_enabled = true;
   int yolo_max_fps = 15;
   std::string yolo_model_path;
@@ -42,6 +44,7 @@ struct AppConfig {
 
 AppOptions ParseOptions(int argc, char** argv);
 AppConfig LoadConfig(const std::string& config_path);
+void SaveConfig(const std::string& config_path, const AppConfig& config);
 void PrintUsage(const char* program);
 
 }

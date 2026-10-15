@@ -605,6 +605,8 @@ class RtcConsoleApp {
     ResolveAssetPaths();
     const rtc_console::AppConfig config =
         rtc_console::LoadConfig(rtc_cfg_path_);
+    saved_settings_ = config;
+    settings_draft_ = config;
     if (!options_.room_id_from_command_line) {
       options_.room_id = config.room_id;
       std::snprintf(open_room_id_, sizeof(open_room_id_), "%s",
@@ -1093,9 +1095,14 @@ class RtcConsoleApp {
       const char* pages[] = {"Driving", "Connection & Devices", "Diagnostics"};
       for (int page = 0; page < 3; ++page) {
         if (ImGui::BeginTabItem(pages[page])) {
-          active_page_ = page;
+          if (ImGui::IsItemActivated() || active_page_ != 3) {
+            active_page_ = page;
+          }
           ImGui::EndTabItem();
         }
+      }
+      if (ImGui::TabItemButton("Settings", ImGuiTabItemFlags_Trailing)) {
+        active_page_ = 3;
       }
       ImGui::EndTabBar();
     }
@@ -1126,6 +1133,8 @@ class RtcConsoleApp {
       layout.control_pos = layout.video_pos;
       layout.control_size = ImVec2(layout.video_size.x, std::max(1.0f, layout.viewport_size.y - 2 * kPanelMargin));
       DrawControlPanel(layout);
+    } else if (active_page_ == 3) {
+      DrawSettings(content_viewport);
     } else {
       layout.control_pos = layout.video_pos;
       layout.control_size = ImVec2(layout.video_size.x, std::max(1.0f, layout.viewport_size.y - 2 * kPanelMargin));
@@ -1140,6 +1149,278 @@ class RtcConsoleApp {
       const float bottom = DrawNetStatsHint(layout);
       DrawEventLogHint(layout, bottom + kPanelGap);
     }
+  }
+
+  static bool SettingsText(const char* label, std::string* value,
+                           ImGuiInputTextFlags flags = 0) {
+    std::vector<char> buffer(std::max<size_t>(4096, value->size() + 1024), '\0');
+    std::copy(value->begin(), value->end(), buffer.begin());
+    if (!ImGui::InputText(label, buffer.data(), buffer.size(), flags)) return false;
+    *value = buffer.data();
+    return true;
+  }
+
+  template <typename DrawControl>
+  static void SettingsField(const char* label, DrawControl draw_control) {
+    ImGui::PushID(label);
+    ImGui::TextDisabled("%s", label);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    draw_control();
+    ImGui::Spacing();
+    ImGui::PopID();
+  }
+
+  static void DrawRtcSetting(const std::string& label, nlohmann::json* value) {
+    ImGui::PushID(label.c_str());
+    if (!value->is_structured() && !value->is_boolean()) {
+      ImGui::TextDisabled("%s", label.c_str());
+    }
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (value->is_boolean()) {
+      bool enabled = value->get<bool>();
+      if (ImGui::Checkbox(label.c_str(), &enabled)) *value = enabled;
+    } else if (value->is_string()) {
+      auto text = value->get<std::string>();
+      if (SettingsText("##value", &text,
+          label == "credential" ? ImGuiInputTextFlags_Password : 0)) *value = text;
+    } else if (value->is_number_integer()) {
+      int64_t number = value->get<int64_t>();
+      if (ImGui::InputScalar("##value", ImGuiDataType_S64, &number)) *value = number;
+    } else if (value->is_number_float()) {
+      double number = value->get<double>();
+      if (ImGui::InputDouble("##value", &number)) *value = number;
+    } else if (value->is_structured()) {
+      if (ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (value->is_object()) {
+          for (auto entry = value->begin(); entry != value->end(); ++entry) {
+            DrawRtcSetting(entry.key(), &entry.value());
+          }
+        } else {
+          int remove_index = -1;
+          for (size_t index = 0; index < value->size(); ++index) {
+            DrawRtcSetting(std::to_string(index + 1), &value->at(index));
+            if (label == "ice_servers" || label == "urls") {
+              ImGui::PushID(static_cast<int>(index));
+              if (ImGui::SmallButton("Remove")) remove_index = static_cast<int>(index);
+              ImGui::PopID();
+            }
+          }
+          if (remove_index >= 0) value->erase(value->begin() + remove_index);
+          if (label == "ice_servers" && ImGui::SmallButton("Add ICE server")) {
+            value->push_back({{"urls", nlohmann::json::array({"stun:"})},
+                              {"username", ""}, {"credential", ""}});
+          }
+          if (label == "urls" && ImGui::SmallButton("Add URL")) value->push_back("");
+        }
+        ImGui::TreePop();
+      }
+    } else {
+      ImGui::Text("%s: null", label.c_str());
+    }
+    ImGui::PopID();
+  }
+
+  void DrawSettings(const ImGuiViewport& viewport) {
+    const ImVec4 accent(0.22f, 0.73f, 0.65f, 1.0f);
+    const char* categories[] = {"General", "Devices", "Detection", "Steering", "Keyboard", "Network & RTC"};
+    const bool compact = viewport.WorkSize.x < 960.0f;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 7));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(12, 12));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(12, 10));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.085f, 0.09f, 0.10f, 1));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.16f, 0.18f, 1));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.20f, 0.22f, 0.24f, 1));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.23f, 0.26f, 0.28f, 1));
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, accent);
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.12f, 0.28f, 0.26f, 1));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.16f, 0.34f, 0.31f, 1));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.18f, 0.39f, 0.35f, 1));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.24f, 0.26f, 0.28f, 0.65f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.22f, 0.24f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.31f, 0.33f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.24f, 0.28f, 0.30f, 1));
+    ImGui::SetNextWindowPos(viewport.WorkPos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(viewport.WorkSize, ImGuiCond_Always);
+    ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextUnformatted("Settings");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::TextDisabled("%s", rtc_cfg_path_.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", rtc_cfg_path_.c_str());
+    ImGui::Separator();
+    const float footer_height = ImGui::GetFrameHeightWithSpacing() * 2.0f + 16.0f;
+    ImGui::BeginChild("SettingsWorkspace", ImVec2(0, -footer_height), false);
+    if (compact) {
+      if (ImGui::BeginTabBar("SettingsCategories", ImGuiTabBarFlags_FittingPolicyScroll)) {
+        for (int category = 0; category < 6; ++category) {
+          if (ImGui::BeginTabItem(categories[category])) {
+            settings_category_ = category;
+            ImGui::EndTabItem();
+          }
+        }
+        ImGui::EndTabBar();
+      }
+    } else {
+      ImGui::BeginChild("SettingsNavigation", ImVec2(180, 0), false);
+      ImGui::TextDisabled("PREFERENCES");
+      ImGui::Spacing();
+      for (int category = 0; category < 6; ++category) {
+        const ImVec2 item_pos = ImGui::GetCursorScreenPos();
+        if (ImGui::Selectable(categories[category], settings_category_ == category,
+                              0, ImVec2(0, ImGui::GetFrameHeight() + 8))) {
+          settings_category_ = category;
+        }
+        if (settings_category_ == category) {
+          ImGui::GetWindowDrawList()->AddRectFilled(
+              item_pos, ImVec2(item_pos.x + 3, item_pos.y + ImGui::GetFrameHeight() + 8),
+              ImGui::ColorConvertFloat4ToU32(accent), 1.0f);
+        }
+      }
+      ImGui::EndChild();
+      ImGui::SameLine();
+    }
+    ImGui::BeginChild("SettingsFields", ImVec2(0, 0), false);
+    ImGui::SetWindowFontScale(1.2f);
+    ImGui::TextColored(accent, "%s", categories[settings_category_]);
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::BeginChild("SettingsForm", ImVec2(std::min(720.0f, ImGui::GetContentRegionAvail().x), 0), false);
+    if (settings_category_ == 0) {
+      SettingsField("Room", [&] { SettingsText("##room", &settings_draft_.room_id); });
+      ImGui::Checkbox("Auto open room", &settings_draft_.auto_open_room);
+    }
+    if (settings_category_ == 1) {
+      const char* labels[] = {"Top left", "Top right", "Bottom left", "Bottom right"};
+      if (ImGui::BeginTable("DevicePositions", 2, ImGuiTableFlags_SizingStretchSame)) {
+        for (size_t index = 0; index < settings_draft_.device_slots.size(); ++index) {
+          ImGui::TableNextColumn();
+          SettingsField(labels[index], [&] {
+            SettingsText("##device", &settings_draft_.device_slots[index]);
+          });
+        }
+        ImGui::EndTable();
+      }
+    }
+    if (settings_category_ == 2) {
+      ImGui::Checkbox("YOLO enabled", &settings_draft_.yolo_enabled);
+      SettingsField("Maximum FPS", [&] {
+        ImGui::InputInt("##fps", &settings_draft_.yolo_max_fps);
+      });
+      SettingsField("Model path", [&] {
+        SettingsText("##model", &settings_draft_.yolo_model_path);
+      });
+    }
+    if (settings_category_ == 3) {
+      SettingsField("Wheel range (deg)", [&] {
+        ImGui::InputDouble("##range", &settings_draft_.steering_wheel_range_deg);
+      });
+      ImGui::Checkbox("Servo calibrated", &settings_draft_.steering_servo_calibrated);
+      ImGui::Separator();
+      ImGui::BeginDisabled(!settings_draft_.steering_servo_calibrated);
+      if (ImGui::BeginTable("ServoAngles", 3, ImGuiTableFlags_SizingStretchSame)) {
+        const char* labels[] = {"Left (deg)", "Center (deg)", "Right (deg)"};
+        double* angles[] = {&settings_draft_.steering_servo_left_deg,
+                            &settings_draft_.steering_servo_center_deg,
+                            &settings_draft_.steering_servo_right_deg};
+        for (int angle = 0; angle < 3; ++angle) {
+          ImGui::TableNextColumn();
+          SettingsField(labels[angle], [&] { ImGui::InputDouble("##angle", angles[angle]); });
+        }
+        ImGui::EndTable();
+      }
+      ImGui::EndDisabled();
+    }
+    if (settings_category_ == 4 && ImGui::BeginTable("KeyboardBindings", 2,
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp)) {
+      ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+      ImGui::TableSetupColumn("Bindings", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+      ImGui::TableHeadersRow();
+      for (auto& binding : settings_draft_.key_bindings) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::AlignTextToFramePadding();
+        std::string action = binding.first;
+        std::replace(action.begin(), action.end(), '_', ' ');
+        ImGui::TextWrapped("%s", action.c_str());
+        ImGui::TableSetColumnIndex(1);
+        ImGui::PushID(binding.first.c_str());
+          int remove_index = -1;
+          for (size_t index = 0; index < binding.second.size(); ++index) {
+            ImGui::PushID(static_cast<int>(index));
+            ImGui::SetNextItemWidth(std::max(40.0f, ImGui::GetContentRegionAvail().x - 40.0f));
+            SettingsText("##key", &binding.second[index]);
+            if (binding.second.size() > 1) {
+              ImGui::SameLine();
+              if (ImGui::SmallButton("-")) remove_index = static_cast<int>(index);
+              if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove binding");
+            }
+            ImGui::PopID();
+          }
+          if (remove_index >= 0) binding.second.erase(binding.second.begin() + remove_index);
+          if (ImGui::SmallButton("+")) binding.second.push_back("");
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add binding");
+        ImGui::PopID();
+      }
+      ImGui::EndTable();
+    }
+    if (settings_category_ == 5) {
+      for (auto entry = settings_draft_.rtc_settings.begin();
+           entry != settings_draft_.rtc_settings.end(); ++entry) {
+        DrawRtcSetting(entry.key(), &entry.value());
+      }
+    }
+    ImGui::EndChild();
+    ImGui::EndChild();
+    ImGui::EndChild();
+    ImGui::Separator();
+    if (settings_status_.empty()) {
+      ImGui::TextDisabled("Restart required after saving");
+    } else {
+      const bool failed = settings_status_.find("Save failed:") == 0;
+      ImGui::PushStyleColor(ImGuiCol_Text,
+          failed ? ImVec4(1.0f, 0.49f, 0.42f, 1) : accent);
+      ImGui::TextUnformatted(settings_status_.c_str());
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", settings_status_.c_str());
+      ImGui::PopStyleColor();
+    }
+    const float actions_width = ImGui::CalcTextSize("Save changesRevertConsole defaults").x +
+      ImGui::GetStyle().FramePadding.x * 6 + ImGui::GetStyle().ItemSpacing.x * 2;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+      std::max(0.0f, ImGui::GetContentRegionAvail().x - actions_width));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.42f, 0.36f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.16f, 0.53f, 0.45f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.36f, 0.30f, 1));
+    if (ImGui::Button("Save changes")) {
+      try {
+        rtc_console::SaveConfig(rtc_cfg_path_, settings_draft_);
+        saved_settings_ = settings_draft_;
+        settings_status_ = "Saved. Restart required.";
+        AppendLog("Settings saved; restart required");
+      } catch (const std::exception& error) {
+        settings_status_ = std::string("Save failed: ") + error.what();
+      }
+    }
+    ImGui::PopStyleColor(3);
+    ImGui::SameLine();
+    if (ImGui::Button("Revert")) {
+      settings_draft_ = saved_settings_;
+      settings_status_.clear();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Console defaults")) {
+      const auto rtc_settings = settings_draft_.rtc_settings;
+      settings_draft_ = rtc_console::AppConfig{};
+      settings_draft_.rtc_settings = rtc_settings;
+      settings_status_ = "Defaults loaded. Not saved.";
+    }
+    ImGui::End();
+    ImGui::PopStyleColor(12);
+    ImGui::PopStyleVar(6);
   }
 
   void DrawControlPanel(const UiLayout& layout) {
@@ -4265,6 +4546,10 @@ class RtcConsoleApp {
   rtc_console::VehicleStateLogLimiter vehicle_state_log_limiter_;
   bool auto_scroll_ = true;
   int active_page_ = 0;
+  rtc_console::AppConfig saved_settings_;
+  rtc_console::AppConfig settings_draft_;
+  std::string settings_status_;
+  int settings_category_ = 0;
   bool focus_netstats_hint_ = false;
   bool focus_eventlog_hint_ = false;
   bool vehicle_control_enabled_ = false;

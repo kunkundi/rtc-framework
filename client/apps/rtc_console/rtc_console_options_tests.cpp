@@ -242,6 +242,63 @@ void TestDeviceSlots() {
   std::remove(path.c_str());
 }
 
+void TestSaveConfig() {
+  const std::string path = "rtc_console_save_test.json";
+  const std::string external = "rtc_console_save_external.json";
+  WriteConfig(path, "{\"api_server\":\"old:9090\",\"edge\":{\"config\":\"missing.json\"},\"console\":{\"custom\":17}}");
+  auto config = rtc_console::LoadConfig(path);
+  config.room_id = "saved-room";
+  config.yolo_enabled = false;
+  config.yolo_max_fps = 24;
+  config.yolo_model_path = "models/custom.onnx";
+  config.auto_open_room = true;
+  config.steering_servo_calibrated = true;
+  config.steering_servo_left_deg = 60;
+  config.steering_servo_center_deg = 90;
+  config.steering_servo_right_deg = 120;
+  config.key_bindings["takeover"] = {"T", "F1"};
+  config.rtc_settings["api_server"] = "new:9090";
+  rtc_console::SaveConfig(path, config);
+  const auto saved = rtc_console::LoadConfig(path);
+  Check(saved.room_id == "saved-room" && saved.auto_open_room &&
+    saved.key_bindings.at("takeover").size() == 2 &&
+    saved.steering_servo_calibrated && saved.yolo_max_fps == 24 &&
+    !saved.yolo_enabled && saved.yolo_model_path == config.yolo_model_path,
+    "round trip all console settings");
+  nlohmann::json root;
+  { std::ifstream input(path); input >> root; }
+  Check(root["console"]["custom"] == 17 && root["edge"]["config"] == "missing.json" &&
+    root["api_server"] == "new:9090", "preserve unrelated fields and save RTC settings");
+  config.room_id.clear();
+  bool rejected = false;
+  try { rtc_console::SaveConfig(path, config); }
+  catch (const std::exception&) { rejected = true; }
+  Check(rejected && rtc_console::LoadConfig(path).room_id == "saved-room",
+    "invalid settings do not overwrite file");
+    config.room_id = "saved-room";
+    config.rtc_settings["api_server"] = "";
+    rejected = false;
+    try { rtc_console::SaveConfig(path, config); }
+    catch (const std::exception&) { rejected = true; }
+    Check(rejected && rtc_console::LoadConfig(path).rtc_settings.at("api_server") == "new:9090",
+      "reject empty server without overwriting settings");
+  WriteConfig(external, "{\"custom\":42}");
+  WriteConfig(path, "{\"console\":{\"config\":\"rtc_console_save_external.json\"},\"api_server\":\"old\"}");
+  config = rtc_console::LoadConfig(path);
+  config.room_id = "external-saved";
+  config.rtc_settings["api_server"] = "new";
+  rtc_console::SaveConfig("./" + path, config);
+  { std::ifstream input(path); input >> root; }
+  Check(root["console"]["config"] == external && root["api_server"] == "new",
+    "external save preserves reference and updates shared settings");
+  Check(rtc_console::LoadConfig(path).room_id == "external-saved",
+    "external settings round trip");
+  { std::ifstream input(external); input >> root; }
+  Check(root["custom"] == 42 && !root.contains("console"), "preserve external root fields");
+  std::remove(path.c_str());
+  std::remove(external.c_str());
+}
+
 void TestInvalidArguments() {
   bool missing_room_rejected = false;
   try {
@@ -271,6 +328,7 @@ int main() {
   TestKeyBindings();
   TestExternalConfig();
   TestDeviceSlots();
+  TestSaveConfig();
   std::cout << "rtc_console options tests passed" << std::endl;
   return 0;
 }

@@ -7,6 +7,11 @@
 #include <iostream>
 #include <set>
 #include <stdexcept>
+#include <cstdio>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -38,25 +43,11 @@ AppOptions ParseOptions(int argc, char** argv) {
   return options;
 }
 
-AppConfig LoadConfig(const std::string& config_path) {
-  std::ifstream input(config_path);
-  if (!input.is_open()) {
-    throw std::runtime_error("failed to open config file: " + config_path);
-  }
-
-  nlohmann::json root;
-  try {
-    input >> root;
-  } catch (const nlohmann::json::exception& ex) {
-    throw std::runtime_error(std::string("failed to parse config JSON: ") +
-                             ex.what());
-  }
-  if (!root.is_object()) {
-    throw std::runtime_error("config root must be an object");
-  }
-  rtc_runtime::LoadConfigSection(root, "console", config_path);
-
+static AppConfig ParseConfig(const nlohmann::json& root) {
   AppConfig config;
+  config.rtc_settings = root;
+  config.rtc_settings.erase("console");
+  config.rtc_settings.erase("edge");
   if (!root.contains("console")) {
     return config;
   }
@@ -220,6 +211,154 @@ AppConfig LoadConfig(const std::string& config_path) {
     }
   }
   return config;
+}
+
+AppConfig LoadConfig(const std::string& config_path) {
+  std::ifstream input(config_path);
+  if (!input.is_open()) {
+    throw std::runtime_error("failed to open config file: " + config_path);
+  }
+  nlohmann::json root;
+  input >> root;
+  if (!root.is_object()) {
+    throw std::runtime_error("config root must be an object");
+  }
+  rtc_runtime::LoadConfigSection(root, "console", config_path);
+  return ParseConfig(root);
+}
+
+void SaveConfig(const std::string& config_path, const AppConfig& config) {
+  if (!config.rtc_settings.is_object() ||
+      config.rtc_settings.contains("console") || config.rtc_settings.contains("edge")) {
+    throw std::runtime_error("RTC settings must be an object without application sections");
+  }
+  nlohmann::json section = {
+      {"room", config.room_id}, {"auto_open_room", config.auto_open_room},
+      {"device_slots", config.device_slots},
+      {"key_bindings", config.key_bindings},
+      {"yolo", {{"enabled", config.yolo_enabled},
+                {"max_fps", config.yolo_max_fps},
+                {"model", config.yolo_model_path}}},
+      {"steering", {{"wheel_range_deg", config.steering_wheel_range_deg}}}};
+  if (config.steering_servo_calibrated) {
+    section["steering"]["servo"] = {
+        {"left_deg", config.steering_servo_left_deg},
+        {"center_deg", config.steering_servo_center_deg},
+        {"right_deg", config.steering_servo_right_deg}};
+  }
+  ParseConfig(nlohmann::json{{"console", section}});
+  std::ifstream input(config_path);
+  if (!input.is_open()) {
+    throw std::runtime_error("failed to open config file: " + config_path);
+  }
+  nlohmann::json root;
+  input >> root;
+  if (!root.is_object()) {
+    throw std::runtime_error("config root must be an object");
+  }
+  for (auto entry = config.rtc_settings.begin(); entry != config.rtc_settings.end(); ++entry) {
+    if (root.contains(entry.key()) && root.at(entry.key()).type() != entry.value().type() &&
+        !(root.at(entry.key()).is_number() && entry.value().is_number())) {
+      throw std::runtime_error("invalid RTC setting type: " + entry.key());
+    }
+  }
+  const auto validate_values = [](const nlohmann::json& value,
+                                  const std::string& name,
+                                  const auto& recurse) -> void {
+    if (value.is_number() && !std::isfinite(value.get<double>())) {
+      throw std::runtime_error("non-finite RTC setting: " + name);
+    }
+    if (value.is_number() && value.get<double>() < 0.0) {
+      throw std::runtime_error("negative RTC setting: " + name);
+    }
+    if (value.is_structured()) {
+      for (auto child = value.begin(); child != value.end(); ++child) {
+        recurse(child.value(), name + "." + (value.is_object() ? child.key() : "item"), recurse);
+      }
+    }
+  };
+  validate_values(config.rtc_settings, "rtc", validate_values);
+  for (const auto& field : {"api_server", "signaling_server"}) {
+    if (config.rtc_settings.contains(field) &&
+        (!config.rtc_settings.at(field).is_string() ||
+         config.rtc_settings.at(field).get<std::string>().empty())) {
+      throw std::runtime_error(std::string("empty or invalid RTC setting: ") + field);
+    }
+  }
+  root.update(config.rtc_settings);
+  nlohmann::json resolved = root;
+  rtc_runtime::LoadConfigSection(resolved, "console", config_path);
+  std::string destination = config_path;
+  const bool external = root.contains("console") &&
+                        root.at("console").contains("config");
+  if (external) {
+    const std::string reference = root.at("console").at("config").get<std::string>();
+    const bool absolute = !reference.empty() &&
+        (reference.front() == '/' || reference.front() == '\\' ||
+         (reference.size() > 1 && reference[1] == ':'));
+    const auto separator = config_path.find_last_of("/\\");
+    destination = absolute || separator == std::string::npos
+        ? reference : config_path.substr(0, separator + 1) + reference;
+  }
+  nlohmann::json merged = resolved.value("console", nlohmann::json::object());
+  merged.merge_patch(section);
+  if (!config.steering_servo_calibrated) {
+    merged["steering"].erase("servo");
+  }
+  nlohmann::json main_root = root;
+  if (external) {
+    root = std::move(merged);
+  } else {
+    root["console"] = std::move(merged);
+  }
+  ParseConfig(nlohmann::json{{"console", external ? root : root.at("console")}});
+  input.close();
+  const std::string temporary = destination + ".tmp";
+  {
+    std::ofstream output(temporary, std::ios::out | std::ios::trunc);
+    if (!output.is_open()) {
+      throw std::runtime_error("failed to create config file: " + temporary);
+    }
+    output << root.dump(4) << '\n';
+    output.close();
+    if (!output) {
+      std::remove(temporary.c_str());
+      throw std::runtime_error("failed to write config file: " + temporary);
+    }
+  }
+#if defined(_WIN32)
+  const bool replaced = MoveFileExA(temporary.c_str(), destination.c_str(),
+      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+  const bool replaced = std::rename(temporary.c_str(), destination.c_str()) == 0;
+#endif
+  if (!replaced) {
+    std::remove(temporary.c_str());
+    throw std::runtime_error("failed to replace config file: " + destination);
+  }
+  if (external) {
+    std::ifstream previous(config_path);
+    nlohmann::json original;
+    previous >> original;
+    previous.close();
+    if (original != main_root) {
+      const std::string main_temporary = config_path + ".tmp";
+      std::ofstream output(main_temporary, std::ios::out | std::ios::trunc);
+      output << main_root.dump(4) << '\n';
+      output.close();
+#if defined(_WIN32)
+      const bool main_replaced = output && MoveFileExA(main_temporary.c_str(),
+          config_path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+      const bool main_replaced = output &&
+          std::rename(main_temporary.c_str(), config_path.c_str()) == 0;
+#endif
+      if (!main_replaced) {
+        std::remove(main_temporary.c_str());
+        throw std::runtime_error("console saved, but failed to save RTC settings: " + config_path);
+      }
+    }
+  }
 }
 
 void PrintUsage(const char* program) {
