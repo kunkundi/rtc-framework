@@ -1,7 +1,11 @@
 #include "rtc_runtime/process_runtime.h"
 
 #include <signal.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <fstream>
@@ -47,14 +51,22 @@ bool FileExists(const std::string& path) {
 }
 
 std::string ExecutableDir() {
+#if defined(_WIN32)
+  char path[32768] = {0};
+  const DWORD len = GetModuleFileNameA(nullptr, path, sizeof(path));
+  if (len == 0 || len >= sizeof(path)) {
+    return ".";
+  }
+#else
   char path[4096] = {0};
   const ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
   if (len <= 0) {
     return ".";
   }
+#endif
   path[len] = '\0';
   std::string exe_path(path);
-  const size_t pos = exe_path.find_last_of('/');
+  const size_t pos = exe_path.find_last_of("/\\");
   if (pos == std::string::npos) {
     return ".";
   }

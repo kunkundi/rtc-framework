@@ -1,4 +1,4 @@
-if vtsrtc_on_linux() then
+if vtsrtc_on_linux() or vtsrtc_on_windows() then
     target("rtc_runtime")
         set_kind("static")
         vtsrtc_add_client_dependency()
@@ -11,7 +11,9 @@ if vtsrtc_on_linux() then
             vtsrtc_path("client", "modules", "runtime", "include"),
             {public = true}
         )
-        add_syslinks("pthread", {public = true})
+        if vtsrtc_on_linux() then
+            add_syslinks("pthread", {public = true})
+        end
         add_installfiles(
             vtsrtc_path("client", "modules", "runtime", "include", "rtc_runtime", "*.h"),
             {prefixdir = "vtsrtc/include/rtc_runtime"}
