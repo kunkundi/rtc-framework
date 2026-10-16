@@ -36,7 +36,7 @@ target("rtc_console")
     vtsrtc_add_linux_runtime_rpath()
     if vtsrtc_on_windows() then
         add_cxflags("/utf-8", {force = true})
-        add_syslinks("opengl32")
+        add_syslinks("opengl32", "dwmapi")
     elseif vtsrtc_on_linux() then
         add_syslinks("pthread", "GL", "dl")
     end
@@ -141,6 +141,14 @@ target("rtc_console_video_composite_layout_tests")
         vtsrtc_path("client", "apps", "rtc_console", "video_composite_layout_tests.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    end
+
+target("rtc_console_video_fullscreen_state_tests")
+    set_kind("binary")
+    set_default(false)
+    add_files(vtsrtc_path("client", "apps", "rtc_console", "video_fullscreen_state_tests.cpp"))
     if vtsrtc_on_windows() then
         add_cxflags("/utf-8", {force = true})
     end

@@ -8,9 +8,11 @@
 #include "rtc_vision/vision_detection_codec.h"
 #include "rtc_vision/view_control_protocol.h"
 #include "video_view_state.h"
+#include "video_fullscreen_state.h"
 #include "vehicle_control_sender.h"
 #include "vehicle_state_log_limiter.h"
 #include "local_yolo.h"
+#include "console_ui.h"
 #include "rtc_vision/coco_labels.h"
 
 #include <imgui.h>
@@ -45,6 +47,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <dwmapi.h>
 #elif defined(__linux__)
 #include <unistd.h>
 #else
@@ -52,6 +55,8 @@
 #endif
 
 namespace {
+
+namespace ui = rtc_console::ui;
 
 constexpr const char* kDataChannelLabel = "datachannel";
 constexpr const char* kExternalAudioSource = "console_audio";
@@ -67,8 +72,8 @@ constexpr float kVehicleThrottleStep = 0.05f;
 constexpr float kGamepadAxisDeadzone = 0.25f;
 constexpr float kGamepadTriggerThreshold = 0.45f;
 constexpr uint64_t kGamepadThrottleRepeatMs = 160;
-constexpr int kMainWindowWidth = 1060;
-constexpr int kMainWindowHeight = 950;
+constexpr int kMainWindowWidth = 1280;
+constexpr int kMainWindowHeight = 800;
 constexpr int kMinimumWindowWidth = 760;
 constexpr int kMinimumWindowHeight = 600;
 constexpr float kPanelMargin = 16.0f;
@@ -77,7 +82,6 @@ constexpr float kPreferredControlPanelHeight = 370.0f;
 constexpr float kMinimumControlPanelHeight = 180.0f;
 constexpr float kMinimumVideoPanelHeight = 180.0f;
 constexpr float kVideoOverlayPadding = 8.0f;
-constexpr float kFullscreenOverlayPadding = 20.0f;
 
 volatile std::sig_atomic_t g_stop_requested = 0;
 
@@ -352,62 +356,62 @@ std::string ExecutableDir() {
 const char* ServerStateText(RtcServerConnectionState state) {
   switch (state) {
     case ServerConnecting:
-      return "Connecting";
+      return "正在连接";
     case ServerConnected:
-      return "Connected";
+      return "已连接";
     case ServerLogined:
-      return "Logined";
+      return "已登录";
     case ServerDisconnected:
-      return "Disconnected";
+      return "已断开";
     case ServerReconnecting:
-      return "Reconnecting";
+      return "正在重连";
     default:
-      return "Unknown";
+      return "未知";
   }
 }
 
 const char* P2PStateText(RtcP2PState state) {
   switch (state) {
     case P2PNew:
-      return "New";
+      return "待连接";
     case P2PConnecting:
-      return "Connecting";
+      return "正在连接";
     case P2PConnected:
-      return "Connected";
+      return "已连接";
     case P2PDisconnected:
-      return "Disconnected";
+      return "已断开";
     case P2PFailed:
-      return "Failed";
+      return "失败";
     case P2PClosed:
-      return "Closed";
+      return "已关闭";
     default:
-      return "Unknown";
+      return "未知";
   }
 }
 
 const char* VehicleGearText(vts_rtc::vehicle::VehicleGear gear) {
   switch (gear) {
     case vts_rtc::vehicle::VehicleGear::Neutral:
-      return "Neutral";
+      return "空档";
     case vts_rtc::vehicle::VehicleGear::Forward:
-      return "Forward";
+      return "前进";
     case vts_rtc::vehicle::VehicleGear::Reverse:
-      return "Reverse";
+      return "倒车";
     default:
-      return "Unknown";
+      return "未知";
   }
 }
 
 const char* DriveDirectionText(vts_rtc::vehicle::DriveDirection direction) {
   switch (direction) {
     case vts_rtc::vehicle::DriveDirection::Stop:
-      return "Stop";
+      return "停止";
     case vts_rtc::vehicle::DriveDirection::Forward:
-      return "Forward";
+      return "前进";
     case vts_rtc::vehicle::DriveDirection::Reverse:
-      return "Reverse";
+      return "倒车";
     default:
-      return "Unknown";
+      return "未知";
   }
 }
 
@@ -415,13 +419,13 @@ const char* SteeringDirectionText(
     vts_rtc::vehicle::SteeringDirection direction) {
   switch (direction) {
     case vts_rtc::vehicle::SteeringDirection::Center:
-      return "Center";
+      return "回中";
     case vts_rtc::vehicle::SteeringDirection::Left:
-      return "Left";
+      return "左转";
     case vts_rtc::vehicle::SteeringDirection::Right:
-      return "Right";
+      return "右转";
     default:
-      return "Unknown";
+      return "未知";
   }
 }
 
@@ -439,7 +443,7 @@ const char* DogActionText(vts_rtc::vehicle::DogActionType action) {
       return "lie_down";
     case vts_rtc::vehicle::DogActionType::Unknown:
     default:
-      return "Unknown";
+      return "未知";
   }
 }
 
@@ -488,6 +492,18 @@ class SDLOpenGLWindow {
       initialized_ = false;
       return false;
     }
+
+#if defined(_WIN32)
+    HWND native_window = static_cast<HWND>(SDL_GetPointerProperty(
+        SDL_GetWindowProperties(window_), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    if (native_window) {
+      // Windows 11 的原生外框也使用直角；旧系统不支持此属性时沿用原有外框。
+      constexpr DWORD kWindowCornerPreference = 33;
+      const DWORD corner_preference = 1;
+      DwmSetWindowAttribute(native_window, kWindowCornerPreference,
+          &corner_preference, sizeof(corner_preference));
+    }
+#endif
     SDL_SetWindowMinimumSize(window_, kMinimumWindowWidth,
                              kMinimumWindowHeight);
     gl_context_ = SDL_GL_CreateContext(window_);
@@ -646,17 +662,17 @@ class RtcConsoleApp {
             std::lock_guard<std::mutex> lock(vision_detection_mutex_);
             vision_detections_by_source_[frame.key] = std::move(overlay);
           }, &error, [this](const std::string& error) {
-            AppendLog("Local YOLO inference failed: " + error);
+            AppendLog("本地 YOLO 推理失败：" + error);
           })) {
-        AppendLog("Local YOLO initialization failed: " + error);
+        AppendLog("本地 YOLO 初始化失败：" + error);
         return false;
       }
-      AppendLog("Local YOLO enabled (ONNX Runtime CPU)");
+      AppendLog("已启用本地 YOLO 检测（ONNX Runtime CPU）");
     }
     device_slots_.Configure(config.device_slots);
-    AppendLog(std::string("Target room: ") + options_.room_id);
-    AppendLog(std::string("Room auto-open: ") +
-              (auto_open_room_ ? "enabled" : "disabled"));
+    AppendLog(std::string("目标房间：") + options_.room_id);
+    AppendLog(std::string("自动创建房间：") +
+              (auto_open_room_ ? "开启" : "关闭"));
     if (!InitRtc()) {
       return false;
     }
@@ -670,7 +686,7 @@ class RtcConsoleApp {
     }
 
     SDLOpenGLWindow window;
-    if (!window.Init("rtc-framework | rtc_console", kMainWindowWidth,
+    if (!window.Init("控制台", kMainWindowWidth,
                      kMainWindowHeight)) {
       AppendLog("SDLOpenGLWindow init failed");
       return;
@@ -682,19 +698,30 @@ class RtcConsoleApp {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     const char* font_paths[] = {
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
         "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-        "C:/Windows/Fonts/msyh.ttc"};
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf"};
+    bool chinese_font_loaded = false;
     for (const char* font_path : font_paths) {
       SDL_IOStream* font_file = SDL_IOFromFile(font_path, "rb");
       if (!font_file) {
         continue;
       }
       SDL_CloseIO(font_file);
-      if (io.Fonts->AddFontFromFileTTF(font_path, 18.0f)) {
+      if (ImFont* font = io.Fonts->AddFontFromFileTTF(font_path, 18.0f)) {
+        io.FontDefault = font;
+        chinese_font_loaded = true;
         break;
       }
     }
-    ImGui::StyleColorsDark();
+    if (!chinese_font_loaded) {
+      AppendLog("未找到中文字体，请安装 Noto CJK 或文泉驿字体后重启控制台");
+    }
+    ApplyConsoleStyle();
 
     if (!ImGui_ImplSDL3_InitForOpenGL(window.window(), window.gl_context())) {
       AppendLog("ImGui_ImplSDL3_InitForOpenGL failed");
@@ -738,7 +765,7 @@ class RtcConsoleApp {
 
       ImGui::Render();
       glViewport(0, 0, window.width(), window.height());
-      glClearColor(0.10f, 0.11f, 0.14f, 1.0f);
+      glClearColor(0.045f, 0.063f, 0.086f, 1.0f);
       glClear(GL_COLOR_BUFFER_BIT);
       ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
       window.SwapBuffers();
@@ -957,7 +984,7 @@ class RtcConsoleApp {
 
   void LoadVideoSourceList() {
     video_sources_.clear();
-    video_sources_.push_back("Local YUV420p");
+    video_sources_.push_back("本地 YUV420p");
 
     RtcVideoDevices devices = nullptr;
     size_t count = 0;
@@ -1003,11 +1030,11 @@ class RtcConsoleApp {
 
     choices->clear();
     AudioDeviceChoice disabled;
-    disabled.label = "Disabled";
+    disabled.label = "已禁用";
     choices->push_back(disabled);
     AudioDeviceChoice system_default;
     system_default.enabled = true;
-    system_default.label = "System default";
+    system_default.label = "系统默认设备";
     choices->push_back(system_default);
 
     std::vector<rtc_audio::AudioDeviceInfo> devices;
@@ -1080,33 +1107,74 @@ class RtcConsoleApp {
     return changed;
   }
 
+  static void ApplyConsoleStyle() {
+    ui::ApplyStyle();
+  }
+
+  std::string ActionKeyLabel(const char* action) const {
+    const auto found = key_bindings_.find(action);
+    return found == key_bindings_.end() || found->second.empty()
+        ? "--" : ImGui::GetKeyName(found->second.front());
+  }
+
   void DrawUi() {
     ApplyPendingUiActions();
     ImGuiViewport content_viewport = *ImGui::GetMainViewport();
-    const float navigation_height = ImGui::GetFrameHeightWithSpacing() + 16.0f;
-    ImGui::SetNextWindowPos(content_viewport.WorkPos, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(content_viewport.WorkSize.x, navigation_height), ImGuiCond_Always);
+    if (fullscreen_video_.active()) {
+      UpdateVehicleInputFromKeyboard();
+      MergeVehicleInputs();
+      if (fullscreen_video_.mode() == rtc_console::VideoFullscreenState::Mode::Monitor) {
+        UiLayout layout;
+        layout.video_pos = content_viewport.Pos;
+        layout.video_size = content_viewport.Size;
+        DrawVideoPanel(layout, true);
+      } else {
+        DrawFullscreenVideoOverlay();
+      }
+      return;
+    }
+    const float header_height = 60.0f;
+    const ImVec2 workspace_pos = content_viewport.WorkPos;
+    const ImVec2 workspace_size = content_viewport.WorkSize;
+    const bool compact = workspace_size.x < 960;
+    const char* pages[] = {"驾驶监看", "连接与设备", "诊断", "设置"};
     const int previous_page = active_page_;
     const ImGuiWindowFlags navigation_flags = ImGuiWindowFlags_NoDecoration |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-    ImGui::Begin("##ConsolePages", nullptr, navigation_flags);
-    if (ImGui::BeginTabBar("ConsolePages")) {
-      const char* pages[] = {"Driving", "Connection & Devices", "Diagnostics"};
-      for (int page = 0; page < 3; ++page) {
-        if (ImGui::BeginTabItem(pages[page])) {
-          if (ImGui::IsItemActivated() || active_page_ != 3) {
-            active_page_ = page;
-          }
-          ImGui::EndTabItem();
-        }
-      }
-      if (ImGui::TabItemButton("Settings", ImGuiTabItemFlags_Trailing)) {
-        active_page_ = 3;
-      }
-      ImGui::EndTabBar();
+    const auto server_state = server_state_.load();
+    const ImVec4 server_color = server_state == ServerLogined ? ui::Accent()
+        : server_state == ServerConnecting || server_state == ServerReconnecting
+            ? ui::Warning() : ui::Muted();
+    ImGui::SetNextWindowPos(workspace_pos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(workspace_size.x, header_height), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 12));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ui::Surface());
+    ImGui::Begin("##ConsoleHeader", nullptr, navigation_flags);
+    const ImVec2 logo = ImGui::GetCursorScreenPos();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(logo, ImVec2(logo.x + 32, logo.y + 32),
+        IM_COL32(35, 127, 112, 255));
+    ui::Icon(draw, ImVec2(logo.x + 8, logo.y + 8), 0, IM_COL32(218, 255, 245, 255));
+    ImGui::Dummy(ImVec2(32, 32));
+    if (!compact) {
+      ImGui::SameLine();
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted("控制台");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("当前房间：%s", options_.room_id.c_str());
     }
+    ImGui::SameLine(compact ? 68 : 196);
+    for (int page = 0; page < 4; ++page) {
+      if (page > 0) ImGui::SameLine();
+      if (ui::PageTab(pages[page], active_page_ == page)) active_page_ = page;
+    }
+    const float nav_end = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + 16;
+    const float badge_width = ImGui::CalcTextSize(ServerStateText(server_state)).x + 30;
+    ImGui::SameLine(std::max(nav_end, workspace_size.x - badge_width - 16));
+    ui::Badge(ServerStateText(server_state), server_color);
     ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
     if (previous_page == 0 && active_page_ != 0) {
       gamepad_dog_actions_.StopForDisconnect(
           [this](vts_rtc::vehicle::DogActionType action, float speed, bool log_success) {
@@ -1118,14 +1186,12 @@ class RtcConsoleApp {
       vehicle_control_enabled_ = false;
       CloseFullscreenVideo();
     }
-    content_viewport.WorkPos.y += navigation_height;
-    content_viewport.WorkSize.y = std::max(1.0f, content_viewport.WorkSize.y - navigation_height);
+    content_viewport.WorkPos.y += header_height;
+    content_viewport.WorkSize.y = std::max(1.0f, workspace_size.y - header_height);
     UiLayout layout = ComputeUiLayout(content_viewport);
     if (active_page_ == 0) {
       UpdateVehicleInputFromKeyboard();
       MergeVehicleInputs();
-      layout.video_pos.x = layout.viewport_pos.x;
-      layout.video_size.x = std::max(1.0f, layout.viewport_size.x);
       layout.video_size.y = std::max(1.0f, layout.viewport_size.y - 2 * kPanelMargin);
       DrawVideoPanel(layout);
       DrawFullscreenVideoOverlay();
@@ -1138,11 +1204,15 @@ class RtcConsoleApp {
     } else {
       layout.control_pos = layout.video_pos;
       layout.control_size = ImVec2(layout.video_size.x, std::max(1.0f, layout.viewport_size.y - 2 * kPanelMargin));
-      const float settings_height = ImGui::GetFrameHeightWithSpacing() + 16.0f;
+      const float settings_height = 64.0f;
       ImGui::SetNextWindowPos(layout.control_pos, ImGuiCond_Always);
       ImGui::SetNextWindowSize(ImVec2(layout.control_size.x, settings_height), ImGuiCond_Always);
       ImGui::Begin("##DebugSettings", nullptr, navigation_flags);
-      ImGui::Checkbox("Debug", &video_debug_enabled_);
+      ImGui::BeginGroup();
+      ui::Heading("诊断");
+      ImGui::EndGroup();
+      ImGui::SameLine(std::max(ImGui::GetCursorPosX(), layout.control_size.x - 232));
+      ImGui::Checkbox("视频调试信息", &video_debug_enabled_);
       ImGui::End();
       layout.control_pos.y += settings_height + kPanelGap;
       layout.control_size.y = std::max(1.0f, layout.control_size.y - settings_height - kPanelGap);
@@ -1173,12 +1243,13 @@ class RtcConsoleApp {
   static void DrawRtcSetting(const std::string& label, nlohmann::json* value) {
     ImGui::PushID(label.c_str());
     if (!value->is_structured() && !value->is_boolean()) {
-      ImGui::TextDisabled("%s", label.c_str());
+      ImGui::TextDisabled("%s", ui::SettingLabel(label));
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("配置字段：%s", label.c_str());
     }
     ImGui::SetNextItemWidth(-FLT_MIN);
     if (value->is_boolean()) {
       bool enabled = value->get<bool>();
-      if (ImGui::Checkbox(label.c_str(), &enabled)) *value = enabled;
+      if (ImGui::Checkbox(ui::SettingLabel(label), &enabled)) *value = enabled;
     } else if (value->is_string()) {
       auto text = value->get<std::string>();
       if (SettingsText("##value", &text,
@@ -1190,7 +1261,7 @@ class RtcConsoleApp {
       double number = value->get<double>();
       if (ImGui::InputDouble("##value", &number)) *value = number;
     } else if (value->is_structured()) {
-      if (ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (ImGui::TreeNodeEx(ui::SettingLabel(label), ImGuiTreeNodeFlags_DefaultOpen)) {
         if (value->is_object()) {
           for (auto entry = value->begin(); entry != value->end(); ++entry) {
             DrawRtcSetting(entry.key(), &entry.value());
@@ -1201,101 +1272,58 @@ class RtcConsoleApp {
             DrawRtcSetting(std::to_string(index + 1), &value->at(index));
             if (label == "ice_servers" || label == "urls") {
               ImGui::PushID(static_cast<int>(index));
-              if (ImGui::SmallButton("Remove")) remove_index = static_cast<int>(index);
+              if (ImGui::SmallButton("移除")) remove_index = static_cast<int>(index);
               ImGui::PopID();
             }
           }
           if (remove_index >= 0) value->erase(value->begin() + remove_index);
-          if (label == "ice_servers" && ImGui::SmallButton("Add ICE server")) {
+          if (label == "ice_servers" && ImGui::SmallButton("添加 ICE 服务器")) {
             value->push_back({{"urls", nlohmann::json::array({"stun:"})},
                               {"username", ""}, {"credential", ""}});
           }
-          if (label == "urls" && ImGui::SmallButton("Add URL")) value->push_back("");
+          if (label == "urls" && ImGui::SmallButton("添加地址")) value->push_back("");
         }
         ImGui::TreePop();
       }
     } else {
-      ImGui::Text("%s: null", label.c_str());
+      ImGui::Text("%s：空值", ui::SettingLabel(label));
     }
     ImGui::PopID();
   }
 
   void DrawSettings(const ImGuiViewport& viewport) {
-    const ImVec4 accent(0.22f, 0.73f, 0.65f, 1.0f);
-    const char* categories[] = {"General", "Devices", "Detection", "Steering", "Keyboard", "Network & RTC"};
-    const bool compact = viewport.WorkSize.x < 960.0f;
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 7));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(12, 12));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(12, 10));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.085f, 0.09f, 0.10f, 1));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.16f, 0.18f, 1));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.20f, 0.22f, 0.24f, 1));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.23f, 0.26f, 0.28f, 1));
-    ImGui::PushStyleColor(ImGuiCol_CheckMark, accent);
-    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.12f, 0.28f, 0.26f, 1));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.16f, 0.34f, 0.31f, 1));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.18f, 0.39f, 0.35f, 1));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.24f, 0.26f, 0.28f, 0.65f));
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.22f, 0.24f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.31f, 0.33f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.24f, 0.28f, 0.30f, 1));
-    ImGui::SetNextWindowPos(viewport.WorkPos, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(viewport.WorkSize, ImGuiCond_Always);
-    ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoDecoration |
+    const int previous_category = settings_category_;
+    const char* categories[] = {"常规", "设备", "目标检测", "转向", "快捷键", "网络与 RTC"};
+    ImGui::SetNextWindowPos(ImVec2(viewport.WorkPos.x + kPanelMargin,
+        viewport.WorkPos.y + kPanelMargin), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(viewport.WorkSize.x - 2 * kPanelMargin,
+        viewport.WorkSize.y - 2 * kPanelMargin), ImGuiCond_Always);
+    ImGui::Begin("设置", nullptr, ImGuiWindowFlags_NoDecoration |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::SetWindowFontScale(1.35f);
-    ImGui::TextUnformatted("Settings");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("%s", rtc_cfg_path_.c_str());
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", rtc_cfg_path_.c_str());
-    ImGui::Separator();
-    const float footer_height = ImGui::GetFrameHeightWithSpacing() * 2.0f + 16.0f;
+    ui::Heading("设置");
+    const float footer_height = ImGui::GetFrameHeightWithSpacing() + 10.0f;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
     ImGui::BeginChild("SettingsWorkspace", ImVec2(0, -footer_height), false);
-    if (compact) {
-      if (ImGui::BeginTabBar("SettingsCategories", ImGuiTabBarFlags_FittingPolicyScroll)) {
-        for (int category = 0; category < 6; ++category) {
-          if (ImGui::BeginTabItem(categories[category])) {
-            settings_category_ = category;
-            ImGui::EndTabItem();
-          }
-        }
-        ImGui::EndTabBar();
+    for (int category = 0; category < 6; ++category) {
+      if (category > 0) ImGui::SameLine();
+      if (ui::PageTab(categories[category], settings_category_ == category)) {
+        settings_category_ = category;
       }
-    } else {
-      ImGui::BeginChild("SettingsNavigation", ImVec2(180, 0), false);
-      ImGui::TextDisabled("PREFERENCES");
-      ImGui::Spacing();
-      for (int category = 0; category < 6; ++category) {
-        const ImVec2 item_pos = ImGui::GetCursorScreenPos();
-        if (ImGui::Selectable(categories[category], settings_category_ == category,
-                              0, ImVec2(0, ImGui::GetFrameHeight() + 8))) {
-          settings_category_ = category;
-        }
-        if (settings_category_ == category) {
-          ImGui::GetWindowDrawList()->AddRectFilled(
-              item_pos, ImVec2(item_pos.x + 3, item_pos.y + ImGui::GetFrameHeight() + 8),
-              ImGui::ColorConvertFloat4ToU32(accent), 1.0f);
-        }
-      }
-      ImGui::EndChild();
-      ImGui::SameLine();
     }
-    ImGui::BeginChild("SettingsFields", ImVec2(0, 0), false);
-    ImGui::SetWindowFontScale(1.2f);
-    ImGui::TextColored(accent, "%s", categories[settings_category_]);
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::Separator();
-    ImGui::Spacing();
-    ImGui::BeginChild("SettingsForm", ImVec2(std::min(720.0f, ImGui::GetContentRegionAvail().x), 0), false);
+    ImGui::PopStyleColor();
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0),
+        ImVec2(FLT_MAX, ImGui::GetContentRegionAvail().y));
+    ImGui::BeginChild("SettingsFields",
+        ImVec2(std::min(880.0f, ImGui::GetContentRegionAvail().x), 0),
+        ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+    if (previous_category != settings_category_) ImGui::SetScrollY(0);
+    ImGui::PushItemWidth(std::min(720.0f, ImGui::GetContentRegionAvail().x));
     if (settings_category_ == 0) {
-      SettingsField("Room", [&] { SettingsText("##room", &settings_draft_.room_id); });
-      ImGui::Checkbox("Auto open room", &settings_draft_.auto_open_room);
+      SettingsField("房间", [&] { SettingsText("##room", &settings_draft_.room_id); });
+      ImGui::Checkbox("自动创建房间", &settings_draft_.auto_open_room);
     }
     if (settings_category_ == 1) {
-      const char* labels[] = {"Top left", "Top right", "Bottom left", "Bottom right"};
+      const char* labels[] = {"左上设备", "右上设备", "左下设备", "右下设备"};
       if (ImGui::BeginTable("DevicePositions", 2, ImGuiTableFlags_SizingStretchSame)) {
         for (size_t index = 0; index < settings_draft_.device_slots.size(); ++index) {
           ImGui::TableNextColumn();
@@ -1307,23 +1335,23 @@ class RtcConsoleApp {
       }
     }
     if (settings_category_ == 2) {
-      ImGui::Checkbox("YOLO enabled", &settings_draft_.yolo_enabled);
-      SettingsField("Maximum FPS", [&] {
+      ImGui::Checkbox("启用 YOLO 检测", &settings_draft_.yolo_enabled);
+      SettingsField("最大检测帧率", [&] {
         ImGui::InputInt("##fps", &settings_draft_.yolo_max_fps);
       });
-      SettingsField("Model path", [&] {
+      SettingsField("模型路径", [&] {
         SettingsText("##model", &settings_draft_.yolo_model_path);
       });
     }
     if (settings_category_ == 3) {
-      SettingsField("Wheel range (deg)", [&] {
+      SettingsField("方向盘转角范围（度）", [&] {
         ImGui::InputDouble("##range", &settings_draft_.steering_wheel_range_deg);
       });
-      ImGui::Checkbox("Servo calibrated", &settings_draft_.steering_servo_calibrated);
+      ImGui::Checkbox("已完成舵机标定", &settings_draft_.steering_servo_calibrated);
       ImGui::Separator();
       ImGui::BeginDisabled(!settings_draft_.steering_servo_calibrated);
       if (ImGui::BeginTable("ServoAngles", 3, ImGuiTableFlags_SizingStretchSame)) {
-        const char* labels[] = {"Left (deg)", "Center (deg)", "Right (deg)"};
+        const char* labels[] = {"左转角度（度）", "回中角度（度）", "右转角度（度）"};
         double* angles[] = {&settings_draft_.steering_servo_left_deg,
                             &settings_draft_.steering_servo_center_deg,
                             &settings_draft_.steering_servo_right_deg};
@@ -1337,16 +1365,14 @@ class RtcConsoleApp {
     }
     if (settings_category_ == 4 && ImGui::BeginTable("KeyboardBindings", 2,
         ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp)) {
-      ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-      ImGui::TableSetupColumn("Bindings", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+      ImGui::TableSetupColumn("操作", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+      ImGui::TableSetupColumn("绑定按键", ImGuiTableColumnFlags_WidthStretch, 0.6f);
       ImGui::TableHeadersRow();
       for (auto& binding : settings_draft_.key_bindings) {
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::AlignTextToFramePadding();
-        std::string action = binding.first;
-        std::replace(action.begin(), action.end(), '_', ' ');
-        ImGui::TextWrapped("%s", action.c_str());
+        ImGui::TextWrapped("%s", ui::ActionLabel(binding.first));
         ImGui::TableSetColumnIndex(1);
         ImGui::PushID(binding.first.c_str());
           int remove_index = -1;
@@ -1357,13 +1383,13 @@ class RtcConsoleApp {
             if (binding.second.size() > 1) {
               ImGui::SameLine();
               if (ImGui::SmallButton("-")) remove_index = static_cast<int>(index);
-              if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove binding");
+              if (ImGui::IsItemHovered()) ImGui::SetTooltip("移除此按键");
             }
             ImGui::PopID();
           }
           if (remove_index >= 0) binding.second.erase(binding.second.begin() + remove_index);
           if (ImGui::SmallButton("+")) binding.second.push_back("");
-          if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add binding");
+          if (ImGui::IsItemHovered()) ImGui::SetTooltip("添加按键");
         ImGui::PopID();
       }
       ImGui::EndTable();
@@ -1374,231 +1400,235 @@ class RtcConsoleApp {
         DrawRtcSetting(entry.key(), &entry.value());
       }
     }
-    ImGui::EndChild();
+    ImGui::PopItemWidth();
     ImGui::EndChild();
     ImGui::EndChild();
     ImGui::Separator();
-    if (settings_status_.empty()) {
-      ImGui::TextDisabled("Restart required after saving");
-    } else {
-      const bool failed = settings_status_.find("Save failed:") == 0;
-      ImGui::PushStyleColor(ImGuiCol_Text,
-          failed ? ImVec4(1.0f, 0.49f, 0.42f, 1) : accent);
-      ImGui::TextUnformatted(settings_status_.c_str());
-      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", settings_status_.c_str());
-      ImGui::PopStyleColor();
+    const float actions_width = ImGui::CalcTextSize("更多撤销修改保存设置").x +
+        ImGui::GetStyle().FramePadding.x * 6 + ImGui::GetStyle().ItemSpacing.x * 2;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+    ImGui::BeginChild("SettingsStatus", ImVec2(std::max(1.0f,
+        ImGui::GetContentRegionAvail().x - actions_width - ImGui::GetStyle().ItemSpacing.x),
+        ImGui::GetFrameHeight()), false, ImGuiWindowFlags_NoScrollbar);
+    ImGui::AlignTextToFramePadding();
+    const bool failed = settings_status_.find("保存失败：") == 0;
+    ImGui::TextColored(failed ? ImVec4(1, 0.49f, 0.42f, 1) : ui::Muted(), "%s",
+        settings_status_.empty() ? "保存后重启生效" : settings_status_.c_str());
+    if (ImGui::IsItemHovered() && !settings_status_.empty()) {
+      ImGui::SetTooltip("%s", settings_status_.c_str());
     }
-    const float actions_width = ImGui::CalcTextSize("Save changesRevertConsole defaults").x +
-      ImGui::GetStyle().FramePadding.x * 6 + ImGui::GetStyle().ItemSpacing.x * 2;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
-      std::max(0.0f, ImGui::GetContentRegionAvail().x - actions_width));
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.42f, 0.36f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.16f, 0.53f, 0.45f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.36f, 0.30f, 1));
-    if (ImGui::Button("Save changes")) {
-      try {
-        rtc_console::SaveConfig(rtc_cfg_path_, settings_draft_);
-        saved_settings_ = settings_draft_;
-        settings_status_ = "Saved. Restart required.";
-        AppendLog("Settings saved; restart required");
-      } catch (const std::exception& error) {
-        settings_status_ = std::string("Save failed: ") + error.what();
-      }
-    }
-    ImGui::PopStyleColor(3);
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
     ImGui::SameLine();
-    if (ImGui::Button("Revert")) {
+    if (ImGui::Button("更多")) ImGui::OpenPopup("SettingsMore");
+    if (ImGui::BeginPopup("SettingsMore")) {
+      if (ImGui::MenuItem("恢复默认设置")) {
+        const auto rtc_settings = settings_draft_.rtc_settings;
+        settings_draft_ = rtc_console::AppConfig{};
+        settings_draft_.rtc_settings = rtc_settings;
+        settings_status_ = "已恢复默认设置，尚未保存。";
+      }
+      ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("撤销修改")) {
       settings_draft_ = saved_settings_;
       settings_status_.clear();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Console defaults")) {
-      const auto rtc_settings = settings_draft_.rtc_settings;
-      settings_draft_ = rtc_console::AppConfig{};
-      settings_draft_.rtc_settings = rtc_settings;
-      settings_status_ = "Defaults loaded. Not saved.";
+    if (ui::PrimaryButton("保存设置")) {
+      try {
+        rtc_console::SaveConfig(rtc_cfg_path_, settings_draft_);
+        saved_settings_ = settings_draft_;
+        settings_status_ = "已保存，重启后生效。";
+        AppendLog("设置已保存，重启后生效");
+      } catch (const std::exception& error) {
+        settings_status_ = std::string("保存失败：") + error.what();
+      }
     }
     ImGui::End();
-    ImGui::PopStyleColor(12);
-    ImGui::PopStyleVar(6);
   }
 
   void DrawControlPanel(const UiLayout& layout) {
     const ImGuiWindowFlags window_flags =
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::SetNextWindowPos(layout.control_pos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(layout.control_size, ImGuiCond_Always);
 
-    ImGui::Begin("Connection & Devices", nullptr, window_flags);
+    ImGui::Begin("连接与设备", nullptr, window_flags);
 
-    if (ImGui::BeginTable("ControlHeader", 2,
-                          ImGuiTableFlags_SizingStretchProp |
-                              ImGuiTableFlags_NoSavedSettings,
-                          ImVec2(-FLT_MIN, 0.0f))) {
-      ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-      ImGui::TableSetupColumn("Tools", ImGuiTableColumnFlags_WidthFixed, 260.0f);
-      ImGui::TableNextRow();
-
-      ImGui::TableSetColumnIndex(0);
-      ImGui::Text("Server: %s", ServerStateText(server_state_.load()));
-      ImGui::Text("Remote Frames   video=%llu   audio=%llu",
-                  static_cast<unsigned long long>(remote_video_frames_.load()),
-                  static_cast<unsigned long long>(remote_audio_frames_.load()));
-      ImGui::Text("Local Audio     sent=%llu",
-                  static_cast<unsigned long long>(local_audio_frames_.load()));
+    ui::Heading("连接与设备");
+    const bool stacked = layout.control_size.x < 920.0f;
+    if (stacked) {
+      if (ui::PageTab("会话与媒体", connections_tab_ == 0)) connections_tab_ = 0;
       ImGui::SameLine();
-      DrawVehicleControlTargetSelector();
-
-      ImGui::TableSetColumnIndex(1);
-      ImGui::TextUnformatted("Connection & Devices");
-      ImGui::EndTable();
+      if (ui::PageTab("设备反馈", connections_tab_ == 1)) connections_tab_ = 1;
     }
-
-    ImGui::Separator();
     const float body_height = ImGui::GetContentRegionAvail().y;
-    if (ImGui::BeginTable("ControlBody", 2,
-                          ImGuiTableFlags_SizingStretchSame |
-                              ImGuiTableFlags_NoSavedSettings,
+    if (ImGui::BeginTable("ControlBody", stacked ? 1 : 2,
+                          ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings,
                           ImVec2(-FLT_MIN, body_height))) {
-      ImGui::TableSetupColumn("Controls", ImGuiTableColumnFlags_WidthStretch,
+      ImGui::TableSetupColumn("操作", ImGuiTableColumnFlags_WidthStretch,
                               1.0f);
-      ImGui::TableSetupColumn("Feedback", ImGuiTableColumnFlags_WidthStretch,
-                              1.0f);
+      if (!stacked) {
+        ImGui::TableSetupColumn("反馈", ImGuiTableColumnFlags_WidthStretch,
+                                1.0f);
+      }
       ImGui::TableNextRow();
 
-      ImGui::TableSetColumnIndex(0);
-      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 8));
-      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
-      if (ImGui::BeginChild("ControlLeftCard", ImVec2(0, 0), false)) {
-        const float side_btn_w = 96.0f;
-        const float action_btn_w = 108.0f;
+      if (!stacked || connections_tab_ == 0) {
+        ImGui::TableSetColumnIndex(0);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 12));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 6));
+        if (ImGui::BeginChild("ControlLeftCard", ImVec2(0, 0),
+                ImGuiChildFlags_Borders)) {
+          ui::Section("房间会话");
+          const float side_btn_w = ImGui::CalcTextSize("刷新音频").x +
+              ImGui::GetStyle().FramePadding.x * 2;
+          const float action_btn_w = 108.0f;
 
-        ImGui::TextDisabled("SOURCE");
-        const float source_combo_w =
-            std::max(120.0f, ImGui::GetContentRegionAvail().x - side_btn_w - 6.0f);
-        ImGui::SetNextItemWidth(source_combo_w);
-        if (ImGui::BeginCombo(
-                "##video_source_combo",
-                video_sources_.empty() ? "(none)"
-                                       : video_sources_[selected_video_source_].c_str())) {
-          for (int i = 0; i < static_cast<int>(video_sources_.size()); ++i) {
-            const bool selected = (i == selected_video_source_);
-            if (ImGui::Selectable(video_sources_[i].c_str(), selected)) {
-              selected_video_source_ = i;
-            }
-            if (selected) {
-              ImGui::SetItemDefaultFocus();
+          ImGui::TextDisabled("房间  /");
+          ImGui::SameLine();
+          ImGui::TextUnformatted(open_room_id_);
+          if (ui::PrimaryButton("创建房间", ImVec2(action_btn_w, 0))) {
+            EnsureAudioSource();
+            const RtcErrorCode code =
+                RtcOpenRoom(open_room_id_, RtcRoomType::VideoBroadcasting, false);
+            AppendLogWithCode("RtcOpenRoom", code);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("关闭房间", ImVec2(action_btn_w, 0))) {
+            const RtcErrorCode code = RtcCloseRoom(open_room_id_);
+            AppendLogWithCode("RtcCloseRoom", code);
+            if (code == RtcErrorCode::OK) {
+              ResetSessionStateOnUi();
+              ResetVehicleControlOnUi(true);
             }
           }
-          ImGui::EndCombo();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Refresh", ImVec2(side_btn_w, 0))) {
-          LoadVideoSourceList();
-        }
 
-        ImGui::Spacing();
-        ImGui::TextDisabled("AUDIO");
-        ImGui::SameLine();
-        const float audio_refresh_x =
-            ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
-            side_btn_w;
-        ImGui::SetCursorPosX(audio_refresh_x);
-        if (ImGui::Button("Refresh Audio", ImVec2(side_btn_w, 0))) {
-          LoadAudioDeviceLists();
-          ApplyAudioInputSelection();
-          ApplyAudioOutputSelection();
-        }
-        if (ImGui::BeginTable("AudioDeviceSelectors", 2,
-                              ImGuiTableFlags_SizingStretchSame |
-                                  ImGuiTableFlags_NoSavedSettings)) {
-          ImGui::TableNextRow();
-          ImGui::TableSetColumnIndex(0);
-          ImGui::TextDisabled("Input");
-          if (DrawAudioDeviceCombo("##audio_input_combo",
-                                   audio_input_choices_,
-                                   &selected_audio_input_)) {
+          const float room_combo_w =
+              std::max(120.0f, ImGui::GetContentRegionAvail().x - 86.0f - 6.0f);
+          ImGui::SetNextItemWidth(room_combo_w);
+          if (ImGui::BeginCombo(
+                  "##rooms_combo",
+                  rooms_.empty() || selected_room_ < 0 ||
+                          selected_room_ >= static_cast<int>(rooms_.size())
+                      ? "（无）"
+                      : rooms_[selected_room_].c_str())) {
+            for (int i = 0; i < static_cast<int>(rooms_.size()); ++i) {
+              const bool selected = (i == selected_room_);
+              if (ImGui::Selectable(rooms_[i].c_str(), selected)) {
+                selected_room_ = i;
+              }
+              if (selected) {
+                ImGui::SetItemDefaultFocus();
+              }
+            }
+            ImGui::EndCombo();
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("查询", ImVec2(80.0f, 0))) {
+            QueryRooms();
+          }
+          if (ui::PrimaryButton("加入房间", ImVec2(action_btn_w, 0))) {
+            JoinSelectedRoom();
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("离开房间", ImVec2(action_btn_w, 0))) {
+            const RtcErrorCode code = RtcLeaveRoom();
+            AppendLogWithCode("RtcLeaveRoom", code);
+            if (code == RtcErrorCode::OK) {
+              ResetSessionStateOnUi();
+              ResetVehicleControlOnUi(true);
+            }
+          }
+
+          ImGui::Spacing();
+          ui::Section("媒体设备");
+          ImGui::TextDisabled("视频源");
+          const float source_combo_w =
+              std::max(120.0f, ImGui::GetContentRegionAvail().x - side_btn_w - 6.0f);
+          ImGui::SetNextItemWidth(source_combo_w);
+          if (ImGui::BeginCombo(
+                  "##video_source_combo",
+                  video_sources_.empty() ? "（无）"
+                                         : video_sources_[selected_video_source_].c_str())) {
+            for (int i = 0; i < static_cast<int>(video_sources_.size()); ++i) {
+              const bool selected = (i == selected_video_source_);
+              if (ImGui::Selectable(video_sources_[i].c_str(), selected)) {
+                selected_video_source_ = i;
+              }
+              if (selected) {
+                ImGui::SetItemDefaultFocus();
+              }
+            }
+            ImGui::EndCombo();
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("刷新", ImVec2(side_btn_w, 0))) {
+            LoadVideoSourceList();
+          }
+
+          ImGui::Spacing();
+          ImGui::AlignTextToFramePadding();
+          ImGui::TextDisabled("音频设备");
+          ImGui::SameLine();
+          const float audio_refresh_x =
+              ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
+              side_btn_w;
+          ImGui::SetCursorPosX(audio_refresh_x);
+          if (ImGui::Button("刷新音频", ImVec2(side_btn_w, 0))) {
+            LoadAudioDeviceLists();
             ApplyAudioInputSelection();
-          }
-          ImGui::TableSetColumnIndex(1);
-          ImGui::TextDisabled("Output");
-          if (DrawAudioDeviceCombo("##audio_output_combo",
-                                   audio_output_choices_,
-                                   &selected_audio_output_)) {
             ApplyAudioOutputSelection();
           }
-          ImGui::EndTable();
-        }
-
-        ImGui::Spacing();
-        ImGui::TextDisabled("ROOM");
-        ImGui::TextUnformatted(open_room_id_);
-        if (ImGui::Button("Open Room", ImVec2(action_btn_w, 0))) {
-          EnsureAudioSource();
-          const RtcErrorCode code =
-              RtcOpenRoom(open_room_id_, RtcRoomType::VideoBroadcasting, false);
-          AppendLogWithCode("RtcOpenRoom", code);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Close Room", ImVec2(action_btn_w, 0))) {
-          const RtcErrorCode code = RtcCloseRoom(open_room_id_);
-          AppendLogWithCode("RtcCloseRoom", code);
-          if (code == RtcErrorCode::OK) {
-            ResetSessionStateOnUi();
-            ResetVehicleControlOnUi(true);
-          }
-        }
-
-        const float room_combo_w =
-            std::max(120.0f, ImGui::GetContentRegionAvail().x - 86.0f - 6.0f);
-        ImGui::SetNextItemWidth(room_combo_w);
-        if (ImGui::BeginCombo(
-                "##rooms_combo",
-                rooms_.empty() || selected_room_ < 0 ||
-                        selected_room_ >= static_cast<int>(rooms_.size())
-                    ? "(none)"
-                    : rooms_[selected_room_].c_str())) {
-          for (int i = 0; i < static_cast<int>(rooms_.size()); ++i) {
-            const bool selected = (i == selected_room_);
-            if (ImGui::Selectable(rooms_[i].c_str(), selected)) {
-              selected_room_ = i;
+          if (ImGui::BeginTable("AudioDeviceSelectors", 2,
+                                ImGuiTableFlags_SizingStretchSame |
+                                    ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("输入设备");
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("输出设备");
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (DrawAudioDeviceCombo("##audio_input_combo",
+                                     audio_input_choices_,
+                                     &selected_audio_input_)) {
+              ApplyAudioInputSelection();
             }
-            if (selected) {
-              ImGui::SetItemDefaultFocus();
+            ImGui::TableSetColumnIndex(1);
+            if (DrawAudioDeviceCombo("##audio_output_combo",
+                                     audio_output_choices_,
+                                     &selected_audio_output_)) {
+              ApplyAudioOutputSelection();
             }
+            ImGui::EndTable();
           }
-          ImGui::EndCombo();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Query", ImVec2(80.0f, 0))) {
-          QueryRooms();
-        }
-        if (ImGui::Button("Join Room", ImVec2(action_btn_w, 0))) {
-          JoinSelectedRoom();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Leave Room", ImVec2(action_btn_w, 0))) {
-          const RtcErrorCode code = RtcLeaveRoom();
-          AppendLogWithCode("RtcLeaveRoom", code);
-          if (code == RtcErrorCode::OK) {
-            ResetSessionStateOnUi();
-            ResetVehicleControlOnUi(true);
+
+          if (ImGui::CollapsingHeader("媒体统计")) {
+            ImGui::Text("接收：视频 %llu 帧 / 音频 %llu 帧",
+                static_cast<unsigned long long>(remote_video_frames_.load()),
+                static_cast<unsigned long long>(remote_audio_frames_.load()));
+            ImGui::Text("本地音频发送：%llu 帧",
+                static_cast<unsigned long long>(local_audio_frames_.load()));
           }
         }
-      }
-      ImGui::EndChild();
-      ImGui::PopStyleVar(2);
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
 
-      ImGui::TableSetColumnIndex(1);
-      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 8));
-      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
-      if (ImGui::BeginChild("EdgeFeedbackCard", ImVec2(0, 0), false)) {
-        DrawEdgeFeedbackPanel();
       }
-      ImGui::EndChild();
-      ImGui::PopStyleVar(2);
-
+      if (!stacked || connections_tab_ == 1) {
+        ImGui::TableSetColumnIndex(stacked ? 0 : 1);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 12));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 8));
+        if (ImGui::BeginChild("EdgeFeedbackCard", ImVec2(0, 0),
+                ImGuiChildFlags_Borders)) {
+          DrawEdgeFeedbackPanel();
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+      }
       ImGui::EndTable();
     }
 
@@ -1627,21 +1657,9 @@ class RtcConsoleApp {
     return device_slots_.Label(sessionid);
   }
 
-  void DrawVehicleControlTargetSelector() {
-    const uint32_t selected =
-        vehicle_control_targets_.selected_target();
-    const std::string preview =
-        selected == 0 ? "(none)"
-              : DeviceLabel(selected);
-
-    ImGui::TextDisabled("Vehicle target");
-    ImGui::SameLine();
-    ImGui::TextWrapped("%s", preview.c_str());
-  }
-
   void DrawEdgeFeedbackPanel(bool compact = false) {
     if (!compact) {
-      ImGui::TextDisabled("EDGE FEEDBACK");
+      ui::Section("设备反馈");
     }
 
     const uint32_t selected_target =
@@ -1662,24 +1680,24 @@ class RtcConsoleApp {
     if (compact) {
       ImGui::TextColored(vehicle_takeover_active_ ? ImVec4(0.35f, 0.80f, 0.50f, 1.0f)
                      : ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
-             "%s", vehicle_takeover_active_ ? "TAKEOVER" : "STANDBY");
+             "%s", vehicle_takeover_active_ ? "接管中" : "待命");
       if (ImGui::BeginTable("DrivingStatus", 4,
                             ImGuiTableFlags_SizingStretchSame |
                             ImGuiTableFlags_NoSavedSettings)) {
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
-        ImGui::TextDisabled("LINK");
+        ImGui::TextDisabled("控制链路");
         ImGui::TextColored(target_ready ? ImVec4(0.35f, 0.80f, 0.50f, 1.0f)
                                         : ImVec4(0.95f, 0.35f, 0.35f, 1.0f),
-                           "%s", target_ready ? "Ready" : "Not ready");
+                           "%s", target_ready ? "就绪" : "未就绪");
         ImGui::TableSetColumnIndex(1);
-        ImGui::TextDisabled("GEAR");
+        ImGui::TextDisabled("档位");
         ImGui::TextUnformatted(has_feedback ? VehicleGearText(feedback.state.active_gear) : "-");
         ImGui::TableSetColumnIndex(2);
-        ImGui::TextDisabled("WATCHDOG");
-        ImGui::TextUnformatted(!has_feedback ? "Waiting" : feedback.state.watchdog_stopped ? "Stopped" : "Active");
+        ImGui::TextDisabled("看门狗");
+        ImGui::TextUnformatted(!has_feedback ? "等待反馈" : feedback.state.watchdog_stopped ? "已停止" : "正常");
         ImGui::TableSetColumnIndex(3);
-        ImGui::TextDisabled("FEEDBACK AGE");
+        ImGui::TextDisabled("反馈间隔");
         if (has_feedback) {
           const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - feedback.updated_at).count();
@@ -1694,52 +1712,52 @@ class RtcConsoleApp {
     if (ImGui::BeginTable("EdgeFeedbackTable", 2,
                           ImGuiTableFlags_SizingStretchProp |
                               ImGuiTableFlags_NoSavedSettings)) {
-      ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed,
+      ImGui::TableSetupColumn("字段", ImGuiTableColumnFlags_WidthFixed,
                               118.0f);
-      ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch,
+      ImGui::TableSetupColumn("数值", ImGuiTableColumnFlags_WidthStretch,
                               1.0f);
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Device");
+      ImGui::TextDisabled("设备");
       ImGui::TableSetColumnIndex(1);
       if (selected_target == 0) {
-        ImGui::TextDisabled("Not selected");
+        ImGui::TextDisabled("未选择");
       } else {
         ImGui::TextWrapped("%s", DeviceLabel(selected_target).c_str());
       }
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Link");
+      ImGui::TextDisabled("控制链路");
       ImGui::TableSetColumnIndex(1);
       if (target_ready) {
-        ImGui::TextColored(ImVec4(0.35f, 0.80f, 0.50f, 1.0f), "Ready");
+        ImGui::TextColored(ImVec4(0.35f, 0.80f, 0.50f, 1.0f), "就绪");
       } else {
-        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Not ready");
+        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "未就绪");
       }
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Feedback seq");
+      ImGui::TextDisabled("反馈序号");
       ImGui::TableSetColumnIndex(1);
       if (has_feedback) {
         ImGui::Text("%llu",
                     static_cast<unsigned long long>(feedback.envelope_seq));
       } else {
-        ImGui::TextDisabled("Waiting");
+        ImGui::TextDisabled("等待反馈");
       }
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Gear");
+      ImGui::TextDisabled("当前档位");
       ImGui::TableSetColumnIndex(1);
       ImGui::TextUnformatted(
           has_feedback ? VehicleGearText(feedback.state.active_gear) : "-");
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Last drive seq");
+      ImGui::TextDisabled("驾驶指令序号");
       ImGui::TableSetColumnIndex(1);
       if (has_feedback) {
         ImGui::Text("%llu", static_cast<unsigned long long>(
@@ -1750,19 +1768,19 @@ class RtcConsoleApp {
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Watchdog");
+      ImGui::TextDisabled("看门狗");
       ImGui::TableSetColumnIndex(1);
       if (!has_feedback) {
         ImGui::TextUnformatted("-");
       } else if (feedback.state.watchdog_stopped) {
-        ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "Stopped");
+        ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "已停止");
       } else {
-        ImGui::TextColored(ImVec4(0.35f, 0.80f, 0.50f, 1.0f), "Active");
+        ImGui::TextColored(ImVec4(0.35f, 0.80f, 0.50f, 1.0f), "正常");
       }
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
-      ImGui::TextDisabled("Updated");
+      ImGui::TextDisabled("最近更新");
       ImGui::TableSetColumnIndex(1);
       if (has_feedback) {
         const auto now = std::chrono::steady_clock::now();
@@ -1771,7 +1789,7 @@ class RtcConsoleApp {
                              : std::chrono::steady_clock::duration::zero();
         const auto age_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(age).count();
-        ImGui::Text("%lld ms ago", static_cast<long long>(age_ms));
+        ImGui::Text("%lld ms 前", static_cast<long long>(age_ms));
       } else {
         ImGui::TextUnformatted("-");
       }
@@ -1805,7 +1823,7 @@ class RtcConsoleApp {
         rtc_console::ClampVehicleThrottle(vehicle_throttle_ + delta);
     if (vehicle_throttle_ != previous) {
       std::ostringstream oss;
-      oss << "Vehicle speed set to " << vehicle_throttle_;
+      oss << "油门设定已调整为 " << vehicle_throttle_;
       AppendLog(oss.str());
     }
   }
@@ -1854,7 +1872,7 @@ class RtcConsoleApp {
       }
       const auto slots = SnapshotDeviceSlots();
       if (slots[slot].session_id == 0) {
-        AppendLog("Vehicle takeover skipped: empty video slot");
+        AppendLog("无法接管：该画面位置没有设备");
         return;
       }
       const auto target = slots[slot].session_id;
@@ -1874,7 +1892,7 @@ class RtcConsoleApp {
       vehicle_control_enabled_ = false;
       if ((previous_ready && !previous_stopped) ||
           (!lateral_stopped && gamepad_dog_actions_.lateral_active())) {
-        AppendLog("Vehicle takeover cancelled: previous target stop failed");
+        AppendLog("接管已取消：前一设备停止指令发送失败");
         return;
       }
       viewed_session_ = next_view;
@@ -1901,7 +1919,7 @@ class RtcConsoleApp {
       const auto targets = vehicle_control_targets_.AvailableTargets();
       if (!IsBoundSession(viewed_session_) ||
           std::find(targets.begin(), targets.end(), viewed_session_) == targets.end()) {
-        AppendLog("Vehicle takeover skipped: viewed target is not ready");
+        AppendLog("无法接管：当前设备控制链路尚未就绪");
         return;
       }
       if (vehicle_control_targets_.SelectTarget(viewed_session_) &&
@@ -1915,7 +1933,7 @@ class RtcConsoleApp {
         if (SendVehicleDriveCommand(true)) {
           vehicle_takeover_active_ = true;
           vehicle_control_enabled_ = true;
-          AppendLog("Vehicle takeover activated: " + std::to_string(viewed_session_));
+          AppendLog("已进入接管状态，设备：" + std::to_string(viewed_session_));
         }
       }
       return;
@@ -2023,7 +2041,7 @@ class RtcConsoleApp {
     }
 
     const char* name = SDL_GetGamepadName(gamepad_);
-    AppendLog(std::string("Gamepad connected: ") +
+    AppendLog(std::string("手柄已连接：") +
               (name ? name : "unknown"));
     return true;
   }
@@ -2053,7 +2071,7 @@ class RtcConsoleApp {
       }
       if (drive_was_active ||
           (lateral_was_active && lateral_stopped)) {
-        AppendLog("Gamepad disconnected; gamepad input cleared");
+        AppendLog("手柄已断开，已清空手柄输入");
       }
       return;
     }
@@ -2180,13 +2198,13 @@ class RtcConsoleApp {
         vehicle_control_targets_.selected_target();
     if (!IsBoundSession(target)) {
       if (force_log) {
-        AppendLog("Vehicle control skipped: select a vehicle target");
+        AppendLog("无法发送控制：请先选择设备");
       }
       return false;
     }
     if (!vehicle_control_targets_.selected_target_ready()) {
       if (force_log) {
-        AppendLog("Vehicle control skipped: selected target is not ready");
+        AppendLog("无法发送控制：所选设备尚未就绪");
       }
       return false;
     }
@@ -2196,7 +2214,7 @@ class RtcConsoleApp {
     const vts_rtc::vehicle::EncodeResult encoded =
         vts_rtc::vehicle::EncodeDriveCommand(vehicle_control_seq_++, command);
     if (!encoded) {
-      AppendLog(std::string("Vehicle control encode failed: ") +
+      AppendLog(std::string("车辆控制编码失败：") +
                 encoded.error_message);
       return false;
     }
@@ -2236,7 +2254,7 @@ class RtcConsoleApp {
     const RtcSessionId target = vehicle_control_targets_.selected_target();
     if (!vehicle_takeover_active_ || !IsBoundSession(target) ||
         !vehicle_control_targets_.selected_target_ready()) {
-      AppendLog("Gear change skipped: takeover target is not ready");
+      AppendLog("无法切换档位：接管设备尚未就绪");
       return false;
     }
 
@@ -2246,7 +2264,7 @@ class RtcConsoleApp {
     const auto encoded =
         vts_rtc::vehicle::EncodeSetGear(vehicle_control_seq_++, command);
     if (!encoded) {
-      AppendLog(std::string("Gear change encode failed: ") + encoded.error_message);
+      AppendLog(std::string("档位请求编码失败：") + encoded.error_message);
       return false;
     }
     const RtcErrorCode code = RtcSendData(
@@ -2257,7 +2275,7 @@ class RtcConsoleApp {
       AppendLogWithCode("RtcSendData(vehicle.event.v1 set_gear)", code);
       return false;
     }
-    AppendLog(std::string("Gear change queued: ") + VehicleGearText(gear));
+    AppendLog(std::string("档位请求已入队：") + VehicleGearText(gear));
     return true;
   }
 
@@ -2267,11 +2285,11 @@ class RtcConsoleApp {
     const RtcSessionId target =
         vehicle_control_targets_.selected_target();
     if (!IsBoundSession(target)) {
-      AppendLog("Dog action skipped: select a vehicle target");
+      AppendLog("无法发送动作：请先选择设备");
       return false;
     }
     if (!vehicle_control_targets_.selected_target_ready()) {
-      AppendLog("Dog action skipped: selected target is not ready");
+      AppendLog("无法发送动作：所选设备尚未就绪");
       return false;
     }
 
@@ -2282,7 +2300,7 @@ class RtcConsoleApp {
     const vts_rtc::vehicle::EncodeResult encoded =
         vts_rtc::vehicle::EncodeDogAction(vehicle_control_seq_++, dog_action);
     if (!encoded) {
-      AppendLog(std::string("Dog action encode failed: ") +
+      AppendLog(std::string("动作请求编码失败：") +
                 encoded.error_message);
       return false;
     }
@@ -2297,7 +2315,7 @@ class RtcConsoleApp {
     }
 
     if (log_success) {
-      AppendLog(std::string("Dog action queued: ") + DogActionText(action));
+      AppendLog(std::string("动作请求已入队：") + DogActionText(action));
     }
     vehicle_event_acks_.TrackDogAction(dog_action.request_id, action,
                                        log_success);
@@ -2309,14 +2327,14 @@ class RtcConsoleApp {
     if (target == 0) target = vehicle_control_targets_.selected_target();
     if (!IsBoundSession(target)) return false;
     if (target == 0) {
-      AppendLog("Video view control skipped: select a vehicle target");
+      AppendLog("无法切换画面：请先选择设备");
       return false;
     }
     const vts_rtc::vision::ViewControlEncodeResult encoded =
         vts_rtc::vision::EncodeViewControl(video_view_control_seq_++,
                                            enable_view);
     if (!encoded) {
-      AppendLog(std::string("Video view control encode failed: ") +
+      AppendLog(std::string("画面切换请求编码失败：") +
                 encoded.error_message);
       return false;
     }
@@ -2456,17 +2474,47 @@ class RtcConsoleApp {
     return 32.0f / 9.0f;
   }
 
-  void DrawVideoPanel(const UiLayout& layout) {
+  void DrawVideoPanel(const UiLayout& layout, bool immersive = false) {
     const ImGuiWindowFlags window_flags =
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::SetNextWindowPos(layout.video_pos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(layout.video_size, ImGuiCond_Always);
 
-    ImGui::Begin("Driving Monitor", nullptr, window_flags);
-
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+        immersive ? ImVec2(2, 2) : ImVec2(16, 14));
+    ImGui::Begin("Driving Monitor", nullptr, window_flags |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     const std::vector<VideoSessionSnapshot> sessions = SnapshotVideoSessions();
-
+    if (!immersive) {
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted("驾驶监看");
+      ImGui::SameLine();
+      const auto online = std::count_if(sessions.begin(), sessions.end(),
+          [](const VideoSessionSnapshot& session) { return session.remote_sessionid != 0; });
+      ImGui::TextDisabled("%d / 4 在线", static_cast<int>(online));
+      const float actions_width = ImGui::CalcTextSize("操作全屏监看").x +
+          ImGui::GetStyle().FramePadding.x * 4 + ImGui::GetStyle().ItemSpacing.x;
+      ImGui::SameLine(std::max(ImGui::GetCursorPosX(), layout.video_size.x -
+          ImGui::GetStyle().WindowPadding.x - actions_width));
+      if (ImGui::Button("操作")) ImGui::OpenPopup("MonitorHelp");
+      if (ImGui::BeginPopup("MonitorHelp")) {
+        ImGui::Checkbox("显示设备状态面板", &show_video_status_);
+        ImGui::Separator();
+        ImGui::Text("选择设备：%s / %s / %s / %s",
+            ActionKeyLabel("select_1").c_str(), ActionKeyLabel("select_2").c_str(),
+            ActionKeyLabel("select_3").c_str(), ActionKeyLabel("select_4").c_str());
+        ImGui::Text("接管：%s    急停：%s", ActionKeyLabel("takeover").c_str(),
+            ActionKeyLabel("emergency_stop").c_str());
+        ImGui::Text("退出接管：%s", ActionKeyLabel("release_takeover").c_str());
+        ImGui::Text("切换双目／环视：%s", ActionKeyLabel("toggle_view").c_str());
+        ImGui::TextDisabled("双击视频画面可单路全屏观看");
+        ImGui::EndPopup();
+      }
+      ImGui::SameLine();
+      if (ui::PrimaryButton("全屏监看")) OpenFullscreenMonitor();
+      ImGui::Spacing();
+    }
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 panel_avail = ImGui::GetContentRegionAvail();
     const auto selected_session = std::find_if(
@@ -2504,17 +2552,63 @@ class RtcConsoleApp {
           grid_origin.y +
               static_cast<float>(row) * (cell_height + style.ItemSpacing.y)));
       const auto& session = sessions[i];
-      const ImVec2 device_origin = ImGui::GetCursorScreenPos();
-      const ImVec2 device_size = focus_takeover ? panel_avail : ImVec2(cell_width, cell_height);
+      const ImVec2 card_origin = ImGui::GetCursorScreenPos();
+      const ImVec2 card_size = focus_takeover ? panel_avail : ImVec2(cell_width, cell_height);
+      const float card_header = std::min(immersive ? 28.0f : 34.0f, card_size.y * 0.3f);
+      const ImVec2 device_origin(card_origin.x + 1, card_origin.y + card_header);
+      const ImVec2 device_size(std::max(1.0f, card_size.x - 2),
+          std::max(1.0f, card_size.y - card_header - 1));
       const bool has_video = session.remote_sessionid != 0 &&
           (!session.frames_by_tile.empty() || session.surround_grid);
       ImDrawList* draw_list = ImGui::GetWindowDrawList();
+      const bool selected_card = session.remote_sessionid != 0 &&
+          session.remote_sessionid == viewed_session_;
+      const ImVec2 card_end(card_origin.x + card_size.x, card_origin.y + card_size.y);
+      draw_list->AddRectFilled(card_origin, card_end, IM_COL32(20, 27, 35, 255));
+      draw_list->AddRect(card_origin, card_end, selected_card
+          ? IM_COL32(61, 199, 173, 210) : IM_COL32(48, 63, 78, 255));
+      draw_list->PushClipRect(card_origin, ImVec2(card_end.x, device_origin.y), true);
+      const float label_y = card_origin.y + (card_header - ImGui::GetTextLineHeight()) * 0.5f;
+      const std::string slot_label = "0" + std::to_string(i + 1);
+      draw_list->AddText(ImVec2(card_origin.x + 12, label_y),
+          IM_COL32(116, 136, 154, 255), slot_label.c_str());
+      const char* status = session.identity_conflict ? "标识冲突"
+          : has_video ? "视频在线" : session.remote_sessionid != 0 ? "设备在线" : "设备离线";
+      const ImU32 status_color = session.identity_conflict ? IM_COL32(245, 184, 97, 255)
+          : session.remote_sessionid != 0 ? IM_COL32(61, 199, 173, 255)
+          : IM_COL32(123, 142, 160, 255);
+      const float status_x = card_end.x - ImGui::CalcTextSize(status).x - 12;
+      const float status_y = label_y + ImGui::GetTextLineHeight() * 0.5f;
+      draw_list->AddRectFilled(ImVec2(status_x - 13, status_y - 3),
+          ImVec2(status_x - 7, status_y + 3), status_color);
+      draw_list->AddText(ImVec2(status_x, label_y), status_color, status);
+      draw_list->PushClipRect(ImVec2(card_origin.x + 42, card_origin.y),
+          ImVec2(std::max(card_origin.x + 42, status_x - 22), device_origin.y), true);
+      draw_list->AddText(ImVec2(card_origin.x + 42, label_y),
+          IM_COL32(225, 235, 243, 255), session.device_id.c_str());
+      draw_list->PopClipRect();
+      draw_list->PopClipRect();
+      ImGui::SetCursorScreenPos(device_origin);
       if (has_video) {
         DrawVideoComposite(session, device_size);
       } else {
-        draw_list->AddRectFilled(device_origin,
-            ImVec2(device_origin.x + device_size.x, device_origin.y + device_size.y),
-            IM_COL32(24, 26, 28, 255));
+        draw_list->PushClipRect(device_origin,
+            ImVec2(device_origin.x + device_size.x, device_origin.y + device_size.y), true);
+        const float center_x = device_origin.x + device_size.x * 0.5f;
+        const float center_y = device_origin.y + device_size.y * 0.5f;
+        if (device_size.y > 110) {
+          draw_list->AddRect(ImVec2(center_x - 17, center_y - 39),
+              ImVec2(center_x + 11, center_y - 18), IM_COL32(78, 101, 121, 255), 0, 0, 1.5f);
+          draw_list->AddTriangle(ImVec2(center_x + 12, center_y - 33),
+              ImVec2(center_x + 21, center_y - 38), ImVec2(center_x + 21, center_y - 19),
+              IM_COL32(78, 101, 121, 255), 1.5f);
+        }
+        const char* empty_text = session.identity_conflict ? "设备标识冲突"
+            : session.remote_sessionid == 0 ? "等待设备连接" : "等待视频画面";
+        const ImVec2 text_size = ImGui::CalcTextSize(empty_text);
+        draw_list->AddText(ImVec2(center_x - text_size.x * 0.5f, center_y - 5),
+            IM_COL32(147, 166, 184, 255), empty_text);
+        draw_list->PopClipRect();
       }
       const bool takeover = vehicle_takeover_active_ &&
           session.remote_sessionid != 0 &&
@@ -2541,31 +2635,12 @@ class RtcConsoleApp {
       } else {
         feedback_age << "-";
       }
-      const std::string label = session.device_id.empty() ? "-" : session.device_id;
       const float badge_width = std::max(1.0f, (device_size.x - 20.0f) * 0.5f);
       draw_list->PushClipRect(device_origin,
           ImVec2(device_origin.x + device_size.x, device_origin.y + device_size.y), true);
-      const auto draw_badge = [&](const char* text, bool right, ImU32 color) {
-        const ImVec2 measured = ImGui::CalcTextSize(text);
-        const float text_width = std::max(1.0f, badge_width - 8.0f);
-        const float scale = std::min(1.0f, std::min(
-          text_width / std::max(1.0f, measured.x),
-          std::max(1.0f, device_size.y - 12.0f) / std::max(1.0f, measured.y)));
-        const float width = measured.x * scale + 8.0f;
-        const float height = measured.y * scale + 4.0f;
-        const ImVec2 position(
-            right ? device_origin.x + device_size.x - 4.0f - width
-                  : device_origin.x + 4.0f,
-            device_origin.y + 4.0f);
-        draw_list->AddRectFilled(position,
-            ImVec2(position.x + width, position.y + height), IM_COL32(0, 0, 0, 180));
-        draw_list->AddText(ImGui::GetFont(), ImGui::GetFontSize() * scale,
-            ImVec2(position.x + 4.0f, position.y + 2.0f), color, text);
-      };
-      draw_badge(label.c_str(), false, IM_COL32(255, 255, 255, 255));
         const bool selected = session.remote_sessionid != 0 &&
           session.remote_sessionid == viewed_session_;
-        if (selected || takeover) {
+        if ((selected && show_video_status_) || takeover) {
         const float row_height = ImGui::GetFontSize() + 7.0f;
         const float panel_height = row_height * 9.0f + 28.0f;
         const float panel_scale = std::min(1.0f, std::min(
@@ -2582,10 +2657,8 @@ class RtcConsoleApp {
         const ImU32 warning = IM_COL32(245, 187, 91, 255);
         const ImU32 danger = IM_COL32(255, 115, 115, 255);
         const ImU32 blue = IM_COL32(100, 190, 255, 255);
-        draw_list->AddRectFilled(panel_origin, panel_end, IM_COL32(17, 20, 24, 72),
-                     4.0f * panel_scale);
-        draw_list->AddRect(panel_origin, panel_end, IM_COL32(110, 122, 134, 45),
-                 4.0f * panel_scale);
+        draw_list->AddRectFilled(panel_origin, panel_end, IM_COL32(17, 20, 24, 72));
+        draw_list->AddRect(panel_origin, panel_end, IM_COL32(110, 122, 134, 45));
         const auto panel_text = [&](const char* text, float top, bool right,
                       ImU32 color, float inset) {
         const float available = std::max(1.0f, 200.0f - inset - 12.0f);
@@ -2599,13 +2672,15 @@ class RtcConsoleApp {
                panel_origin.y + top * panel_scale), color, text);
         };
         const ImU32 connection_color = ready ? green : danger;
-        draw_list->AddCircleFilled(
-          ImVec2(panel_origin.x + 15.0f * panel_scale,
-             panel_origin.y + (12.0f + ImGui::GetFontSize() * 0.5f) * panel_scale),
-          3.0f * panel_scale, connection_color);
-        panel_text(ready ? "CONTROL READY" : "CONTROL UNAVAILABLE",
+        const float connection_y = panel_origin.y +
+            (12.0f + ImGui::GetFontSize() * 0.5f) * panel_scale;
+        draw_list->AddRectFilled(
+            ImVec2(panel_origin.x + 12.0f * panel_scale, connection_y - 3.0f * panel_scale),
+            ImVec2(panel_origin.x + 18.0f * panel_scale, connection_y + 3.0f * panel_scale),
+            connection_color);
+        panel_text(ready ? "控制链路就绪" : "控制链路不可用",
              12.0f, false, connection_color, 25.0f);
-          panel_text(takeover ? "TAKEOVER" : "STANDBY", 12.0f + row_height,
+          panel_text(takeover ? "接管中" : "待命", 12.0f + row_height,
                false, takeover ? blue : muted, 12.0f);
         const float divider_y = panel_origin.y + (12.0f + row_height * 2.0f) * panel_scale;
         draw_list->AddLine(ImVec2(panel_origin.x + 12.0f * panel_scale, divider_y),
@@ -2617,8 +2692,8 @@ class RtcConsoleApp {
           std::to_string(static_cast<int>(vehicle_throttle_ * 100.0f + 0.5f)) + "%";
         const auto steering = CurrentVehicleDriveCommand().steering_direction;
         const char* steering_text = !takeover ? "-"
-          : steering == vts_rtc::vehicle::SteeringDirection::Left ? "Left"
-          : steering == vts_rtc::vehicle::SteeringDirection::Right ? "Right" : "Center";
+          : steering == vts_rtc::vehicle::SteeringDirection::Left ? "左转"
+          : steering == vts_rtc::vehicle::SteeringDirection::Right ? "右转" : "回中";
         double video_delay_ms = -1;
         {
           std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -2637,13 +2712,13 @@ class RtcConsoleApp {
           video_delay << "--";
         }
         const std::string video_delay_text = video_delay.str();
-        const char* names[] = {"GEAR", "SAFETY", "THROTTLE SET", "WHEEL SIM", "BRAKE INPUT", "FEEDBACK AGE", "VIDEO DELAY"};
+        const char* names[] = {"档位", "保护状态", "油门设定", "方向盘", "制动输入", "反馈间隔", "视频延迟"};
         const char* values[] = {
           has_feedback ? VehicleGearText(feedback.state.active_gear) : "-",
-          !has_feedback ? "Unknown" : feedback.state.watchdog_stopped ? "Protected" : "Clear",
+          !has_feedback ? "未知" : feedback.state.watchdog_stopped ? "保护已触发" : "正常",
           throttle.c_str(),
           steering_text,
-          brake_requested ? "Applied" : "Released",
+          brake_requested ? "已施加" : "已释放",
           age.c_str(), video_delay_text.c_str()};
         const ImU32 colors[] = {normal,
           !has_feedback ? muted : feedback.state.watchdog_stopped ? warning : green,
@@ -2664,7 +2739,7 @@ class RtcConsoleApp {
           draw_list->AddRectFilled(
               ImVec2(track_left, track_y - 2.0f * panel_scale),
               ImVec2(track_right, track_y + 2.0f * panel_scale),
-              IM_COL32(160, 168, 176, 90), 2.0f * panel_scale);
+              IM_COL32(160, 168, 176, 90));
           for (const float tick_x : {track_left, track_center, track_right}) {
             draw_list->AddLine(ImVec2(tick_x, track_y - tick_height),
                 ImVec2(tick_x, track_y + tick_height),
@@ -2678,7 +2753,7 @@ class RtcConsoleApp {
             draw_list->AddRectFilled(
                 ImVec2(cursor_x - 2.0f * panel_scale, track_y - 7.0f * panel_scale),
                 ImVec2(cursor_x + 2.0f * panel_scale, track_y + 7.0f * panel_scale),
-                blue, panel_scale);
+                blue);
           }
         } else {
           panel_text(values[row], top, true, colors[row], 112.0f);
@@ -2690,7 +2765,9 @@ class RtcConsoleApp {
     ImGui::SetCursorScreenPos(grid_origin);
     ImGui::Dummy(ImVec2(std::max(1.0f, panel_avail.x),
                         std::max(1.0f, panel_avail.y)));
-    if (ActionPressed("escape", true)) {
+    if (immersive && ActionPressed("escape")) {
+      ExitFullscreenView();
+    } else if (!immersive && !fullscreen_video_.active() && ActionPressed("escape", true)) {
       for (const auto& session : sessions) {
         if (video_view_state_.Get(session.remote_sessionid) >= vts_rtc::vision::ViewMode::SurroundFront) {
           SendVideoViewControl(vts_rtc::vision::ViewMode::Binocular, session.remote_sessionid);
@@ -2698,7 +2775,9 @@ class RtcConsoleApp {
       }
     }
 
+    if (immersive) DrawFullscreenToolbar();
     ImGui::End();
+    ImGui::PopStyleVar();
   }
 
   void DrawVideoComposite(const VideoSessionSnapshot& session,
@@ -2891,12 +2970,14 @@ class RtcConsoleApp {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     draw_list->AddRectFilled(box_min, box_max, IM_COL32(12, 12, 14, 255));
     draw_list->AddRect(box_min, box_max, IM_COL32(70, 70, 74, 255));
-    const ImVec2 text_size = ImGui::CalcTextSize(source_id);
+    const std::string source_name = source_id;
+    const char* source_label = ui::SettingLabel(source_name);
+    const ImVec2 text_size = ImGui::CalcTextSize(source_label);
     const ImVec2 text_pos(
         box_min.x + std::max(4.0f, (size.x - text_size.x) * 0.5f),
         box_min.y + std::max(4.0f, (size.y - text_size.y) * 0.5f));
     draw_list->PushClipRect(box_min, box_max, true);
-    draw_list->AddText(text_pos, IM_COL32(150, 150, 155, 255), source_id);
+    draw_list->AddText(text_pos, IM_COL32(150, 150, 155, 255), source_label);
     draw_list->PopClipRect();
   }
 
@@ -3029,17 +3110,39 @@ class RtcConsoleApp {
     draw_list->AddRect(box_min, box_max,
                IM_COL32(80, 80, 80, 255));
 
+    const bool image_hovered = ImGui::IsWindowHovered() &&
+        ImGui::IsMouseHoveringRect(image_min, image_max);
+    if (image_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+      // 同一帧会继续绘制新打开的全屏视图，不能将同一次双击当作退出。
+      if (!fullscreen_mode) {
+        OpenFullscreenVideo(frame, uv_min, uv_max, tile_label);
+      } else if (ImGui::GetFrameCount() > fullscreen_open_frame_) {
+        ExitFullscreenView();
+      }
+    }
+    if (!fullscreen_mode && image_hovered && draw_width > 100 && draw_height > 50) {
+      const ImVec2 cursor = ImGui::GetCursorScreenPos();
+      ImGui::PushID(frame.stream_key.c_str());
+      ImGui::PushID(tile_label ? tile_label : "frame");
+      ImGui::SetCursorScreenPos(ImVec2(image_max.x - 68, image_min.y + 8));
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.05f, 0.07f, 0.09f, 0.90f));
+      if (ImGui::SmallButton("全屏")) {
+        OpenFullscreenVideo(frame, uv_min, uv_max, tile_label);
+      }
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("双击画面也可全屏观看");
+      ImGui::PopStyleColor();
+      ImGui::SetCursorScreenPos(cursor);
+      ImGui::PopID();
+      ImGui::PopID();
+    }
+
     if (video_debug_enabled_) {
     std::ostringstream title;
     if (compact_mode) {
-      std::string source = tile_label ? tile_label : frame.source_id;
-      if (source == "surround_front") source = "Front";
-      else if (source == "surround_rear") source = "Rear";
-      else if (source == "surround_left") source = "Left";
-      else if (source == "surround_right") source = "Right";
-      title << source;
+      const std::string source = tile_label ? tile_label : frame.source_id;
+      title << ui::SettingLabel(source);
     } else {
-      title << "sid=" << frame.remote_sessionid << "  " << frame.source_id
+      title << "对端=" << frame.remote_sessionid << "  " << ui::SettingLabel(frame.source_id)
             << "  " << frame.width << "x" << frame.height;
     }
     const std::string title_text = title.str();
@@ -3426,79 +3529,110 @@ class RtcConsoleApp {
     }
   }
 
-  void DrawFullscreenVideoOverlay() {
-    if (fullscreen_video_stream_key_.empty()) {
-      return;
+  void DrawFullscreenToolbar() {
+    if (!fullscreen_video_.active()) return;
+    const uint64_t now = SteadyTimeMs();
+    const ImGuiIO& io = ImGui::GetIO();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (io.MouseDelta.x != 0 || io.MouseDelta.y != 0 ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+        (io.MousePos.y >= viewport->Pos.y && io.MousePos.y < viewport->Pos.y + 56)) {
+      fullscreen_last_activity_ms_ = now;
     }
+    if (!vehicle_takeover_active_ && now - fullscreen_last_activity_ms_ > 2500) return;
+    const std::string status = vehicle_takeover_active_
+        ? "正在接管：" + DeviceLabel(vehicle_control_targets_.selected_target())
+        : fullscreen_video_.mode() == rtc_console::VideoFullscreenState::Mode::Monitor
+            ? "全屏监看" : ui::SettingLabel(fullscreen_video_.label());
+    const std::string exit_label = (fullscreen_video_.returns_to_monitor()
+        ? "返回监看  " : "退出全屏  ") + ActionKeyLabel("escape");
+    const float width = ImGui::CalcTextSize(status.c_str()).x +
+        ImGui::CalcTextSize(exit_label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2 +
+        ImGui::GetStyle().ItemSpacing.x + 24;
+    ImGui::SetCursorScreenPos(ImVec2(viewport->Pos.x + viewport->Size.x - width - 16,
+        viewport->Pos.y + 12));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.05f, 0.07f, 0.09f, 0.90f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0);
+    ImGui::BeginChild("##FullscreenToolbar", ImVec2(width, ImGui::GetFrameHeight() + 16),
+        ImGuiChildFlags_AlwaysUseWindowPadding,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(vehicle_takeover_active_ ? ui::Warning() : ui::Muted(),
+        "%s", status.c_str());
+    ImGui::SameLine();
+    if (ImGui::Button(exit_label.c_str())) ExitFullscreenView();
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+  }
 
+  void DrawFullscreenVideoOverlay() {
+    if (fullscreen_video_.mode() != rtc_console::VideoFullscreenState::Mode::Stream) return;
     std::shared_ptr<VideoFrameView> frame;
     {
       std::lock_guard<std::mutex> lock(video_mutex_);
-      const auto it = remote_video_frames_by_source_.find(fullscreen_video_stream_key_);
-      if (it != remote_video_frames_by_source_.end()) {
-        frame = it->second;
-      }
+      const auto it = remote_video_frames_by_source_.find(fullscreen_video_.stream_key());
+      if (it != remote_video_frames_by_source_.end()) frame = it->second;
     }
-
-    if (!frame) {
-      CloseFullscreenVideo();
+    if (!frame || !IsBoundSession(frame->remote_sessionid) || ActionPressed("escape")) {
+      ExitFullscreenView();
       return;
     }
-
-    if (ActionPressed("escape", true)) {
-      CloseFullscreenVideo();
-      return;
-    }
-
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
-    if (!viewport) {
-      return;
-    }
-
-    const ImGuiWindowFlags window_flags =
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::SetNextWindowPos(viewport->Pos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(viewport->Size, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(1.0f);
     if (focus_fullscreen_video_) {
       ImGui::SetNextWindowFocus();
       focus_fullscreen_video_ = false;
     }
-
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    if (ImGui::Begin("##VideoFullscreenOverlay", nullptr, window_flags)) {
-      DrawVideoFrameBox(*frame, ImGui::GetContentRegionAvail(), true);
-
-      ImDrawList* draw_list = ImGui::GetWindowDrawList();
-      const char* exit_text = "Esc: exit full screen";
-      const ImVec2 exit_size = ImGui::CalcTextSize(exit_text);
-      const float label_padding = 8.0f;
-      const ImVec2 overlay_origin = viewport->Pos;
-      const ImVec2 top_right(
-          overlay_origin.x + viewport->Size.x - kFullscreenOverlayPadding -
-              exit_size.x,
-          overlay_origin.y + kFullscreenOverlayPadding);
-      const ImVec2 exit_min(top_right.x - label_padding, top_right.y - label_padding);
-      const ImVec2 exit_max(top_right.x + exit_size.x + label_padding,
-                            top_right.y + exit_size.y + label_padding);
-      draw_list->AddRectFilled(exit_min, exit_max, IM_COL32(0, 0, 0, 170), 6.0f);
-      draw_list->AddText(top_right, IM_COL32(235, 235, 235, 255), exit_text);
+    const auto crop = fullscreen_video_.crop();
+    const std::string label = fullscreen_video_.label();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+    if (ImGui::Begin("##VideoFullscreenOverlay", nullptr, flags)) {
+      DrawVideoFrameBox(*frame, ImGui::GetContentRegionAvail(), true, false,
+          ImVec2(crop.left, crop.top), ImVec2(crop.right, crop.bottom), label.c_str());
+      DrawFullscreenToolbar();
     }
     ImGui::End();
     ImGui::PopStyleVar(2);
   }
 
-  void OpenFullscreenVideo(const std::string& stream_key) {
+  void OpenFullscreenMonitor() {
+    fullscreen_video_.OpenMonitor();
+    fullscreen_last_activity_ms_ = SteadyTimeMs();
     EnsureWindowFullscreen(true);
-    fullscreen_video_stream_key_ = stream_key;
+  }
+
+  void OpenFullscreenVideo(const VideoFrameView& frame, ImVec2 uv_min,
+                           ImVec2 uv_max, const char* tile_label) {
+    if (!IsBoundSession(frame.remote_sessionid)) return;
+    rtc_console::FullscreenVideoCrop crop;
+    crop.left = uv_min.x;
+    crop.top = uv_min.y;
+    crop.right = uv_max.x;
+    crop.bottom = uv_max.y;
+    if (!fullscreen_video_.OpenStream(frame.stream_key, crop,
+        tile_label ? tile_label : frame.source_id)) return;
+    EnsureWindowFullscreen(true);
     focus_fullscreen_video_ = true;
+    fullscreen_open_frame_ = ImGui::GetFrameCount();
+    fullscreen_last_activity_ms_ = SteadyTimeMs();
+  }
+
+  void ExitFullscreenView() {
+    fullscreen_video_.Back();
+    focus_fullscreen_video_ = false;
+    fullscreen_last_activity_ms_ = SteadyTimeMs();
+    if (!fullscreen_video_.active()) EnsureWindowFullscreen(false);
   }
 
   void CloseFullscreenVideo() {
-    fullscreen_video_stream_key_.clear();
+    fullscreen_video_.Reset();
     focus_fullscreen_video_ = false;
     EnsureWindowFullscreen(false);
   }
@@ -3658,7 +3792,7 @@ class RtcConsoleApp {
     }
     ImGui::Begin("##NetStatsHint", nullptr, hint_flags);
 
-    ImGui::TextDisabled("NET STATS");
+    ui::Section("媒体流统计");
     double video_delay_ms = -1;
     for (const NetStatsView& stats : stats_snapshot) {
       if (stats.input && stats.delay.estimated_receive_ms >= 0) {
@@ -3667,12 +3801,12 @@ class RtcConsoleApp {
       }
     }
     if (video_delay_ms >= 0) {
-      ImGui::Text("Video delay: %.1f ms", video_delay_ms);
+      ImGui::Text("视频延迟：%.1f ms", video_delay_ms);
     } else {
-      ImGui::TextDisabled("Video delay: --");
+      ImGui::TextDisabled("视频延迟：--");
     }
     if (stats_snapshot.empty()) {
-      ImGui::TextUnformatted("No stats yet");
+      ui::EmptyState("暂无媒体流", "设备开始发送媒体后，将显示统计信息。");
       ImGui::End();
       return hint_y + hint_height;
     }
@@ -3684,15 +3818,15 @@ class RtcConsoleApp {
                               ImGuiTableFlags_ScrollX |
                               ImGuiTableFlags_ScrollY,
                           ImVec2(-FLT_MIN, ImGui::GetContentRegionAvail().y))) {
-      ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed, 150);
-      ImGui::TableSetupColumn("Peer", ImGuiTableColumnFlags_WidthFixed, 65);
-      ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 45);
-      ImGui::TableSetupColumn("Bitrate", ImGuiTableColumnFlags_WidthFixed, 85);
-      ImGui::TableSetupColumn("FPS", ImGuiTableColumnFlags_WidthFixed, 40);
-      ImGui::TableSetupColumn("Net ms", ImGuiTableColumnFlags_WidthFixed, 80);
-      ImGui::TableSetupColumn("Buffer ms", ImGuiTableColumnFlags_WidthFixed, 85);
-      ImGui::TableSetupColumn("Decode ms", ImGuiTableColumnFlags_WidthFixed, 85);
-      ImGui::TableSetupColumn("Recv ms", ImGuiTableColumnFlags_WidthFixed, 85);
+      ImGui::TableSetupColumn("视频源", ImGuiTableColumnFlags_WidthFixed, 150);
+      ImGui::TableSetupColumn("对端", ImGuiTableColumnFlags_WidthFixed, 65);
+      ImGui::TableSetupColumn("方向", ImGuiTableColumnFlags_WidthFixed, 45);
+      ImGui::TableSetupColumn("码率", ImGuiTableColumnFlags_WidthFixed, 85);
+      ImGui::TableSetupColumn("帧率", ImGuiTableColumnFlags_WidthFixed, 40);
+      ImGui::TableSetupColumn("网络 ms", ImGuiTableColumnFlags_WidthFixed, 80);
+      ImGui::TableSetupColumn("缓冲 ms", ImGuiTableColumnFlags_WidthFixed, 85);
+      ImGui::TableSetupColumn("解码 ms", ImGuiTableColumnFlags_WidthFixed, 85);
+      ImGui::TableSetupColumn("接收 ms", ImGuiTableColumnFlags_WidthFixed, 85);
       ImGui::TableSetupScrollFreeze(0, 1);
       ImGui::TableHeadersRow();
 
@@ -3703,7 +3837,7 @@ class RtcConsoleApp {
         ImGui::TableSetColumnIndex(1);
         ImGui::Text("%u", s.session_id);
         ImGui::TableSetColumnIndex(2);
-        ImGui::TextUnformatted(s.input ? "in" : "out");
+        ImGui::TextUnformatted(s.input ? "接收" : "发送");
         ImGui::TableSetColumnIndex(3);
         ImGui::Text("%lu", s.bitrate_bps);
         ImGui::TableSetColumnIndex(4);
@@ -3750,21 +3884,29 @@ class RtcConsoleApp {
     }
 
     ImGui::Begin("##EventLogHint", nullptr, hint_flags);
-    ImGui::TextDisabled("EVENT LOG");
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("事件日志");
+    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - 160));
+    ImGui::Checkbox("跟随最新", &auto_scroll_);
     ImGui::Separator();
+    ImGui::BeginChild("EventLogEntries", ImVec2(0, 0), false);
     {
       std::lock_guard<std::mutex> lock(log_mutex_);
       if (logs_.empty()) {
-        ImGui::TextUnformatted("No logs yet");
+        ui::EmptyState("暂无事件", "连接与设备事件将在此显示。");
       } else {
-        const size_t max_lines = 7;
-        const size_t begin =
-            logs_.size() > max_lines ? logs_.size() - max_lines : 0;
-        for (size_t i = begin; i < logs_.size(); ++i) {
+        const bool follow = auto_scroll_ && (ImGui::GetScrollY() >= ImGui::GetScrollMaxY());
+        for (size_t i = 0; i < logs_.size(); ++i) {
+          ImGui::PushStyleColor(ImGuiCol_Text, i % 2 == 0
+              ? ImVec4(0.79f, 0.85f, 0.90f, 1) : ui::Muted());
           ImGui::TextWrapped("%s", logs_[i].c_str());
+          ImGui::PopStyleColor();
+          ImGui::Separator();
         }
+        if (follow) ImGui::SetScrollHereY(1.0f);
       }
     }
+    ImGui::EndChild();
     ImGui::End();
   }
 
@@ -3880,7 +4022,7 @@ class RtcConsoleApp {
 
   void JoinSelectedRoom() {
     if (selected_room_ < 0 || selected_room_ >= static_cast<int>(rooms_.size())) {
-      AppendLog("Join skipped: no room selected");
+      AppendLog("无法加入：尚未选择房间");
       return;
     }
 
@@ -3930,7 +4072,7 @@ class RtcConsoleApp {
     const AudioDeviceChoice& choice =
         audio_input_choices_[selected_audio_input_];
     if (!choice.enabled) {
-      AppendLog("Audio input disabled");
+      AppendLog("音频输入已禁用");
       return;
     }
 
@@ -3962,7 +4104,7 @@ class RtcConsoleApp {
       AppendLog(error_message);
       return;
     }
-    AppendLog(std::string("Audio input started: ") + choice.label);
+    AppendLog(std::string("音频输入已启动：") + choice.label);
   }
 
   void ApplyAudioOutputSelection() {
@@ -3975,7 +4117,7 @@ class RtcConsoleApp {
     const AudioDeviceChoice& choice =
         audio_output_choices_[selected_audio_output_];
     if (!choice.enabled) {
-      AppendLog("Audio output disabled");
+      AppendLog("音频输出已禁用");
       return;
     }
 
@@ -4111,7 +4253,7 @@ class RtcConsoleApp {
     if (state == RtcP2PState::P2PConnected) {
       instance_->vehicle_control_targets_.SetP2PConnected(sessionid, true);
       instance_->AppendLog(
-          "Vehicle peer connected; select it before keyboard control");
+          "设备已连接，请选择设备后再使用键盘控制");
     }
     if (state == RtcP2PState::P2PDisconnected || state == RtcP2PState::P2PClosed ||
         state == RtcP2PState::P2PFailed) {
@@ -4175,7 +4317,7 @@ class RtcConsoleApp {
       instance_->RequestSessionStateReset();
     }
     std::ostringstream oss;
-    oss << "Server state: " << ServerStateText(state);
+    oss << "服务器状态：" << ServerStateText(state);
     instance_->AppendLog(oss.str());
   }
 
@@ -4550,6 +4692,8 @@ class RtcConsoleApp {
   rtc_console::AppConfig settings_draft_;
   std::string settings_status_;
   int settings_category_ = 0;
+  int connections_tab_ = 0;
+  bool show_video_status_ = false;
   bool focus_netstats_hint_ = false;
   bool focus_eventlog_hint_ = false;
   bool vehicle_control_enabled_ = false;
@@ -4597,7 +4741,9 @@ class RtcConsoleApp {
   bool render_lr_pixel_interleave_ = false;
   std::map<RtcSessionId, uint64_t> video_view_frame_thresholds_;
   rtc_console::VideoViewState video_view_state_;
-  std::string fullscreen_video_stream_key_;
+  rtc_console::VideoFullscreenState fullscreen_video_;
+  uint64_t fullscreen_last_activity_ms_ = 0;
+  int fullscreen_open_frame_ = -1;
   bool focus_fullscreen_video_ = false;
   bool fullscreen_video_window_forced_ = false;
   bool fullscreen_video_window_was_fullscreen_ = false;
@@ -4606,7 +4752,7 @@ class RtcConsoleApp {
   bool video_source_added_ = false;
   bool audio_source_added_ = false;
 
-  std::vector<std::string> video_sources_ = {"Local YUV420p"};
+  std::vector<std::string> video_sources_ = {"本地 YUV420p"};
   int selected_video_source_ = 0;
   std::vector<AudioDeviceChoice> audio_input_choices_;
   std::vector<AudioDeviceChoice> audio_output_choices_;
