@@ -130,6 +130,21 @@ target("rtc_external_audio_device_tests")
         add_syslinks("pthread", "rt")
     end
 
+target("rtc_data_channel_observer_tests")
+    set_kind("binary")
+    set_default(false)
+    add_files(vtsrtc_path("vtsrtc", "tests", "data_channel_observer_tests.cpp"))
+    add_includedirs(vtsrtc_path("vtsrtc", "src"))
+    vtsrtc_add_webrtc_config()
+    if vtsrtc_on_windows() then
+        add_defines("WEBRTC_WIN", "NOMINMAX", "WIN32_LEAN_AND_MEAN")
+        add_cxflags("/utf-8", {force = true})
+        add_syslinks("winmm")
+    elseif vtsrtc_on_linux() then
+        add_defines("WEBRTC_LINUX", "WEBRTC_POSIX")
+        add_syslinks("pthread", "rt")
+    end
+
 if vtsrtc_is_aarch64_arch() and not get_config("use_default_jetson_encoder") then
     target("rtc_jetson_encoder_switch_benchmark")
         set_kind("binary")

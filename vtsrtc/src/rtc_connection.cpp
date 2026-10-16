@@ -172,10 +172,6 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 		return;
 	}
 
-	auto observer = std::make_shared<DataChannelObserver>();
-	datachannel_observers_.emplace_back(observer);
-	datachannel->RegisterObserver(observer.get());
-
 	PackInit();
 
 	label_ztchannel_map_[datachannel->label().c_str()] = (PackUserParams*)malloc(sizeof(PackUserParams));
@@ -186,7 +182,7 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 
 	std::weak_ptr<RtcConnectionBase> weak_self = shared_from_this();
 	// 注意：lambda的捕获是立刻发生的，而不是等到函数调用的时候
-	observer->on_statechange = [this, weak_self, datachannel]() {
+	auto on_statechange = [this, weak_self, datachannel]() {
 		auto self = weak_self.lock();
 		if (!self) {
 			return;
@@ -215,7 +211,7 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 			});
 	};
 
-	observer->on_message_ = [this, weak_self, datachannel](const webrtc::DataBuffer& buffer) {
+	auto on_message = [this, weak_self, datachannel](const webrtc::DataBuffer& buffer) {
 		auto self = weak_self.lock();
 		if (!self) {
 			return;
@@ -244,6 +240,8 @@ void RtcConnectionBase::InitDataChannelObserverCallbacks(
 				}
 			});
 	};
+	datachannel_observers_.emplace_back(DataChannelObserver::Register(
+		datachannel.get(), std::move(on_statechange), std::move(on_message)));
 }
 
 void RtcConnectionBase::InitObserverCallbacks() {
@@ -396,11 +394,11 @@ void RtcConnectionBase::InitObserverCallbacks() {
 
 				label_datachannel_map_[label] = datachannel;
 
-				// @attention: it means the datachannel is already open
+				InitDataChannelObserverCallbacks(datachannel);
+
+				// 先接收首包，再通知业务通道已打开，避免身份握手先于监听器初始化。
 				HandleDataChannelStateChanged(datachannel->label(),
 							datachannel->state());
-
-				InitDataChannelObserverCallbacks(datachannel);
 			});
 	};
 

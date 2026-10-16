@@ -1,6 +1,7 @@
 #pragma once
 
 #include "log/log_manager.h"
+#include "data_channel_observer.h"
 #include <iostream>
 #include <functional>
 #include <api/peer_connection_interface.h>
@@ -166,37 +167,6 @@ private:
 	std::function<void(rtc::scoped_refptr<webrtc::RtpReceiverInterface>)> on_removetrack_ = nullptr;
 	std::function<void(rtc::scoped_refptr<webrtc::DataChannelInterface>)> on_datachannel_ = nullptr;
 	std::function<void(const webrtc::IceCandidateInterface*)> on_ice_candidate_ = nullptr;
-};
-
-class DataChannelObserver : public webrtc::DataChannelObserver {
-	friend class RtcConnectionBase;
-
-public:
-	void ResetCallbacks() {
-		on_statechange = nullptr;
-		on_message_ = nullptr;
-	}
-
-	// The data channel state have changed.
-	void OnStateChange() override {
-		if (on_statechange) { on_statechange(); }
-	}
-
-	//  A data buffer was successfully received.
-	void OnMessage(const webrtc::DataBuffer& buffer) override {
-		//LOG_INFO("[WEBRTC] Data channel on message, buffer size: %d", buffer.size());
-
-		if (on_message_) { on_message_(buffer); }
-	}
-
-	// The data channel's buffered_amount has changed.
-	void OnBufferedAmountChange(uint64_t sent_data_size) override {
-		//LOG_INFO("[WEBRTC] Data channel on buffered amount change, sent data size: %llu", sent_data_size);
-	}
-
-private:
-	std::function<void()> on_statechange = nullptr;
-	std::function<void(const webrtc::DataBuffer&)> on_message_ = nullptr;
 };
 
 // Create SessionDescription events.
