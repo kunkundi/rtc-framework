@@ -3770,8 +3770,8 @@ class RtcConsoleApp {
 
   void AppendLog(const std::string& message) {
     std::lock_guard<std::mutex> lock(log_mutex_);
+    std::cout << message << std::endl;
     if (options_.no_render) {
-      std::cout << message << std::endl;
       return;
     }
     logs_.push_back(message);
