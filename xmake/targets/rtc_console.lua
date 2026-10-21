@@ -90,7 +90,9 @@ target("rtc_console_local_yolo_tests")
     add_deps("rtc_yolo_onnx")
     add_files(vtsrtc_path("client", "apps", "rtc_console", "local_yolo.cpp"),
               vtsrtc_path("client", "apps", "rtc_console", "local_yolo_tests.cpp"))
-    if vtsrtc_on_linux() then
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    elseif vtsrtc_on_linux() then
         add_syslinks("pthread")
     end
 

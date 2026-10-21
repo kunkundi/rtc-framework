@@ -2,6 +2,7 @@
 
 #include "rtc_runtime/device_identity.h"
 #include "rtc_runtime/process_runtime.h"
+#include "rtc_runtime/yolo_mode.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 
 #include <stdint.h>
@@ -385,7 +386,12 @@ EdgeOptions LoadEdgeOptions(const std::string& config_path) {
   options.surround_camera.frame_wait =
       std::chrono::milliseconds(surround_frame_wait_ms);
 
-  options.camera.yolo_enabled = ReadBoolean(yolo, "enabled", "edge.yolo");
+  const bool legacy_yolo_enabled = yolo.contains("enabled") &&
+      ReadBoolean(yolo, "enabled", "edge.yolo");
+  options.camera.yolo_enabled = rtc_runtime::ReadYoloMode(
+      root, legacy_yolo_enabled ? rtc_runtime::YoloMode::Edge
+                                : rtc_runtime::YoloMode::Disabled) ==
+      rtc_runtime::YoloMode::Edge;
   options.camera.yolo_max_fps = static_cast<size_t>(
       ReadInteger(yolo, "max_fps", "edge.yolo", 0, 240));
   options.camera.yolo_processing_downscale = static_cast<size_t>(ReadInteger(

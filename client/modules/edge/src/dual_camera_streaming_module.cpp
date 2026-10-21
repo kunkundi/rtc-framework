@@ -27,7 +27,7 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
   if (options_.yolo_enabled) {
     if (error_message != nullptr) {
       *error_message =
-          "YOLO is enabled in rtc.cfg, but this binary was built without "
+          "Edge YOLO requires TensorRT, but this binary was built without "
           "--enable_yolo=y";
     }
     return false;
@@ -66,6 +66,8 @@ bool DualCameraStreamingModule::Start(std::string* error_message) {
       yolo_consumer_->Start();
     }
     started_ = true;
+    rtc_logging::LogInfo(options_.yolo_enabled
+        ? "Edge YOLO enabled (TensorRT)" : "Edge YOLO disabled");
     first_frame_logged_ = false;
     return true;
   } catch (const std::exception& ex) {

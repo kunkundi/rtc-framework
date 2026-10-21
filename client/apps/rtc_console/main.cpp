@@ -645,8 +645,8 @@ class RtcConsoleApp {
       }
     }
     steering_wheel_range_deg_ = config.steering_wheel_range_deg;
-    yolo_enabled_ = config.yolo_enabled;
-    if (yolo_enabled_) {
+    yolo_mode_ = config.yolo_mode;
+    if (yolo_mode_ == rtc_runtime::YoloMode::Console) {
       for (size_t index = 0; index < sizeof(rtc_camera_headless::kCocoLabels) /
                                         sizeof(rtc_camera_headless::kCocoLabels[0]); ++index) {
         vision_class_labels_by_id_[static_cast<uint32_t>(index)] =
@@ -668,6 +668,10 @@ class RtcConsoleApp {
         return false;
       }
       AppendLog("已启用本地 YOLO 检测（ONNX Runtime CPU）");
+    } else if (yolo_mode_ == rtc_runtime::YoloMode::Edge) {
+      AppendLog("已选择 edge YOLO 检测，等待边缘端检测结果");
+    } else {
+      AppendLog("YOLO 检测已关闭");
     }
     device_slots_.Configure(config.device_slots);
     AppendLog(std::string("目标房间：") + options_.room_id);
@@ -1335,13 +1339,22 @@ class RtcConsoleApp {
       }
     }
     if (settings_category_ == 2) {
-      ImGui::Checkbox("启用 YOLO 检测", &settings_draft_.yolo_enabled);
-      SettingsField("最大检测帧率", [&] {
+      SettingsField("YOLO 运行位置", [&] {
+        const char* modes[] = {"Console（本机）", "Edge（边缘端）", "关闭"};
+        int selected = static_cast<int>(settings_draft_.yolo_mode);
+        if (ImGui::Combo("##yolo_mode", &selected, modes, 3)) {
+          settings_draft_.yolo_mode = static_cast<rtc_runtime::YoloMode>(selected);
+        }
+      });
+      ImGui::TextWrapped("两端 rtc.cfg 中的 YOLO 模式须保持一致，保存后重启两端应用生效。");
+      ImGui::BeginDisabled(settings_draft_.yolo_mode != rtc_runtime::YoloMode::Console);
+      SettingsField("Console 最大检测帧率", [&] {
         ImGui::InputInt("##fps", &settings_draft_.yolo_max_fps);
       });
-      SettingsField("模型路径", [&] {
+      SettingsField("Console 模型路径", [&] {
         SettingsText("##model", &settings_draft_.yolo_model_path);
       });
+      ImGui::EndDisabled();
     }
     if (settings_category_ == 3) {
       SettingsField("方向盘转角范围（度）", [&] {
@@ -4481,7 +4494,7 @@ class RtcConsoleApp {
   void HandleVisionDetectionMessage(RtcSessionId remote_sessionid,
                                     const char* msg,
                                     size_t msg_size) {
-    if (yolo_enabled_) return;
+    if (yolo_mode_ != rtc_runtime::YoloMode::Edge) return;
     if (!msg || msg_size == 0) {
       return;
     }
@@ -4591,7 +4604,8 @@ class RtcConsoleApp {
     view->frame_seq = instance_->remote_video_frame_seq_.fetch_add(1) + 1;
     view->buffer.assign(buffer, buffer + sz_buffer);
 
-    if (instance_->yolo_enabled_ && dimension == 4 && width <= 16384 && height <= 16384) {
+    if (instance_->yolo_mode_ == rtc_runtime::YoloMode::Console &&
+        dimension == 4 && width <= 16384 && height <= 16384) {
       rtc_console::LocalYoloFrame frame;
       frame.key = view->stream_key;
       frame.source = view->source_id;
@@ -4733,7 +4747,7 @@ class RtcConsoleApp {
   bool video_render_log_error_reported_ = false;
   std::mutex vision_detection_mutex_;
   rtc_console::LocalYolo local_yolo_;
-  bool yolo_enabled_ = false;
+  rtc_runtime::YoloMode yolo_mode_ = rtc_runtime::YoloMode::Disabled;
   std::map<std::string, VisionDetectionOverlayView> vision_detections_by_source_;
   std::map<uint32_t, std::string> vision_class_labels_by_id_;
   std::mutex edge_feedback_mutex_;

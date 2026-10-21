@@ -12,7 +12,11 @@
 
 #include <nlohmann/json.hpp>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <direct.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace {
 
@@ -87,12 +91,24 @@ void WriteConfig(const std::string& path, const nlohmann::json& config) {
 }
 
 void MakeDirectory(const std::string& path) {
+#if defined(_WIN32)
+  Check(::_mkdir(path.c_str()) == 0 || errno == EEXIST,
+#else
   Check(::mkdir(path.c_str(), 0755) == 0 || errno == EEXIST,
+#endif
         std::string("create temporary directory: ") + path);
 }
 
+void RemoveTestDirectory(const std::string& path) {
+#if defined(_WIN32)
+  ::_rmdir(path.c_str());
+#else
+  ::rmdir(path.c_str());
+#endif
+}
+
 void TestValidConfig() {
-  const std::string path = "/tmp/rtc_edge_options_valid.json";
+  const std::string path = "rtc_edge_options_valid.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["device_id"] = "car_1";
   WriteConfig(path, config);
@@ -211,7 +227,7 @@ void TestRepositoryConfig() {
 }
 
 void TestMissingAudioSection() {
-  const std::string path = "/tmp/rtc_edge_options_audio_optional.json";
+  const std::string path = "rtc_edge_options_audio_optional.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"].erase("audio");
   WriteConfig(path, config);
@@ -228,7 +244,7 @@ void TestMissingAudioSection() {
 }
 
 void TestInvalidAudioSampleRate() {
-  const std::string path = "/tmp/rtc_edge_options_audio_rate.json";
+  const std::string path = "rtc_edge_options_audio_rate.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["audio"]["sample_rate"] = 12000;
   WriteConfig(path, config);
@@ -245,7 +261,7 @@ void TestInvalidAudioSampleRate() {
 }
 
 void TestInvalidAudioChannels() {
-  const std::string path = "/tmp/rtc_edge_options_audio_channels.json";
+  const std::string path = "rtc_edge_options_audio_channels.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["audio"]["channels"] = 3;
   WriteConfig(path, config);
@@ -294,13 +310,13 @@ void TestRelativeMediaPath() {
 
   std::remove(config_path.c_str());
   std::remove(media_path.c_str());
-  ::rmdir(config_dir.c_str());
-  ::rmdir(media_dir.c_str());
-  ::rmdir(root.c_str());
+  RemoveTestDirectory(config_dir);
+  RemoveTestDirectory(media_dir);
+  RemoveTestDirectory(root);
 }
 
 void TestInvalidWatchdog() {
-  const std::string path = "/tmp/rtc_edge_options_watchdog.json";
+  const std::string path = "rtc_edge_options_watchdog.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["vehicle_control"]["watchdog_ms"] = 301;
   WriteConfig(path, config);
@@ -319,7 +335,7 @@ void TestInvalidWatchdog() {
 }
 
 void TestMissingCameraDevice() {
-  const std::string path = "/tmp/rtc_edge_options_missing.json";
+  const std::string path = "rtc_edge_options_missing.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["stereo_camera"].erase("right_device");
   WriteConfig(path, config);
@@ -338,7 +354,7 @@ void TestMissingCameraDevice() {
 }
 
 void TestMissingSurroundCameraDevice() {
-  const std::string path = "/tmp/rtc_edge_options_surround_missing.json";
+  const std::string path = "rtc_edge_options_surround_missing.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["surround_camera"].erase("rear_device");
   WriteConfig(path, config);
@@ -357,7 +373,7 @@ void TestMissingSurroundCameraDevice() {
 }
 
 void TestEmptySurroundCameraDevice() {
-  const std::string path = "/tmp/rtc_edge_options_surround_empty.json";
+  const std::string path = "rtc_edge_options_surround_empty.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["surround_camera"]["front_device"] = "";
   WriteConfig(path, config);
@@ -372,7 +388,7 @@ void TestEmptySurroundCameraDevice() {
 }
 
 void TestInvalidYoloDownscale() {
-  const std::string path = "/tmp/rtc_edge_options_yolo_downscale.json";
+  const std::string path = "rtc_edge_options_yolo_downscale.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["yolo"]["processing_downscale"] = 9;
   WriteConfig(path, config);
@@ -391,7 +407,7 @@ void TestInvalidYoloDownscale() {
 }
 
 void TestInvalidYoloMaxFps() {
-  const std::string path = "/tmp/rtc_edge_options_yolo_max_fps.json";
+  const std::string path = "rtc_edge_options_yolo_max_fps.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["yolo"]["max_fps"] = 241;
   WriteConfig(path, config);
@@ -407,8 +423,54 @@ void TestInvalidYoloMaxFps() {
   std::remove(path.c_str());
 }
 
+void TestYoloModes() {
+  const std::string path = "rtc_edge_yolo_modes_test.json";
+  const std::string external = "rtc_edge_yolo_modes_external.json";
+  for (const auto* mode : {"console", "edge", "disabled"}) {
+    for (bool enabled : {false, true}) {
+      auto root = MakeValidConfig();
+      root["yolo"] = {{"mode", mode}};
+      root["edge"]["yolo"]["enabled"] = enabled;
+      WriteConfig(path, root);
+      Check(rtc_edge_app::LoadEdgeOptions(path).camera.yolo_enabled ==
+                (std::string(mode) == "edge"),
+            "shared mode overrides legacy edge switch");
+      root["edge"]["yolo"].erase("enabled");
+      WriteConfig(external, root["edge"]);
+      root["edge"] = {{"config", external}};
+      root["console"] = {{"config", "missing-console.json"}};
+      WriteConfig(path, root);
+      Check(rtc_edge_app::LoadEdgeOptions(path).camera.yolo_enabled ==
+                (std::string(mode) == "edge"),
+            "shared mode applies to external edge config without legacy switch or console file");
+    }
+  }
+  for (bool enabled : {false, true}) {
+    auto root = MakeValidConfig();
+    root["edge"]["yolo"]["enabled"] = enabled;
+    WriteConfig(path, root);
+    Check(rtc_edge_app::LoadEdgeOptions(path).camera.yolo_enabled == enabled,
+          "preserve legacy edge switch when shared mode is absent");
+  }
+  for (const auto& invalid : {"null", "[]", "{}", "{\"mode\":null}",
+                              "{\"mode\":true}", "{\"mode\":1}",
+                              "{\"mode\":\"\"}", "{\"mode\":\"auto\"}"}) {
+    auto root = MakeValidConfig();
+    root["yolo"] = nlohmann::json::parse(invalid);
+    WriteConfig(path, root);
+    bool rejected = false;
+    try { rtc_edge_app::LoadEdgeOptions(path); }
+    catch (const std::runtime_error& error) {
+      rejected = std::string(error.what()).find("yolo.mode") != std::string::npos;
+    }
+    Check(rejected, "reject malformed or unknown shared YOLO mode");
+  }
+  std::remove(path.c_str());
+  std::remove(external.c_str());
+}
+
 void TestDogControlConfig() {
-  const std::string path = "/tmp/rtc_edge_options_dog.json";
+  const std::string path = "rtc_edge_options_dog.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["dog_control"]["enabled"] = true;
   config["edge"]["dog_control"]["rosbridge_url"] =
@@ -432,7 +494,7 @@ void TestDogControlConfig() {
 }
 
 void TestInvalidDogSpeed() {
-  const std::string path = "/tmp/rtc_edge_options_dog_speed.json";
+  const std::string path = "rtc_edge_options_dog_speed.json";
   nlohmann::json config = MakeValidConfig();
   config["edge"]["dog_control"]["enabled"] = true;
   config["edge"]["dog_control"]["rosbridge_url"] =
@@ -458,8 +520,8 @@ void TestInvalidDogSpeed() {
 
 int main() {
   {
-    const std::string main_path = "/tmp/rtc_edge_external_main.json";
-    const std::string edge_path = "/tmp/rtc_edge_external.json";
+    const std::string main_path = "rtc_edge_external_main.json";
+    const std::string edge_path = "rtc_edge_external.json";
     auto root = MakeValidConfig();
     WriteConfig(edge_path, root.at("edge"));
     root["edge"] = {{"config", "rtc_edge_external.json"}};
@@ -485,6 +547,7 @@ int main() {
   TestEmptySurroundCameraDevice();
   TestInvalidYoloDownscale();
   TestInvalidYoloMaxFps();
+  TestYoloModes();
   TestDogControlConfig();
   TestInvalidDogSpeed();
   std::cout << "rtc_edge_options_tests passed" << std::endl;

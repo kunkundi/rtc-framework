@@ -95,6 +95,9 @@ if vtsrtc_on_linux() then
             end
         end)
 
+end
+
+if vtsrtc_on_linux() or vtsrtc_on_windows() then
     target("rtc_edge_options_tests")
         set_kind("binary")
         set_default(false)
@@ -112,8 +115,14 @@ if vtsrtc_on_linux() then
             vtsrtc_path("vtsrtc", "src")
         )
         vtsrtc_add_json_config()
-        add_syslinks("pthread")
+        if vtsrtc_on_windows() then
+            add_cxflags("/utf-8", {force = true})
+        else
+            add_syslinks("pthread")
+        end
+end
 
+if vtsrtc_on_linux() then
     target("rtc_edge_streaming_tests")
         set_kind("binary")
         set_default(false)
