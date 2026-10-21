@@ -4,6 +4,7 @@
 #include "rtc_console_options.h"
 #include "device_slot_registry.h"
 #include "video_composite_layout.h"
+#include "video_detection_overlay.h"
 #include "rtc_vehicle_protocol/vehicle_control_protocol.h"
 #include "rtc_vision/vision_detection_codec.h"
 #include "rtc_vision/view_control_protocol.h"
@@ -57,6 +58,7 @@
 namespace {
 
 namespace ui = rtc_console::ui;
+using rtc_console::NormalizedRect;
 
 constexpr const char* kDataChannelLabel = "datachannel";
 constexpr const char* kExternalAudioSource = "console_audio";
@@ -148,13 +150,6 @@ struct AudioDeviceChoice {
   bool enabled = false;
   uint32_t device_id = rtc_audio::kSystemDefaultDeviceId;
   std::string label;
-};
-
-struct NormalizedRect {
-  float left = 0.0f;
-  float top = 0.0f;
-  float right = 0.0f;
-  float bottom = 0.0f;
 };
 
 struct UiLayout {
@@ -3118,7 +3113,9 @@ class RtcConsoleApp {
     draw_list->AddImage((ImTextureID)(intptr_t)tex_it->second.texture, image_min,
                         image_max, uv_min, uv_max);
     DrawVisionDetectionOverlay(frame, image_min, image_max, draw_list,
-                               tex_it->second.uploaded_with_lr_interleave);
+                               tex_it->second.uploaded_with_lr_interleave,
+                               NormalizedRect{uv_min.x, uv_min.y,
+                                              uv_max.x, uv_max.y});
     draw_list->PopClipRect();
     draw_list->AddRect(box_min, box_max,
                IM_COL32(80, 80, 80, 255));
@@ -3244,30 +3241,28 @@ class RtcConsoleApp {
   }
 
   bool NormalizedRectInImage(const NormalizedRect& source_rect,
+                             const NormalizedRect& source_crop,
                              const ImVec2& image_min,
                              const ImVec2& image_max,
                              ImVec2* rect_min,
                              ImVec2* rect_max) const {
-    if (!rect_min || !rect_max || image_max.x <= image_min.x ||
-        image_max.y <= image_min.y || source_rect.right <= source_rect.left ||
-        source_rect.bottom <= source_rect.top) {
+    if (!rect_min || !rect_max) {
       return false;
     }
 
-    const float image_width = image_max.x - image_min.x;
-    const float image_height = image_max.y - image_min.y;
-    const float left = std::max(0.0f, std::min(source_rect.left, 1.0f));
-    const float top = std::max(0.0f, std::min(source_rect.top, 1.0f));
-    const float right = std::max(0.0f, std::min(source_rect.right, 1.0f));
-    const float bottom = std::max(0.0f, std::min(source_rect.bottom, 1.0f));
-    if (right <= left || bottom <= top) {
+    rtc_console::VideoRect mapped;
+    if (!rtc_console::MapDetectionRectToImage(
+            source_rect, source_crop,
+            rtc_console::VideoRect{image_min.x, image_min.y,
+                                   image_max.x - image_min.x,
+                                   image_max.y - image_min.y}, &mapped)) {
       return false;
     }
 
-    rect_min->x = image_min.x + left * image_width;
-    rect_min->y = image_min.y + top * image_height;
-    rect_max->x = image_min.x + right * image_width;
-    rect_max->y = image_min.y + bottom * image_height;
+    rect_min->x = mapped.x;
+    rect_min->y = mapped.y;
+    rect_max->x = mapped.x + mapped.width;
+    rect_max->y = mapped.y + mapped.height;
     return true;
   }
 
@@ -3459,7 +3454,8 @@ class RtcConsoleApp {
                                   const ImVec2& image_min,
                                   const ImVec2& image_max,
                                   ImDrawList* draw_list,
-                                  bool interleaved_overlay) {
+                                  bool interleaved_overlay,
+                                  const NormalizedRect& source_crop) {
     if (!draw_list) {
       return;
     }
@@ -3516,8 +3512,8 @@ class RtcConsoleApp {
 
           ImVec2 rect_min;
           ImVec2 rect_max;
-          if (!NormalizedRectInImage(eye_rect, image_min, image_max, &rect_min,
-                                     &rect_max)) {
+          if (!NormalizedRectInImage(eye_rect, source_crop, image_min,
+                                     image_max, &rect_min, &rect_max)) {
             continue;
           }
 
@@ -3530,8 +3526,8 @@ class RtcConsoleApp {
       } else {
         ImVec2 rect_min;
         ImVec2 rect_max;
-        if (!NormalizedRectInImage(source_rect, image_min, image_max, &rect_min,
-                                   &rect_max)) {
+        if (!NormalizedRectInImage(source_rect, source_crop, image_min,
+                                   image_max, &rect_min, &rect_max)) {
           continue;
         }
 

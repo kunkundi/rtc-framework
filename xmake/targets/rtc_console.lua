@@ -26,6 +26,7 @@ target("rtc_console")
         vtsrtc_path("client", "apps", "rtc_console", "main.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "rtc_console_options.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "video_composite_layout.cpp"),
+        vtsrtc_path("client", "apps", "rtc_console", "video_detection_overlay.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "video_view_state.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "vehicle_control_sender.cpp"),
         vtsrtc_path("client", "apps", "rtc_console", "vehicle_state_log_limiter.cpp")
@@ -143,6 +144,17 @@ target("rtc_console_video_composite_layout_tests")
         vtsrtc_path("client", "apps", "rtc_console", "video_composite_layout_tests.cpp")
     )
     add_includedirs(vtsrtc_path("client", "apps", "rtc_console"))
+    if vtsrtc_on_windows() then
+        add_cxflags("/utf-8", {force = true})
+    end
+
+target("rtc_console_video_detection_overlay_tests")
+    set_kind("binary")
+    set_default(false)
+    add_files(
+        vtsrtc_path("client", "apps", "rtc_console", "video_detection_overlay.cpp"),
+        vtsrtc_path("client", "apps", "rtc_console", "video_detection_overlay_tests.cpp")
+    )
     if vtsrtc_on_windows() then
         add_cxflags("/utf-8", {force = true})
     end
