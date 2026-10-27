@@ -3014,11 +3014,14 @@ class RtcConsoleApp {
     const float title_height = video_debug_enabled_ ? std::min(box_size.y - 1.0f,
       ImGui::GetTextLineHeight() + title_padding * 2.0f) : 0.0f;
     const float image_area_height = std::max(1.0f, box_size.y - title_height);
+    const bool render_lr_pixel_interleave =
+        render_lr_pixel_interleave_ && frame.source_id == kExternalVideoSource;
     float draw_width = box_size.x;
     float draw_height = image_area_height;
     if (frame.width > 0 && frame.height > 0) {
       const float src_aspect =
-          static_cast<float>(frame.width) * (uv_max.x - uv_min.x) /
+          static_cast<float>(frame.width) *
+          (render_lr_pixel_interleave ? 0.5f : 1.0f) * (uv_max.x - uv_min.x) /
           (static_cast<float>(frame.height) * (uv_max.y - uv_min.y));
       const float box_aspect = box_size.x / image_area_height;
       if (src_aspect > box_aspect) {
@@ -3028,8 +3031,6 @@ class RtcConsoleApp {
       }
     }
 
-    const bool render_lr_pixel_interleave =
-        render_lr_pixel_interleave_ && frame.source_id == kExternalVideoSource;
     int render_width_pixels = 0;
     int render_height_pixels = 0;
     if (render_lr_pixel_interleave) {
